@@ -2,6 +2,20 @@
 
 Compact, expandable rendering for pi's built-in `read`, `write`, `edit`, and `bash` tools, bundled with a polished GitHub Dark theme.
 
+Designed for a focused, low-noise terminal workflow.
+
+![Spinner and duration indicators](https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/assets/spinner-status.gif)
+
+## Demo
+
+**Keyboard expansion** – press `Ctrl+O` to cycle through detail levels.
+
+![Ctrl+O expansion](https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/assets/keyboard-expand.gif)
+
+**Edit diffs** – click a finished `edit` row to reveal the diff, click again to collapse.
+
+![Edit diff expansion](https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/assets/edit-diff.gif)
+
 ## Features
 
 - Compact one-line tool calls

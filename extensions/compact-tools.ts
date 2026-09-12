@@ -236,7 +236,7 @@ function syncTiming(state: RowState, executionStarted: boolean, running: boolean
 	}
 }
 
-function syncRow(ctx: RenderContext, running = ctx.isPartial): RowState {
+function syncRow(ctx: RenderContext, running = ctx.executionStarted && ctx.isPartial): RowState {
 	const state = ctx.state;
 	syncTiming(state, ctx.executionStarted, running);
 	syncSpinner(state, running, ctx.invalidate);
@@ -247,9 +247,16 @@ function resetUiState(): void {
 	for (const state of [...spinningRows]) stopSpinner(state);
 }
 
-function renderIndicator(theme: Theme, state: RowState, running: boolean, isError: boolean): string {
-	if (!running) return theme.fg(isError ? "error" : "success", isError ? "⊗" : "●");
-
+function renderIndicator(
+	theme: Theme,
+	state: RowState,
+	running: boolean,
+	isError: boolean,
+	pending: boolean,
+): string {
+	if (isError) return theme.fg("error", "⊗");
+	if (pending) return theme.fg("muted", "·");
+	if (!running) return theme.fg("success", "●");
 	const frame = config.spinner.frames[state.frame ?? 0] ?? config.spinner.frames[0] ?? "◐";
 	return theme.fg("muted", frame);
 }
@@ -333,6 +340,7 @@ function getPathArg(args: ToolArgs): string {
 }
 
 function getFileArgumentDetails(name: string, args: ToolArgs): ToolArgs {
+	if (name === "edit") return {};
 	const omitted = new Set(["path", "file_path"]);
 	if (name === "write") omitted.add("content");
 	return Object.fromEntries(Object.entries(args).filter(([key, value]) => !omitted.has(key) && value !== undefined));
@@ -377,11 +385,12 @@ function renderFileCall(
 	theme: Theme,
 	ctx: RenderContext,
 ): Container {
-	const state = syncRow(ctx);
+	const running = ctx.executionStarted && ctx.isPartial;
+	const state = syncRow(ctx, running);
 	const level = advanceLevel(state, ctx.expanded);
 	const path = getPathArg(args);
 	const argumentDetails = getFileArgumentDetails(definition.name, args);
-	let text = `${renderIndicator(theme, state, ctx.isPartial, ctx.isError)} `;
+	let text = `${renderIndicator(theme, state, running, ctx.isError, ctx.isPartial && !ctx.executionStarted)} `;
 	text += theme.fg("toolTitle", theme.bold(definition.name));
 	if (path) text += ` ${theme.fg("toolOutput", path)}`;
 
@@ -455,11 +464,12 @@ function registerFileTool(pi: ExtensionAPI, definition: BuiltInDefinition): void
 }
 
 function renderBashCall(args: BashToolInput, theme: Theme, ctx: RenderContext<BashToolInput>): Text {
-	const state = syncRow(ctx);
+	const running = ctx.executionStarted && ctx.isPartial;
+	const state = syncRow(ctx, running);
 	const level = advanceLevel(state, ctx.expanded);
 	const command = args.command ?? "";
-	const displayedCommand = level >= 1 ? command : firstLine(command);
-	let text = `${renderIndicator(theme, state, ctx.isPartial, ctx.isError)} `;
+	const displayedCommand = (level >= 1 ? command : firstLine(command)) || "…";
+	let text = `${renderIndicator(theme, state, running, ctx.isError, ctx.isPartial && !ctx.executionStarted)} `;
 	text += `${theme.fg("toolTitle", theme.bold("bash"))} ${theme.fg("toolOutput", displayedCommand)}`;
 	if (level >= 1 && args.timeout) text += theme.fg("dim", ` (timeout: ${args.timeout}s)`);
 	return new Text(text, 1, 0);
