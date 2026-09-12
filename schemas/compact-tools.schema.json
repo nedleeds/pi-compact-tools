@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/schemas/compact-tools.schema.json",
+  "title": "pi-compact-ui configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "previewLines": {
+      "description": "Number of output lines shown before the full-output expansion level.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 10
+    },
+    "spinner": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frames": {
+          "description": "Animation frames. Use terminal-safe single-width characters for consistent alignment.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": ["◐", "◓", "◑", "◒"]
+        },
+        "intervalMs": {
+          "description": "Milliseconds between spinner frames.",
+          "type": "integer",
+          "minimum": 40,
+          "maximum": 5000,
+          "default": 120
+        }
+      }
+    },
+    "durationIndicators": {
+      "description": "Ordered duration thresholds. The final item must omit underMs and acts as the fallback.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["icon"],
+        "properties": {
+          "underMs": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "icon": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "name": "@nedleeds/pi-compact-ui",
+  "version": "0.1.0",
+  "description": "Compact, expandable UI for pi's built-in tools, bundled with a polished GitHub Dark theme.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Dong Hyeong Lee",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nedleeds/pi-compact-ui.git"
+  },
+  "homepage": "https://github.com/nedleeds/pi-compact-ui#readme",
+  "bugs": {
+    "url": "https://github.com/nedleeds/pi-compact-ui/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-coding-agent",
+    "pi-extension",
+    "terminal-ui",
+    "theme"
+  ],
+  "files": [
+    "extensions",
+    "themes",
+    "examples",
+    "scripts",
+    "schemas",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "tsc --noEmit && npm run check:resources",
+    "check:resources": "node scripts/check-resources.mjs",
+    "prepublishOnly": "npm run check"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/compact-tools.ts"
+    ],
+    "themes": [
+      "./themes/github-dark-pro.json"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-tui": "0.85.1",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

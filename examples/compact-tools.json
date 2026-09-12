@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/schemas/compact-tools.schema.json",
+  "previewLines": 10,
+  "spinner": {
+    "frames": ["◐", "◓", "◑", "◒"],
+    "intervalMs": 120
+  },
+  "durationIndicators": [
+    { "underMs": 1000, "icon": "⚡️" },
+    { "underMs": 10000, "icon": "🚀" },
+    { "underMs": 30000, "icon": "🔥" },
+    { "icon": "⏳" }
+  ]
+}
