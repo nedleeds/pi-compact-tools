@@ -12,13 +12,13 @@ The recordings below use the optional [Nerd Font](#nerd-font-preset) preset. **T
 
 Active, successful, and failed tool calls stay compact while preserving useful status and timing information.
 
-![Compact tool workflow with Nerd Font](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/nerd-font-workflow.gif)
+![Compact tool workflow with Nerd Font](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/nerd-font-workflow-optimized.gif)
 
 ### Spinner and duration indicators
 
 The spinner animates during execution, then changes to a duration-aware completion icon.
 
-![Spinner and duration indicators](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/spinner-duration.gif)
+![Spinner and duration indicators](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/spinner-duration-optimized.gif)
 
 ### Expandable edit diffs
 
