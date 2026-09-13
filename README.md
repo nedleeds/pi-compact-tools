@@ -18,7 +18,8 @@ Designed for a focused, low-noise terminal workflow.
 
 ## Features
 
-- Compact one-line tool calls
+- Compact one-line rendering for configurable built-in tools
+- Supports `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`
 - Click or `Ctrl+O` to cycle through available detail levels
 - Skips argument and output levels that contain no additional information
 - Animated, configurable tool spinner
@@ -85,6 +86,7 @@ Default configuration:
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/schemas/compact-tools.schema.json",
+  "tools": ["read", "write", "edit", "bash"],
   "previewLines": 10,
   "spinner": {
     "frames": ["◐", "◓", "◑", "◒"],
@@ -98,6 +100,16 @@ Default configuration:
   ]
 }
 ```
+
+`tools` selects which built-in definitions receive compact rendering. Omitted tools retain Pi's default renderer. The array replaces, rather than extends, the previous configuration layer. To enable every Unix-compatible tool:
+
+```json
+{
+  "tools": ["read", "write", "edit", "bash", "grep", "find", "ls"]
+}
+```
+
+`powershell` is also supported and can be selected explicitly on Windows. Unsupported names are ignored with a warning.
 
 `durationIndicators` must use ascending `underMs` values. The final entry must omit `underMs` and acts as the fallback.
 
@@ -119,7 +131,7 @@ summary → diff → summary
 
 ## Compatibility and limitations
 
-- The package overrides pi's built-in `read`, `write`, `edit`, and `bash` definitions while preserving their execution behavior and metadata.
+- The package overrides only the built-in definitions selected by `tools`, while preserving their execution behavior and metadata.
 - Another extension overriding the same tool names may conflict depending on extension load order.
 - Tools registered by other extensions are not modified.
 - Duration is measured from the first execution render and is intended as a UI estimate.

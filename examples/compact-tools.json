@@ -1,5 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/schemas/compact-tools.schema.json",
+  "tools": ["read", "write", "edit", "bash"],
   "previewLines": 10,
   "spinner": {
     "frames": ["◐", "◓", "◑", "◒"],

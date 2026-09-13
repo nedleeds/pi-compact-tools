@@ -15,6 +15,10 @@ import {
 	CONFIG_DIR_NAME,
 	createBashToolDefinition,
 	createEditToolDefinition,
+	createFindToolDefinition,
+	createGrepToolDefinition,
+	createLsToolDefinition,
+	createPowerShellToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
 	getAgentDir,
@@ -24,6 +28,10 @@ import { Container, Text, visibleWidth } from "@earendil-works/pi-tui";
 
 const MAX_LEVEL = 3;
 const CONFIG_FILE = "compact-tools.json";
+const SUPPORTED_TOOLS = ["read", "write", "edit", "bash", "powershell", "grep", "find", "ls"] as const;
+const SUPPORTED_TOOL_SET = new Set<string>(SUPPORTED_TOOLS);
+
+type CompactToolName = (typeof SUPPORTED_TOOLS)[number];
 
 export interface DurationIndicatorConfig {
 	underMs?: number;
@@ -31,6 +39,7 @@ export interface DurationIndicatorConfig {
 }
 
 export interface CompactToolsConfig {
+	tools: CompactToolName[];
 	previewLines: number;
 	spinner: {
 		frames: string[];
@@ -40,6 +49,7 @@ export interface CompactToolsConfig {
 }
 
 export const DEFAULT_CONFIG: CompactToolsConfig = {
+	tools: ["read", "write", "edit", "bash"],
 	previewLines: 10,
 	spinner: {
 		frames: ["◐", "◓", "◑", "◒"],
@@ -49,11 +59,12 @@ export const DEFAULT_CONFIG: CompactToolsConfig = {
 		{ underMs: 1_000, icon: "⚡️" },
 		{ underMs: 10_000, icon: "🚀" },
 		{ underMs: 30_000, icon: "🔥" },
-		{ icon: "☕" },
+		{ icon: "⏳" },
 	],
 };
 
 let config = DEFAULT_CONFIG;
+const registeredCompactTools = new Set<CompactToolName>();
 
 interface RowState {
 	level?: number;
@@ -92,6 +103,17 @@ function isNonEmptyStringArray(value: unknown): value is string[] {
 	return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item.length > 0);
 }
 
+function parseTools(value: unknown, path: string): CompactToolName[] | undefined {
+	if (!Array.isArray(value)) {
+		warnConfig(path, "tools must be an array; using previous values");
+		return undefined;
+	}
+	const valid = value.filter((item): item is CompactToolName => typeof item === "string" && SUPPORTED_TOOL_SET.has(item));
+	const invalid = value.filter((item) => typeof item !== "string" || !SUPPORTED_TOOL_SET.has(item));
+	if (invalid.length > 0) warnConfig(path, `ignoring unsupported tools: ${invalid.map(String).join(", ")}`);
+	return [...new Set(valid)];
+}
+
 function parseDurationIndicators(value: unknown): DurationIndicatorConfig[] | undefined {
 	if (!Array.isArray(value) || value.length === 0) return undefined;
 	const rules: DurationIndicatorConfig[] = [];
@@ -114,6 +136,7 @@ function mergeConfig(base: CompactToolsConfig, value: unknown, path: string): Co
 		warnConfig(path, "expected a JSON object; using previous values");
 		return base;
 	}
+	const tools = value.tools === undefined ? base.tools : (parseTools(value.tools, path) ?? base.tools);
 	const previewValue = value.previewLines;
 	const validPreviewLines = isIntegerInRange(previewValue, 1, 1_000);
 	const previewLines = validPreviewLines ? previewValue : base.previewLines;
@@ -125,7 +148,7 @@ function mergeConfig(base: CompactToolsConfig, value: unknown, path: string): Co
 	if (value.durationIndicators !== undefined && durationIndicators === base.durationIndicators) {
 		warnConfig(path, "invalid durationIndicators; using previous values");
 	}
-	return { previewLines, spinner, durationIndicators };
+	return { tools, previewLines, spinner, durationIndicators };
 }
 
 function parseSpinnerConfig(
@@ -339,10 +362,19 @@ function getPathArg(args: ToolArgs): string {
 	return typeof value === "string" ? firstLine(value) : "";
 }
 
+function getCallDetails(name: string, args: ToolArgs): string {
+	const path = getPathArg(args) || (name === "grep" || name === "find" || name === "ls" ? "." : "");
+	const pattern = typeof args.pattern === "string" ? firstLine(args.pattern) : "…";
+	if (name === "grep") return `/${pattern}/ in ${path}`;
+	if (name === "find") return `${pattern} in ${path}`;
+	return path;
+}
+
 function getFileArgumentDetails(name: string, args: ToolArgs): ToolArgs {
 	if (name === "edit") return {};
 	const omitted = new Set(["path", "file_path"]);
 	if (name === "write") omitted.add("content");
+	if (name === "grep" || name === "find") omitted.add("pattern");
 	return Object.fromEntries(Object.entries(args).filter(([key, value]) => !omitted.has(key) && value !== undefined));
 }
 
@@ -374,7 +406,9 @@ function callOriginalEditResult(
 }
 
 function getFileOutput(name: string, args: ToolArgs, result: AgentToolResult<unknown>, isError: boolean): string {
-	if (isError || name === "read") return getTextResult(result);
+	if (isError || name === "read" || name === "grep" || name === "find" || name === "ls") {
+		return getTextResult(result);
+	}
 	if (name === "write") return String(args.content ?? "");
 	return "";
 }
@@ -388,11 +422,11 @@ function renderFileCall(
 	const running = ctx.executionStarted && ctx.isPartial;
 	const state = syncRow(ctx, running);
 	const level = advanceLevel(state, ctx.expanded);
-	const path = getPathArg(args);
+	const callDetails = getCallDetails(definition.name, args);
 	const argumentDetails = getFileArgumentDetails(definition.name, args);
 	let text = `${renderIndicator(theme, state, running, ctx.isError, ctx.isPartial && !ctx.executionStarted)} `;
 	text += theme.fg("toolTitle", theme.bold(definition.name));
-	if (path) text += ` ${theme.fg("toolOutput", path)}`;
+	if (callDetails) text += ` ${theme.fg("toolOutput", callDetails)}`;
 
 	const container = new Container();
 	container.addChild(new Text(text, 1, 0));
@@ -463,14 +497,19 @@ function registerFileTool(pi: ExtensionAPI, definition: BuiltInDefinition): void
 	pi.registerTool(tool as ToolDefinition<any, any, RowState>);
 }
 
-function renderBashCall(args: BashToolInput, theme: Theme, ctx: RenderContext<BashToolInput>): Text {
+function renderShellCall(
+	name: "bash" | "powershell",
+	args: BashToolInput,
+	theme: Theme,
+	ctx: RenderContext<BashToolInput>,
+): Text {
 	const running = ctx.executionStarted && ctx.isPartial;
 	const state = syncRow(ctx, running);
 	const level = advanceLevel(state, ctx.expanded);
 	const command = args.command ?? "";
 	const displayedCommand = (level >= 1 ? command : firstLine(command)) || "…";
 	let text = `${renderIndicator(theme, state, running, ctx.isError, ctx.isPartial && !ctx.executionStarted)} `;
-	text += `${theme.fg("toolTitle", theme.bold("bash"))} ${theme.fg("toolOutput", displayedCommand)}`;
+	text += `${theme.fg("toolTitle", theme.bold(name))} ${theme.fg("toolOutput", displayedCommand)}`;
 	if (level >= 1 && args.timeout) text += theme.fg("dim", ` (timeout: ${args.timeout}s)`);
 	return new Text(text, 1, 0);
 }
@@ -496,21 +535,40 @@ function renderBashResult(
 	return container;
 }
 
-function registerBashTool(pi: ExtensionAPI, cwd: string): void {
-	const original = createBashToolDefinition(cwd);
-	pi.registerTool<typeof original.parameters, BashToolDetails | undefined, RowState>({
-		...original,
+function createBuiltInDefinition(name: CompactToolName, cwd: string): BuiltInDefinition {
+	switch (name) {
+		case "read": return createReadToolDefinition(cwd);
+		case "write": return createWriteToolDefinition(cwd);
+		case "edit": return createEditToolDefinition(cwd);
+		case "bash": return createBashToolDefinition(cwd);
+		case "powershell": return createPowerShellToolDefinition(cwd);
+		case "grep": return createGrepToolDefinition(cwd);
+		case "find": return createFindToolDefinition(cwd);
+		case "ls": return createLsToolDefinition(cwd);
+	}
+}
+
+function registerShellTool(pi: ExtensionAPI, definition: BuiltInDefinition): void {
+	pi.registerTool({
+		...definition,
 		renderShell: "self",
-		renderCall: renderBashCall,
+		renderCall: (args: BashToolInput, theme: Theme, ctx: RenderContext<BashToolInput>) =>
+			renderShellCall(definition.name as "bash" | "powershell", args, theme, ctx),
 		renderResult: renderBashResult,
-	});
+	} as ToolDefinition<any, BashToolDetails | undefined, RowState>);
 }
 
 function registerBuiltInTools(pi: ExtensionAPI, cwd: string): void {
-	registerFileTool(pi, createReadToolDefinition(cwd));
-	registerFileTool(pi, createEditToolDefinition(cwd));
-	registerFileTool(pi, createWriteToolDefinition(cwd));
-	registerBashTool(pi, cwd);
+	for (const name of registeredCompactTools) {
+		if (!config.tools.includes(name)) pi.registerTool(createBuiltInDefinition(name, cwd));
+	}
+	registeredCompactTools.clear();
+	for (const name of config.tools) {
+		const definition = createBuiltInDefinition(name, cwd);
+		if (name === "bash" || name === "powershell") registerShellTool(pi, definition);
+		else registerFileTool(pi, definition);
+		registeredCompactTools.add(name);
+	}
 }
 
 function applyConfig(pi: ExtensionAPI, cwd: string, projectTrusted: boolean): void {

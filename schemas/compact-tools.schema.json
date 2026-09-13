@@ -8,6 +8,16 @@
     "$schema": {
       "type": "string"
     },
+    "tools": {
+      "description": "Built-in tools that use compact rendering. Omitted tools keep Pi's default renderer.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["read", "write", "edit", "bash", "powershell", "grep", "find", "ls"]
+      },
+      "default": ["read", "write", "edit", "bash"]
+    },
     "previewLines": {
       "description": "Number of output lines shown before the full-output expansion level.",
       "type": "integer",
