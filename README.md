@@ -1,24 +1,26 @@
-# pi-compact-ui
+# pi-compact-tools
 
 Compact, expandable rendering for all of Pi's built-in tools, bundled with a polished GitHub Dark theme.
 
+> Formerly published as `@nedleeds/pi-compact-ui`. New installations should use `pi-compact-tools`.
+
 Designed for a focused, low-noise terminal workflow.
 
-![Built-in tool support](https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/assets/built-in-tool-support.png)
+![Built-in tool support](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/built-in-tool-support.png)
 
 ## Demo
 
 **Spinner and status** – track active execution and see duration-aware completion indicators.
 
-![Spinner and duration indicators](https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/assets/spinner-status.gif)
+![Spinner and duration indicators](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/spinner-status.gif)
 
 **Keyboard expansion** – press `Ctrl+O` to cycle through detail levels.
 
-![Ctrl+O expansion](https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/assets/keyboard-expand.gif)
+![Ctrl+O expansion](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/keyboard-expand.gif)
 
 **Edit diffs** – click a finished `edit` row to reveal the diff, click again to collapse.
 
-![Edit diff expansion](https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/assets/edit-diff.gif)
+![Edit diff expansion](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/edit-diff.gif)
 
 ## Features
 
@@ -59,16 +61,25 @@ Enable opt-in tools with the [`tools` configuration](#configuration). PowerShell
 From npm:
 
 ```bash
-pi install npm:@nedleeds/pi-compact-ui
+pi install npm:pi-compact-tools
 ```
 
 Or directly from GitHub:
 
 ```bash
-pi install git:github.com/nedleeds/pi-compact-ui
+pi install git:github.com/nedleeds/pi-compact-tools
 ```
 
 Restart pi or run `/reload` after installation.
+
+To migrate from the previous package name without loading both copies:
+
+```bash
+pi remove npm:@nedleeds/pi-compact-ui
+pi install npm:pi-compact-tools
+```
+
+The former GitHub repository URL redirects to the renamed `nedleeds/pi-compact-tools` repository.
 
 ## Theme
 
@@ -104,7 +115,7 @@ Default configuration:
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/schemas/compact-tools.schema.json",
+  "$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/schemas/compact-tools.schema.json",
   "tools": ["read", "write", "edit", "bash"],
   "previewLines": 10,
   "spinner": {
@@ -146,7 +157,7 @@ If your terminal uses a [Nerd Font](https://www.nerdfonts.com/), the following c
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/schemas/compact-tools.schema.json",
+  "$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/schemas/compact-tools.schema.json",
   "tools": ["read", "write", "edit", "bash", "powershell", "grep", "find", "ls"],
   "previewLines": 10,
   "spinner": {

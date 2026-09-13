@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/schemas/compact-tools.schema.json",
-  "title": "pi-compact-ui configuration",
+  "$id": "https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/schemas/compact-tools.schema.json",
+  "title": "pi-compact-tools configuration",
   "type": "object",
   "additionalProperties": false,
   "properties": {
