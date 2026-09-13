@@ -26,9 +26,9 @@ Designed for a focused, low-noise terminal workflow.
 - Supports `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`
 - Click or `Ctrl+O` to cycle through available detail levels
 - Skips argument and output levels that contain no additional information
-- Animated, configurable tool spinner
-- Execution duration with configurable indicators
-- Short and full output previews
+- Animated, configurable tool spinner with a bright → dark → bright frame tone cycle
+- Millisecond-precision execution duration with configurable indicators
+- Short and full output previews with dark `│` / `└─` visual grouping
 - Clean edit diffs without duplicate JSON arguments or leading blank lines
 - GitHub Dark theme with distinct tool, output, success, and error colors
 - No Nerd Font requirement
@@ -52,7 +52,7 @@ Enable opt-in tools with the [`tools` configuration](#configuration). PowerShell
 
 - pi `0.85.1` or newer is recommended
 - Node.js 20 or newer
-- Fullscreen TUI mode is required for mouse-click expansion; `Ctrl+O` works without it
+- Fullscreen TUI mode is required for spinner animation and mouse-click expansion; `Ctrl+O` works without it
 
 ## Install
 
@@ -112,10 +112,10 @@ Default configuration:
     "intervalMs": 120
   },
   "durationIndicators": [
-    { "underMs": 1000, "icon": "⚡️" },
-    { "underMs": 10000, "icon": "🚀" },
-    { "underMs": 30000, "icon": "🔥" },
-    { "icon": "⏳" }
+    { "underMs": 1000, "icon": "⚡️", "color": "warning" },
+    { "underMs": 10000, "icon": "🔥", "color": "#D95C3F" },
+    { "underMs": 30000, "icon": "○", "color": "#79C0FF" },
+    { "icon": "⏳", "color": "#D2A8FF" }
   ]
 }
 ```
@@ -130,7 +130,39 @@ Default configuration:
 
 `powershell` is also supported and can be selected explicitly on Windows. Unsupported names are ignored with a warning.
 
-`durationIndicators` must use ascending `underMs` values. The final entry must omit `underMs` and acts as the fallback.
+Spinner frames automatically use a bright → dark → bright tone cycle (`muted` → `dim` → `border` → `dim` → `muted`). Fast tools are never delayed artificially: they transition directly to their success or failure state.
+
+`durationIndicators` must use ascending `underMs` values. The final entry must omit `underMs` and acts as the fallback. Durations are displayed with millisecond precision, for example `Done in 0.023s`. The optional `color` field applies color to the icon only; when omitted, it defaults to `dim`. Existing icon-only configurations remain fully compatible, including configurations copied from older releases of this README:
+
+```json
+{ "underMs": 1000, "icon": "⚡️" }
+```
+
+Icons are arbitrary strings and do not require Nerd Font glyphs. Emoji, ASCII text, or terminal-safe Unicode symbols can be used instead. `color` accepts semantic theme colors such as `warning`, `accent`, `success`, `error`, `muted`, `dim`, `border`, and `text`, as well as six-digit hex colors such as `#800020` or `#FFFFFF`. Hex colors use truecolor when available and fall back to the nearest ANSI-256 color.
+
+### Recommended Nerd Font preset
+
+If your terminal uses a [Nerd Font](https://www.nerdfonts.com/), the following configuration is recommended. It enables compact rendering for all eight built-in tools and uses single-width Nerd Font duration icons:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/schemas/compact-tools.schema.json",
+  "tools": ["read", "write", "edit", "bash", "powershell", "grep", "find", "ls"],
+  "previewLines": 10,
+  "spinner": {
+    "frames": ["✽", "✻", "✲", "✢", "✲", "✻"],
+    "intervalMs": 80
+  },
+  "durationIndicators": [
+    { "underMs": 1000, "icon": "\uf0e7", "color": "warning" },
+    { "underMs": 10000, "icon": "\uf490", "color": "#D95C3F" },
+    { "underMs": 30000, "icon": "\udb81\udde3", "color": "#79C0FF" },
+    { "icon": "\udb81\udd1f", "color": "#D2A8FF" }
+  ]
+}
+```
+
+The escaped code points keep the preset readable on GitHub, whose web-font stack does not include Nerd Font glyphs. JSON automatically decodes them to the intended icons when the configuration is loaded. On systems without PowerShell, remove `"powershell"` from `tools`. The default Unicode configuration remains the most portable option and does not require a Nerd Font.
 
 ## Expansion levels
 
@@ -153,7 +185,11 @@ summary → diff → summary
 - The package overrides only the built-in definitions selected by `tools`, while preserving their execution behavior and metadata.
 - Another extension overriding the same tool names may conflict depending on extension load order.
 - Tools registered by other extensions are not modified.
-- Duration is measured from the first execution render and is intended as a UI estimate.
+- Duration is measured from the first rendered tool call through completion of the built-in tool's `execute()` call. This includes streamed arguments for large `write` and `edit` calls. Timing survives `/reload` within the same process, but is unavailable after a full process restart.
+- `timeout` tool arguments are execution limits, not measured durations, and are intentionally omitted from the compact shell summary.
+- Windows (`CRLF`), Unix/macOS (`LF`), and classic Mac (`CR`) output is normalized before line counting and preview rendering.
+- Spinner animation is disabled in regular TUI mode to avoid unsafe redraws of transcript rows above the viewport.
+- Separator glyphs use the theme's `border` color; actual darkness depends on the selected theme.
 - Emoji appearance depends on terminal and system font support. All default duration icons use Unicode 6.0 or earlier.
 
 ## Development

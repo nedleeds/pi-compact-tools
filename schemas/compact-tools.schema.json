@@ -64,6 +64,24 @@
           "icon": {
             "type": "string",
             "minLength": 1
+          },
+          "color": {
+            "description": "Optional semantic theme color or six-digit hex color used only for this duration icon.",
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "accent", "border", "borderAccent", "borderMuted", "success", "error", "warning",
+                  "muted", "dim", "text", "thinkingText", "toolTitle", "toolOutput", "toolDiffAdded",
+                  "toolDiffRemoved", "toolDiffContext", "bashMode"
+                ]
+              },
+              {
+                "type": "string",
+                "pattern": "^#[0-9A-Fa-f]{6}$"
+              }
+            ],
+            "default": "dim"
           }
         }
       }

@@ -19,5 +19,37 @@ const theme = JSON.parse(
 if (theme.name !== "github-dark-pro" || !theme.colors || typeof theme.colors !== "object") {
   throw new Error("themes/github-dark-pro.json is not a valid pi theme document");
 }
+if (!theme.colors.border || !theme.colors.dim || !theme.colors.muted) {
+  throw new Error("github-dark-pro must define spinner and separator colors");
+}
+
+const example = JSON.parse(
+  await readFile(new URL("../examples/compact-tools.json", import.meta.url), "utf8"),
+);
+if (!Array.isArray(example.spinner?.frames) || example.spinner.frames.length === 0) {
+  throw new Error("example spinner.frames must be a non-empty array");
+}
+if (!Number.isInteger(example.spinner.intervalMs)) {
+  throw new Error("example spinner.intervalMs must be an integer");
+}
+const indicators = example.durationIndicators;
+if (!Array.isArray(indicators) || indicators.length === 0 || indicators.at(-1)?.underMs !== undefined) {
+  throw new Error("example durationIndicators must end with a fallback rule");
+}
+for (let index = 0; index < indicators.length - 1; index++) {
+  if (!(indicators[index].underMs > (indicators[index - 1]?.underMs ?? 0))) {
+    throw new Error("example durationIndicators thresholds must be ascending");
+  }
+}
+if (indicators.some((indicator) => indicator.color !== undefined && typeof indicator.color !== "string")) {
+  throw new Error("example duration indicator colors must be strings");
+}
+
+const schema = JSON.parse(
+  await readFile(new URL("../schemas/compact-tools.schema.json", import.meta.url), "utf8"),
+);
+if (!schema.properties?.durationIndicators?.items?.properties?.color) {
+  throw new Error("schema must describe durationIndicators.color");
+}
 
 console.log("Resource checks passed");

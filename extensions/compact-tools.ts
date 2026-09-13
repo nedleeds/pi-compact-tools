@@ -25,6 +25,18 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Container, Text, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	classifyCallStatus,
+	formatDurationMs,
+	HEX_COLOR_PATTERN,
+	normalizeLineEndings,
+	parseDurationIndicators,
+	rgbToAnsi256,
+	selectDurationIndicator,
+	type DurationIndicatorConfig,
+	type RowStatus,
+	type ThemeDurationIndicatorColor,
+} from "./compact-tools-core.ts";
 
 const MAX_LEVEL = 3;
 const CONFIG_FILE = "compact-tools.json";
@@ -32,11 +44,6 @@ const SUPPORTED_TOOLS = ["read", "write", "edit", "bash", "powershell", "grep", 
 const SUPPORTED_TOOL_SET = new Set<string>(SUPPORTED_TOOLS);
 
 type CompactToolName = (typeof SUPPORTED_TOOLS)[number];
-
-export interface DurationIndicatorConfig {
-	underMs?: number;
-	icon: string;
-}
 
 export interface CompactToolsConfig {
 	tools: CompactToolName[];
@@ -56,14 +63,15 @@ export const DEFAULT_CONFIG: CompactToolsConfig = {
 		intervalMs: 120,
 	},
 	durationIndicators: [
-		{ underMs: 1_000, icon: "⚡️" },
-		{ underMs: 10_000, icon: "🚀" },
-		{ underMs: 30_000, icon: "🔥" },
-		{ icon: "⏳" },
+		{ underMs: 1_000, icon: "⚡️", color: "warning" },
+		{ underMs: 10_000, icon: "🔥", color: "#D95C3F" },
+		{ underMs: 30_000, icon: "○", color: "#79C0FF" },
+		{ icon: "⏳", color: "#D2A8FF" },
 	],
 };
 
 let config = DEFAULT_CONFIG;
+let animateRows = false;
 const registeredCompactTools = new Set<CompactToolName>();
 
 interface RowState {
@@ -112,22 +120,6 @@ function parseTools(value: unknown, path: string): CompactToolName[] | undefined
 	const invalid = value.filter((item) => typeof item !== "string" || !SUPPORTED_TOOL_SET.has(item));
 	if (invalid.length > 0) warnConfig(path, `ignoring unsupported tools: ${invalid.map(String).join(", ")}`);
 	return [...new Set(valid)];
-}
-
-function parseDurationIndicators(value: unknown): DurationIndicatorConfig[] | undefined {
-	if (!Array.isArray(value) || value.length === 0) return undefined;
-	const rules: DurationIndicatorConfig[] = [];
-	let previousLimit = 0;
-	for (const [index, item] of value.entries()) {
-		if (!isObject(item) || typeof item.icon !== "string" || item.icon.length === 0) return undefined;
-		const isLast = index === value.length - 1;
-		if (isLast && item.underMs === undefined) rules.push({ icon: item.icon });
-		else if (isIntegerInRange(item.underMs, previousLimit + 1, Number.MAX_SAFE_INTEGER)) {
-			previousLimit = item.underMs;
-			rules.push({ underMs: item.underMs, icon: item.icon });
-		} else return undefined;
-	}
-	return rules.at(-1)?.underMs === undefined ? rules : undefined;
 }
 
 function mergeConfig(base: CompactToolsConfig, value: unknown, path: string): CompactToolsConfig {
@@ -183,6 +175,23 @@ function readConfig(path: string): unknown {
 	}
 }
 
+function getConfiguredTuiMode(): "regular" | "fullscreen" {
+	for (let index = 0; index < process.argv.length; index++) {
+		const argument = process.argv[index];
+		if (argument === "--tui-mode") {
+			const value = process.argv[index + 1];
+			if (value === "regular" || value === "fullscreen") return value;
+		}
+		if (argument?.startsWith("--tui-mode=")) {
+			const value = argument.slice("--tui-mode=".length);
+			if (value === "regular" || value === "fullscreen") return value;
+		}
+	}
+
+	const settings = readConfig(join(getAgentDir(), "settings.json"));
+	return isObject(settings) && settings.tuiMode === "fullscreen" ? "fullscreen" : "regular";
+}
+
 export function loadConfig(cwd?: string, projectTrusted = false): CompactToolsConfig {
 	const globalPath = join(getAgentDir(), CONFIG_FILE);
 	let loaded = mergeConfig(DEFAULT_CONFIG, readConfig(globalPath), globalPath);
@@ -193,12 +202,19 @@ export function loadConfig(cwd?: string, projectTrusted = false): CompactToolsCo
 }
 
 const SPINNING_ROWS_KEY = Symbol.for("pi.compact-tools.spinning-rows");
-const globalState = globalThis as typeof globalThis & { [SPINNING_ROWS_KEY]?: Set<RowState> };
+const EXECUTION_TIMINGS_KEY = Symbol.for("pi.compact-tools.execution-timings");
+type ExecutionTiming = { startedAt: number; endedAt?: number };
+const globalState = globalThis as typeof globalThis & {
+	[SPINNING_ROWS_KEY]?: Set<RowState>;
+	[EXECUTION_TIMINGS_KEY]?: Map<string, ExecutionTiming>;
+};
 for (const staleState of globalState[SPINNING_ROWS_KEY] ?? []) {
 	if (staleState.timer) clearInterval(staleState.timer);
 }
 const spinningRows = new Set<RowState>();
+const executionTimings = globalState[EXECUTION_TIMINGS_KEY] ?? new Map<string, ExecutionTiming>();
 globalState[SPINNING_ROWS_KEY] = spinningRows;
+globalState[EXECUTION_TIMINGS_KEY] = executionTimings;
 
 function advanceLevel(state: RowState, expanded: boolean): number {
 	state.level ??= 0;
@@ -221,7 +237,7 @@ function setAvailableLevels(state: RowState, levels: number[]): void {
 }
 
 function getOutputLevels(output: string): number[] {
-	const normalized = output.trimEnd();
+	const normalized = normalizeLineEndings(output).trimEnd();
 	if (!normalized) return [];
 	return normalized.split("\n").length > config.previewLines ? [2, 3] : [2];
 }
@@ -233,7 +249,10 @@ function stopSpinner(state: RowState): void {
 }
 
 function syncSpinner(state: RowState, running: boolean, invalidate: () => void): void {
-	if (!running) {
+	// Regular mode cannot safely redraw a transcript row after it has scrolled
+	// above the viewport. Keep active rows static there to avoid full transcript
+	// redraws and duplicated-looking terminal output.
+	if (!running || !animateRows || config.spinner.frames.length < 2) {
 		stopSpinner(state);
 		return;
 	}
@@ -252,52 +271,109 @@ function syncSpinner(state: RowState, running: boolean, invalidate: () => void):
 	spinningRows.add(state);
 }
 
-function syncTiming(state: RowState, executionStarted: boolean, running: boolean): void {
-	if ((executionStarted || running) && state.startedAt === undefined) state.startedAt = Date.now();
-	if (!running && state.startedAt !== undefined && state.endedAt === undefined) {
+function syncTiming(state: RowState, callStarted: boolean, finished: boolean): void {
+	if (callStarted && state.startedAt === undefined) state.startedAt = Date.now();
+	if (finished && state.startedAt !== undefined && state.endedAt === undefined) {
 		state.endedAt = Date.now();
 	}
 }
 
-function syncRow(ctx: RenderContext, running = ctx.executionStarted && ctx.isPartial): RowState {
+function restoreExecutionTiming(state: RowState, toolCallId: string): boolean {
+	const timing = executionTimings.get(toolCallId);
+	if (!timing) return false;
+	state.startedAt = timing.startedAt;
+	state.endedAt = timing.endedAt;
+	return timing.endedAt !== undefined;
+}
+
+function persistExecutionTiming(state: RowState, toolCallId: string): void {
+	if (state.startedAt === undefined) return;
+	const timing = executionTimings.get(toolCallId) ?? { startedAt: state.startedAt };
+	timing.startedAt = state.startedAt;
+	if (state.endedAt !== undefined) timing.endedAt = state.endedAt;
+	executionTimings.set(toolCallId, timing);
+	if (executionTimings.size <= 2_000) return;
+	const oldestToolCallId = executionTimings.keys().next().value;
+	if (oldestToolCallId !== undefined) executionTimings.delete(oldestToolCallId);
+}
+
+function syncRow(
+	ctx: RenderContext,
+	running = ctx.executionStarted && ctx.state.endedAt === undefined,
+	finished = false,
+): RowState {
 	const state = ctx.state;
-	syncTiming(state, ctx.executionStarted, running);
+	if (restoreExecutionTiming(state, ctx.toolCallId)) running = false;
+	const callStarted = !ctx.argsComplete || ctx.executionStarted || running;
+	syncTiming(state, callStarted, finished);
+	persistExecutionTiming(state, ctx.toolCallId);
 	syncSpinner(state, running, ctx.invalidate);
 	return state;
 }
 
-function resetUiState(): void {
+function resetUiState(clearTimings = false): void {
 	for (const state of [...spinningRows]) stopSpinner(state);
+	if (clearTimings) executionTimings.clear();
 }
 
-function renderIndicator(
-	theme: Theme,
-	state: RowState,
-	running: boolean,
-	isError: boolean,
-	pending: boolean,
-): string {
-	if (isError) return theme.fg("error", "⊗");
-	if (pending) return theme.fg("muted", "·");
-	if (!running) return theme.fg("success", "●");
-	const frame = config.spinner.frames[state.frame ?? 0] ?? config.spinner.frames[0] ?? "◐";
-	return theme.fg("muted", frame);
+function spinnerTone(frameIndex: number, frameCount: number): "muted" | "dim" | "border" {
+	if (frameCount < 3) return "muted";
+	const position = frameIndex / (frameCount - 1);
+	const distanceFromCenter = Math.abs(position - 0.5) * 2;
+	if (distanceFromCenter < 0.34) return "border";
+	if (distanceFromCenter < 0.75) return "dim";
+	return "muted";
+}
+
+function resolveCallStatus(ctx: RenderContext, state: RowState): RowStatus {
+	return classifyCallStatus(ctx.isError, ctx.executionStarted, state.endedAt !== undefined);
+}
+
+function renderIndicator(theme: Theme, state: RowState, status: RowStatus): string {
+	if (status === "error") return theme.fg("error", "⊗");
+	if (status === "success") return theme.fg("success", "●");
+	// A new pending or running row starts at frame zero, then shares the same animation.
+	const frameIndex = state.frame ?? 0;
+	const frame = config.spinner.frames[frameIndex] ?? config.spinner.frames[0] ?? "◐";
+	return theme.fg(spinnerTone(frameIndex, config.spinner.frames.length), frame);
 }
 
 function formatDuration(state: RowState): string | undefined {
 	if (state.startedAt === undefined) return undefined;
-	const elapsedMs = (state.endedAt ?? Date.now()) - state.startedAt;
-	return `${(elapsedMs / 1000).toFixed(1)}s`;
+	return formatDurationMs((state.endedAt ?? Date.now()) - state.startedAt);
 }
 
-function durationIndicator(state: RowState): string | undefined {
-	if (state.startedAt === undefined || state.endedAt === undefined) return undefined;
-	const elapsedMs = state.endedAt - state.startedAt;
-	return config.durationIndicators.find((rule) => rule.underMs === undefined || elapsedMs < rule.underMs)?.icon;
+function durationIndicator(state: RowState): DurationIndicatorConfig | undefined {
+	// Reloading extensions recreates row state, so already-completed rows no longer
+	// have timing data. Keep their configured indicator visible using the first rule.
+	const elapsedMs = state.startedAt !== undefined && state.endedAt !== undefined
+		? state.endedAt - state.startedAt
+		: undefined;
+	return selectDurationIndicator(config.durationIndicators, elapsedMs);
+}
+
+function parseHexColor(color: string): [number, number, number] {
+	return [
+		Number.parseInt(color.slice(1, 3), 16),
+		Number.parseInt(color.slice(3, 5), 16),
+		Number.parseInt(color.slice(5, 7), 16),
+	];
+}
+
+function styleDurationIcon(theme: Theme, indicator: DurationIndicatorConfig): string {
+	const color = indicator.color ?? "dim";
+	if (!HEX_COLOR_PATTERN.test(color)) {
+		return theme.fg(color as ThemeDurationIndicatorColor, indicator.icon);
+	}
+	const [red, green, blue] = parseHexColor(color);
+	const ansi = theme.getColorMode() === "truecolor"
+		? `\x1b[38;2;${red};${green};${blue}m`
+		: `\x1b[38;5;${rgbToAnsi256(red, green, blue)}m`;
+	return `${ansi}${indicator.icon}\x1b[39m`;
 }
 
 function renderControls(theme: Theme, state: RowState, running: boolean, isError: boolean): Text {
-	const duration = formatDuration(state);
+	const duration = running && !animateRows ? undefined : formatDuration(state);
 	const levels = state.availableLevels ?? [0, 1];
 	const expandable = levels.length > 1;
 	const atLastLevel = state.level === levels.at(-1);
@@ -306,31 +382,35 @@ function renderControls(theme: Theme, state: RowState, running: boolean, isError
 		: undefined;
 	const indicator = !running && !isError ? durationIndicator(state) : undefined;
 	const status = running
-		? duration
-		: `${indicator ? `${indicator} ` : ""}${isError ? "Failed" : "Done"}${duration ? ` in ${duration}` : ""}`;
-	const details = [status, action].filter(Boolean).join(", ");
-	return new Text(`  ${theme.fg("dim", details)}`, 0, 0);
+		? (duration ?? "Running")
+		: `${isError ? "Failed" : "Done"}${duration ? ` in ${duration}` : ""}`;
+	let details = indicator
+		? `${styleDurationIcon(theme, indicator)} ${theme.fg("borderAccent", status)}`
+		: theme.fg("borderAccent", status);
+	if (action) details += theme.fg("borderAccent", `, ${action}`);
+	return new Text(`${theme.fg("border", " └─ ")}${details}`, 0, 0);
 }
 
 function firstLine(value: string, maxLength = 100): string {
-	const line = value.split("\n")[0] ?? "";
+	const line = normalizeLineEndings(value).split("\n")[0] ?? "";
 	return line.length > maxLength ? `${line.slice(0, maxLength - 1)}…` : line;
 }
 
 function getTextResult(result: AgentToolResult<unknown>): string {
-	return result.content
+	const text = result.content
 		.filter((item) => item.type === "text")
 		.map((item) => item.text)
-		.join("\n")
-		.trimEnd();
+		.join("\n");
+	return normalizeLineEndings(text).trimEnd();
 }
 
-function withoutLeadingBlankLines(component: Component): Component {
+function withoutLeadingBlankLines(component: Component, theme: Theme): Component {
 	return {
 		render(width: number) {
-			const lines = component.render(width);
+			const lines = component.render(Math.max(1, width - 4));
 			const firstContentLine = lines.findIndex((line) => visibleWidth(line.trim()) > 0);
-			return firstContentLine < 0 ? [] : lines.slice(firstContentLine);
+			const prefix = theme.fg("border", " │  ");
+			return firstContentLine < 0 ? [] : lines.slice(firstContentLine).map((line) => `${prefix}${line}`);
 		},
 		invalidate() {
 			component.invalidate?.();
@@ -347,14 +427,17 @@ function styleToolOutput(text: string, theme: Theme, isError: boolean): string {
 }
 
 function renderPreview(output: string, level: number, theme: Theme, isError: boolean): Text | undefined {
-	const normalized = output.trimEnd();
+	const normalized = normalizeLineEndings(output).trimEnd();
 	if (!normalized) return undefined;
 
 	const lines = normalized.split("\n");
 	const shown = level >= MAX_LEVEL ? lines : lines.slice(0, config.previewLines);
-	let text = shown.map((line) => `  ${line}`).join("\n");
-	if (shown.length < lines.length) text += `\n  … ${lines.length - shown.length} more lines`;
-	return new Text(styleToolOutput(text, theme, isError), 0, 0);
+	const prefix = theme.fg("border", " │  ");
+	let text = shown.map((line) => `${prefix}${styleToolOutput(line, theme, isError)}`).join("\n");
+	if (shown.length < lines.length) {
+		text += `\n${prefix}${theme.fg("dim", `… ${lines.length - shown.length} more lines`)}`;
+	}
+	return new Text(text, 0, 0);
 }
 
 function getPathArg(args: ToolArgs): string {
@@ -380,11 +463,12 @@ function getFileArgumentDetails(name: string, args: ToolArgs): ToolArgs {
 
 function renderArguments(args: ToolArgs, theme: Theme): Text {
 	const json = JSON.stringify(args, null, 2) ?? "{}";
+	const prefix = theme.fg("border", " │  ");
 	const text = json
 		.split("\n")
-		.map((line) => `  ${line}`)
+		.map((line) => `${prefix}${theme.fg("toolOutput", line)}`)
 		.join("\n");
-	return new Text(theme.fg("toolOutput", text), 0, 0);
+	return new Text(text, 0, 0);
 }
 
 function callOriginalEditResult(
@@ -419,12 +503,16 @@ function renderFileCall(
 	theme: Theme,
 	ctx: RenderContext,
 ): Container {
-	const running = ctx.executionStarted && ctx.isPartial;
-	const state = syncRow(ctx, running);
+	// Animate and time from the first rendered call so large write/edit calls
+	// represent the full lifecycle, including streamed arguments and filesystem work.
+	const state = syncRow(ctx, ctx.state.endedAt === undefined);
+	// syncRow may restore a completed timing after /reload. Recompute from the
+	// synchronized state so a stale local value cannot leave the spinner visible.
+	const status = resolveCallStatus(ctx, state);
 	const level = advanceLevel(state, ctx.expanded);
 	const callDetails = getCallDetails(definition.name, args);
 	const argumentDetails = getFileArgumentDetails(definition.name, args);
-	let text = `${renderIndicator(theme, state, running, ctx.isError, ctx.isPartial && !ctx.executionStarted)} `;
+	let text = `${renderIndicator(theme, state, status)} `;
 	text += theme.fg("toolTitle", theme.bold(definition.name));
 	if (callDetails) text += ` ${theme.fg("toolOutput", callDetails)}`;
 
@@ -448,7 +536,7 @@ function addFileResultPreview(
 	if (level < 2) return;
 	if (definition.name === "edit") {
 		if (state.originalResultComponent) {
-			container.addChild(withoutLeadingBlankLines(state.originalResultComponent));
+			container.addChild(withoutLeadingBlankLines(state.originalResultComponent, theme));
 		}
 		return;
 	}
@@ -463,7 +551,7 @@ function renderFileResult(
 	theme: Theme,
 	ctx: RenderContext,
 ): Container {
-	const state = syncRow(ctx, options.isPartial);
+	const state = syncRow(ctx, options.isPartial, !options.isPartial);
 	const output = getFileOutput(definition.name, ctx.args, result, ctx.isError);
 	const hasArguments = Object.keys(getFileArgumentDetails(definition.name, ctx.args)).length > 0;
 	const levels = definition.name === "edit" ? [0, 2] : [0, ...(hasArguments ? [1] : []), ...getOutputLevels(output)];
@@ -486,9 +574,28 @@ function createFileResultRenderer(definition: BuiltInDefinition) {
 		renderFileResult(definition, result, options, theme, ctx);
 }
 
+type TimedExecute = (...args: any[]) => Promise<AgentToolResult<unknown>>;
+
+function createTimedExecute(definition: BuiltInDefinition): TimedExecute {
+	const execute = definition.execute as TimedExecute;
+	return async (...args: any[]) => {
+		const toolCallId = typeof args[0] === "string" ? args[0] : undefined;
+		const startedAt = (toolCallId ? executionTimings.get(toolCallId)?.startedAt : undefined) ?? Date.now();
+		if (toolCallId && !executionTimings.has(toolCallId)) executionTimings.set(toolCallId, { startedAt });
+		try {
+			return await execute.apply(definition, args);
+		} finally {
+			const endedAt = Date.now();
+			const timing = toolCallId ? executionTimings.get(toolCallId) : undefined;
+			if (timing) timing.endedAt = endedAt;
+		}
+	};
+}
+
 function registerFileTool(pi: ExtensionAPI, definition: BuiltInDefinition): void {
 	const tool = {
 		...definition,
+		execute: createTimedExecute(definition),
 		renderShell: "self" as const,
 		renderCall: createFileCallRenderer(definition),
 		renderResult: createFileResultRenderer(definition),
@@ -503,26 +610,27 @@ function renderShellCall(
 	theme: Theme,
 	ctx: RenderContext<BashToolInput>,
 ): Text {
-	const running = ctx.executionStarted && ctx.isPartial;
-	const state = syncRow(ctx, running);
+	const state = syncRow(ctx, ctx.state.endedAt === undefined);
+	// A completed timing can be restored inside syncRow. Derive the rendered
+	// status afterward so completion immediately replaces the spinner.
+	const status = resolveCallStatus(ctx, state);
 	const level = advanceLevel(state, ctx.expanded);
-	const command = args.command ?? "";
+	const command = normalizeLineEndings(args.command ?? "");
 	const displayedCommand = (level >= 1 ? command : firstLine(command)) || "…";
-	let text = `${renderIndicator(theme, state, running, ctx.isError, ctx.isPartial && !ctx.executionStarted)} `;
+	let text = `${renderIndicator(theme, state, status)} `;
 	text += `${theme.fg("toolTitle", theme.bold(name))} ${theme.fg("toolOutput", displayedCommand)}`;
-	if (level >= 1 && args.timeout) text += theme.fg("dim", ` (timeout: ${args.timeout}s)`);
 	return new Text(text, 1, 0);
 }
 
-function renderBashResult(
+function renderShellResult(
 	result: AgentToolResult<BashToolDetails | undefined>,
 	options: ToolRenderResultOptions,
 	theme: Theme,
 	ctx: RenderContext<BashToolInput>,
 ): Component {
-	const state = syncRow(ctx, options.isPartial);
+	const state = syncRow(ctx, options.isPartial, !options.isPartial);
 	const output = getTextResult(result);
-	const hasDetailedCall = (ctx.args.command ?? "").includes("\n") || ctx.args.timeout !== undefined;
+	const hasDetailedCall = /\r\n?|\n/.test(ctx.args.command ?? "");
 	setAvailableLevels(state, [0, ...(hasDetailedCall ? [1] : []), ...getOutputLevels(output)]);
 	const level = state.level ?? 0;
 	if (level < 2) return renderControls(theme, state, options.isPartial, ctx.isError);
@@ -530,7 +638,11 @@ function renderBashResult(
 	const container = new Container();
 	const preview = renderPreview(output, level, theme, ctx.isError);
 	if (preview) container.addChild(preview);
-	else container.addChild(new Text(theme.fg("dim", options.isPartial ? "  …" : "  (no output)"), 0, 0));
+	else {
+		const prefix = theme.fg("border", " │  ");
+		const message = theme.fg("dim", options.isPartial ? "…" : "(no output)");
+		container.addChild(new Text(`${prefix}${message}`, 0, 0));
+	}
 	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError));
 	return container;
 }
@@ -551,10 +663,11 @@ function createBuiltInDefinition(name: CompactToolName, cwd: string): BuiltInDef
 function registerShellTool(pi: ExtensionAPI, definition: BuiltInDefinition): void {
 	pi.registerTool({
 		...definition,
+		execute: createTimedExecute(definition),
 		renderShell: "self",
 		renderCall: (args: BashToolInput, theme: Theme, ctx: RenderContext<BashToolInput>) =>
 			renderShellCall(definition.name as "bash" | "powershell", args, theme, ctx),
-		renderResult: renderBashResult,
+		renderResult: renderShellResult,
 	} as ToolDefinition<any, BashToolDetails | undefined, RowState>);
 }
 
@@ -573,14 +686,19 @@ function registerBuiltInTools(pi: ExtensionAPI, cwd: string): void {
 
 function applyConfig(pi: ExtensionAPI, cwd: string, projectTrusted: boolean): void {
 	resetUiState();
+	animateRows = getConfiguredTuiMode() === "fullscreen";
 	config = loadConfig(cwd, projectTrusted);
 	registerBuiltInTools(pi, cwd);
 }
 
 export default function (pi: ExtensionAPI): void {
+	animateRows = getConfiguredTuiMode() === "fullscreen";
 	config = loadConfig();
 	registerBuiltInTools(pi, process.cwd());
-	pi.on("session_start", (_event, ctx) => applyConfig(pi, ctx.cwd, ctx.isProjectTrusted()));
+	pi.on("session_start", (event, ctx) => {
+		if (event.reason !== "reload") executionTimings.clear();
+		applyConfig(pi, ctx.cwd, ctx.isProjectTrusted());
+	});
 	pi.on("resources_discover", (_event, ctx) => applyConfig(pi, ctx.cwd, ctx.isProjectTrusted()));
-	pi.on("session_shutdown", resetUiState);
+	pi.on("session_shutdown", (event) => resetUiState(event.reason !== "reload"));
 }
