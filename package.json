@@ -41,7 +41,7 @@
     "themes": [
       "./themes/github-dark-pro.json"
     ],
-    "image": "https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/assets/spinner-status.gif"
+    "image": "https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/assets/built-in-tool-support.png"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

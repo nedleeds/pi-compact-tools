@@ -1,12 +1,16 @@
 # pi-compact-ui
 
-Compact, expandable rendering for pi's built-in `read`, `write`, `edit`, and `bash` tools, bundled with a polished GitHub Dark theme.
+Compact, expandable rendering for all of Pi's built-in tools, bundled with a polished GitHub Dark theme.
 
 Designed for a focused, low-noise terminal workflow.
 
-![Spinner and duration indicators](https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/assets/spinner-status.gif)
+![Built-in tool support](https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/assets/built-in-tool-support.png)
 
 ## Demo
+
+**Spinner and status** – track active execution and see duration-aware completion indicators.
+
+![Spinner and duration indicators](https://raw.githubusercontent.com/nedleeds/pi-compact-ui/main/assets/spinner-status.gif)
 
 **Keyboard expansion** – press `Ctrl+O` to cycle through detail levels.
 
@@ -28,6 +32,21 @@ Designed for a focused, low-noise terminal workflow.
 - Clean edit diffs without duplicate JSON arguments or leading blank lines
 - GitHub Dark theme with distinct tool, output, success, and error colors
 - No Nerd Font requirement
+
+## Supported tools
+
+| Tool | Purpose | Compact by default |
+| --- | --- | :---: |
+| `read` | Read files and images | Yes |
+| `write` | Create or overwrite files | Yes |
+| `edit` | Apply exact text replacements with clean diffs | Yes |
+| `bash` | Run shell commands | Yes |
+| `grep` | Search file contents | Opt-in |
+| `find` | Find files by glob pattern | Opt-in |
+| `ls` | List directory contents | Opt-in |
+| `powershell` | Run PowerShell commands | Opt-in |
+
+Enable opt-in tools with the [`tools` configuration](#configuration). PowerShell is intended for Windows; the other seven tools are demonstrated above on macOS.
 
 ## Requirements
 
