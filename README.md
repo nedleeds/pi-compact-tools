@@ -1,89 +1,66 @@
 # pi-compact-tools
 
-Compact, expandable rendering for all of Pi's built-in tools, bundled with a polished GitHub Dark theme.
+Compact, expandable rendering for Pi's built-in tools, with a polished GitHub Dark theme.
 
-> Formerly published as `@nedleeds/pi-compact-ui`. New installations should use `pi-compact-tools`.
-
-Designed for a focused, low-noise terminal workflow.
-
-![Built-in tool support](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/built-in-tool-support.png)
+> Formerly `@nedleeds/pi-compact-ui`. New installations should use `pi-compact-tools`.
 
 ## Demo
 
-**Spinner and status** – track active execution and see duration-aware completion indicators.
+The recordings below use the optional [Nerd Font](#nerd-font-preset) preset. **The default configuration does not require a Nerd Font**: it uses portable emoji and standard Unicode icons instead, with the same spinner, timing, and expansion behavior.
 
-![Spinner and duration indicators](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/spinner-status.gif)
+### Compact tool workflow
 
-**Keyboard expansion** – press `Ctrl+O` to cycle through detail levels.
+Active, successful, and failed tool calls stay compact while preserving useful status and timing information.
 
-![Ctrl+O expansion](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/keyboard-expand.gif)
+![Compact tool workflow with Nerd Font](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/nerd-font-workflow.gif)
 
-**Edit diffs** – click a finished `edit` row to reveal the diff, click again to collapse.
+### Spinner and duration indicators
 
-![Edit diff expansion](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/edit-diff.gif)
+The spinner animates during execution, then changes to a duration-aware completion icon.
+
+![Spinner and duration indicators](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/spinner-duration.gif)
+
+### Expandable edit diffs
+
+Click a completed `edit` row, or press `Ctrl+O`, to reveal and collapse its diff.
+
+![Expandable edit diff](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/edit-diff.gif)
 
 ## Features
 
-- Compact one-line rendering for configurable built-in tools
-- Supports `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`
-- Click or `Ctrl+O` to cycle through available detail levels
-- Skips argument and output levels that contain no additional information
-- Animated, configurable tool spinner with a bright → dark → bright frame tone cycle
-- Millisecond-precision execution duration with configurable indicators
-- Short and full output previews with dark `│` / `└─` visual grouping
-- Clean edit diffs without duplicate JSON arguments or leading blank lines
-- GitHub Dark theme with distinct tool, output, success, and error colors
+- Compact rendering for `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`
+- Animated configurable spinner in fullscreen TUI mode
+- Millisecond-precision duration and configurable completion icons
+- Click or `Ctrl+O` to cycle through meaningful detail levels
+- Short previews, full output, and clean edit diffs
+- Dark `│` and `└─` visual grouping
+- Windows, Unix, and classic Mac line-ending support
 - No Nerd Font requirement
 
-## Supported tools
-
-| Tool | Purpose | Compact by default |
-| --- | --- | :---: |
-| `read` | Read files and images | Yes |
-| `write` | Create or overwrite files | Yes |
-| `edit` | Apply exact text replacements with clean diffs | Yes |
-| `bash` | Run shell commands | Yes |
-| `grep` | Search file contents | Opt-in |
-| `find` | Find files by glob pattern | Opt-in |
-| `ls` | List directory contents | Opt-in |
-| `powershell` | Run PowerShell commands | Opt-in |
-
-Enable opt-in tools with the [`tools` configuration](#configuration). PowerShell is intended for Windows; the other seven tools are demonstrated above on macOS.
-
-## Requirements
-
-- pi `0.85.1` or newer is recommended
-- Node.js 20 or newer
-- Fullscreen TUI mode is required for spinner animation and mouse-click expansion; `Ctrl+O` works without it
-
 ## Install
-
-From npm:
 
 ```bash
 pi install npm:pi-compact-tools
 ```
 
-Or directly from GitHub:
+Or install from GitHub:
 
 ```bash
 pi install git:github.com/nedleeds/pi-compact-tools
 ```
 
-Restart pi or run `/reload` after installation.
+Restart Pi or run `/reload`.
 
-To migrate from the previous package name without loading both copies:
+Migrating from the previous package name:
 
 ```bash
 pi remove npm:@nedleeds/pi-compact-ui
 pi install npm:pi-compact-tools
 ```
 
-The former GitHub repository URL redirects to the renamed `nedleeds/pi-compact-tools` repository.
-
 ## Theme
 
-The package includes the `github-dark-pro` theme. Select it from pi's settings UI or set it in `~/.pi/agent/settings.json`:
+Select `github-dark-pro` in Pi's settings, or add it to `~/.pi/agent/settings.json`:
 
 ```json
 {
@@ -93,23 +70,7 @@ The package includes the `github-dark-pro` theme. Select it from pi's settings U
 
 ## Configuration
 
-The extension works without a configuration file. Its defaults are defined in the source code.
-
-To customize it globally, create `~/.pi/agent/compact-tools.json` using the example below. The included JSON Schema provides completion and validation in compatible editors.
-
-For project-specific settings, create:
-
-```text
-<project>/.pi/compact-tools.json
-```
-
-Project configuration is loaded only for trusted projects. Values are merged in this order:
-
-```text
-built-in defaults
-→ ~/.pi/agent/compact-tools.json
-→ <project>/.pi/compact-tools.json
-```
+Configuration is optional. Create `~/.pi/agent/compact-tools.json` for global settings or `<project>/.pi/compact-tools.json` for a trusted project.
 
 Default configuration:
 
@@ -131,7 +92,11 @@ Default configuration:
 }
 ```
 
-`tools` selects which built-in definitions receive compact rendering. Omitted tools retain Pi's default renderer. The array replaces, rather than extends, the previous configuration layer. To enable every Unix-compatible tool:
+These defaults use emoji and standard Unicode, so they work without a Nerd Font. Fast tools finish immediately; no artificial spinner delay is added.
+
+`durationIndicators` must have ascending `underMs` values, with a final fallback entry that omits `underMs`. `color` is optional and accepts a supported theme color or six-digit hex value. Existing icon-only configurations remain compatible.
+
+To enable all Unix-compatible tools:
 
 ```json
 {
@@ -139,21 +104,11 @@ Default configuration:
 }
 ```
 
-`powershell` is also supported and can be selected explicitly on Windows. Unsupported names are ignored with a warning.
+Add `"powershell"` on Windows if desired.
 
-Spinner frames automatically use a bright → dark → bright tone cycle (`muted` → `dim` → `border` → `dim` → `muted`). Fast tools are never delayed artificially: they transition directly to their success or failure state.
+## Nerd Font preset
 
-`durationIndicators` must use ascending `underMs` values. The final entry must omit `underMs` and acts as the fallback. Durations are displayed with millisecond precision, for example `Done in 0.023s`. The optional `color` field applies color to the icon only; when omitted, it defaults to `dim`. Existing icon-only configurations remain fully compatible, including configurations copied from older releases of this README:
-
-```json
-{ "underMs": 1000, "icon": "⚡️" }
-```
-
-Icons are arbitrary strings and do not require Nerd Font glyphs. Emoji, ASCII text, or terminal-safe Unicode symbols can be used instead. `color` accepts semantic theme colors such as `warning`, `accent`, `success`, `error`, `muted`, `dim`, `border`, and `text`, as well as six-digit hex colors such as `#800020` or `#FFFFFF`. Hex colors use truecolor when available and fall back to the nearest ANSI-256 color.
-
-### Recommended Nerd Font preset
-
-If your terminal uses a [Nerd Font](https://www.nerdfonts.com/), the following configuration is recommended. It enables compact rendering for all eight built-in tools and uses single-width Nerd Font duration icons:
+If your terminal uses a [Nerd Font](https://www.nerdfonts.com/), this preset enables all eight tools and the icons shown in the demos:
 
 ```json
 {
@@ -173,35 +128,28 @@ If your terminal uses a [Nerd Font](https://www.nerdfonts.com/), the following c
 }
 ```
 
-The escaped code points keep the preset readable on GitHub, whose web-font stack does not include Nerd Font glyphs. JSON automatically decodes them to the intended icons when the configuration is loaded. On systems without PowerShell, remove `"powershell"` from `tools`. The default Unicode configuration remains the most portable option and does not require a Nerd Font.
+The escaped code points remain readable on GitHub and are decoded to Nerd Font icons when JSON is loaded. Remove `"powershell"` on systems where it is unavailable.
 
-## Expansion levels
+## Controls
 
-Only levels with meaningful content are included. Depending on the tool call, the cycle may be:
+`Ctrl+O` or a mouse click cycles only through available content:
 
 ```text
 summary → arguments → output preview → full output → summary
-summary → output → summary
-summary only
 ```
 
-`edit` uses:
+For `edit`:
 
 ```text
 summary → diff → summary
 ```
 
-## Compatibility and limitations
+## Notes
 
-- The package overrides only the built-in definitions selected by `tools`, while preserving their execution behavior and metadata.
-- Another extension overriding the same tool names may conflict depending on extension load order.
-- Tools registered by other extensions are not modified.
-- Duration is measured from the first rendered tool call through completion of the built-in tool's `execute()` call. This includes streamed arguments for large `write` and `edit` calls. Timing survives `/reload` within the same process, but is unavailable after a full process restart.
-- `timeout` tool arguments are execution limits, not measured durations, and are intentionally omitted from the compact shell summary.
-- Windows (`CRLF`), Unix/macOS (`LF`), and classic Mac (`CR`) output is normalized before line counting and preview rendering.
-- Spinner animation is disabled in regular TUI mode to avoid unsafe redraws of transcript rows above the viewport.
-- Separator glyphs use the theme's `border` color; actual darkness depends on the selected theme.
-- Emoji appearance depends on terminal and system font support. All default duration icons use Unicode 6.0 or earlier.
+- Pi `0.85.1+` and Node.js 20+ are recommended.
+- Fullscreen TUI mode is required for spinner animation and mouse interaction; `Ctrl+O` also works in regular mode.
+- Duration covers the full rendered tool-call lifecycle, including streamed `write` and `edit` arguments.
+- Selected tools override Pi's built-in definitions; other extensions overriding the same names may conflict by load order.
 
 ## Development
 
@@ -211,11 +159,7 @@ npm run check
 pi -e .
 ```
 
-When testing with `pi -e .`, disable any local copy of `compact-tools.ts` to avoid duplicate tool overrides.
-
-## Security
-
-Pi extensions execute with full system access. Review extension source before installing third-party packages.
+Pi extensions execute with full system access. Review third-party extension source before installation.
 
 ## License
 
