@@ -20,19 +20,20 @@ The spinner animates during execution, then changes to a duration-aware completi
 
 ![Spinner and duration indicators](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/spinner-duration-optimized.gif)
 
-### Expandable edit diffs
+### Initially visible edit diffs
 
-Click a completed `edit` row, or press `Ctrl+O`, to reveal and collapse its diff.
+Completed `edit` rows show their full diff initially by default. The per-tool `auto_compact` setting controls which tools start in their compact summary state without disabling click or `Ctrl+O` interaction.
 
-![Expandable edit diff](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/edit-diff.gif)
+![Edit diff](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/edit-diff.gif)
 
 ## Features
 
 - Compact rendering for `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`
 - Animated configurable spinner in fullscreen TUI mode
 - Millisecond-precision duration and configurable completion icons
-- Click or `Ctrl+O` to cycle through meaningful detail levels
-- Short previews, full output, and clean edit diffs
+- Per-tool initial compaction with `auto_compact: true` or `false`
+- Click or `Ctrl+O` always cycles through meaningful detail levels
+- Short previews, full output, and initially visible edit diffs by default
 - Dark `│` and `└─` visual grouping
 - Windows, Unix, and classic Mac line-ending support
 - No Nerd Font requirement
@@ -78,6 +79,12 @@ Default configuration:
 {
   "$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/schemas/compact-tools.schema.json",
   "tools": ["read", "write", "edit", "bash"],
+  "auto_compact": {
+    "read": true,
+    "write": true,
+    "edit": false,
+    "bash": true
+  },
   "previewLines": 10,
   "spinner": {
     "frames": ["◐", "◓", "◑", "◒"],
@@ -93,6 +100,14 @@ Default configuration:
 ```
 
 These defaults use emoji and standard Unicode, so they work without a Nerd Font. Fast tools finish immediately; no artificial spinner delay is added.
+
+`auto_compact` controls each tool's initial state independently:
+
+- `true` starts at the compact summary.
+- `false` starts at the most detailed available level.
+- Click or `Ctrl+O` continues to cycle through available levels in either case.
+
+Unspecified entries inherit the previous configuration layer. By default, `read`, `write`, and `bash` start compact, while `edit` starts expanded so code diffs are immediately visible.
 
 `durationIndicators` must have ascending `underMs` values, with a final fallback entry that omits `underMs`. `color` is optional and accepts a supported theme color or six-digit hex value. Existing icon-only configurations remain compatible.
 
@@ -138,11 +153,7 @@ The escaped code points remain readable on GitHub and are decoded to Nerd Font i
 summary → arguments → output preview → full output → summary
 ```
 
-For `edit`:
-
-```text
-summary → diff → summary
-```
+The `auto_compact` boolean only chooses where that cycle starts. With the default `edit: false`, the diff starts visible and the next click collapses it.
 
 ## Notes
 

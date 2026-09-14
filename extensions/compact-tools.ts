@@ -47,6 +47,7 @@ type CompactToolName = (typeof SUPPORTED_TOOLS)[number];
 
 export interface CompactToolsConfig {
 	tools: CompactToolName[];
+	auto_compact: Record<CompactToolName, boolean>;
 	previewLines: number;
 	spinner: {
 		frames: string[];
@@ -57,6 +58,16 @@ export interface CompactToolsConfig {
 
 export const DEFAULT_CONFIG: CompactToolsConfig = {
 	tools: ["read", "write", "edit", "bash"],
+	auto_compact: {
+		read: true,
+		write: true,
+		edit: false,
+		bash: true,
+		powershell: true,
+		grep: true,
+		find: true,
+		ls: true,
+	},
 	previewLines: 10,
 	spinner: {
 		frames: ["◐", "◓", "◑", "◒"],
@@ -122,6 +133,31 @@ function parseTools(value: unknown, path: string): CompactToolName[] | undefined
 	return [...new Set(valid)];
 }
 
+function parseAutoCompact(
+	base: CompactToolsConfig["auto_compact"],
+	value: unknown,
+	path: string,
+): CompactToolsConfig["auto_compact"] {
+	if (value === undefined) return base;
+	if (!isObject(value)) {
+		warnConfig(path, "auto_compact must be an object; using previous values");
+		return base;
+	}
+	const autoCompact = { ...base };
+	for (const [name, enabled] of Object.entries(value)) {
+		if (!SUPPORTED_TOOL_SET.has(name)) {
+			warnConfig(path, `ignoring unsupported auto_compact tool: ${name}`);
+			continue;
+		}
+		if (typeof enabled !== "boolean") {
+			warnConfig(path, `auto_compact.${name} must be true or false; using previous value`);
+			continue;
+		}
+		autoCompact[name as CompactToolName] = enabled;
+	}
+	return autoCompact;
+}
+
 function mergeConfig(base: CompactToolsConfig, value: unknown, path: string): CompactToolsConfig {
 	if (value === undefined) return base;
 	if (!isObject(value)) {
@@ -129,6 +165,7 @@ function mergeConfig(base: CompactToolsConfig, value: unknown, path: string): Co
 		return base;
 	}
 	const tools = value.tools === undefined ? base.tools : (parseTools(value.tools, path) ?? base.tools);
+	const auto_compact = parseAutoCompact(base.auto_compact, value.auto_compact, path);
 	const previewValue = value.previewLines;
 	const validPreviewLines = isIntegerInRange(previewValue, 1, 1_000);
 	const previewLines = validPreviewLines ? previewValue : base.previewLines;
@@ -140,7 +177,7 @@ function mergeConfig(base: CompactToolsConfig, value: unknown, path: string): Co
 	if (value.durationIndicators !== undefined && durationIndicators === base.durationIndicators) {
 		warnConfig(path, "invalid durationIndicators; using previous values");
 	}
-	return { tools, previewLines, spinner, durationIndicators };
+	return { tools, auto_compact, previewLines, spinner, durationIndicators };
 }
 
 function parseSpinnerConfig(
@@ -216,8 +253,8 @@ const executionTimings = globalState[EXECUTION_TIMINGS_KEY] ?? new Map<string, E
 globalState[SPINNING_ROWS_KEY] = spinningRows;
 globalState[EXECUTION_TIMINGS_KEY] = executionTimings;
 
-function advanceLevel(state: RowState, expanded: boolean): number {
-	state.level ??= 0;
+function advanceLevel(state: RowState, expanded: boolean, name: CompactToolName): number {
+	state.level ??= config.auto_compact[name] ? 0 : (state.availableLevels?.at(-1) ?? MAX_LEVEL);
 	if (state.lastExpanded === undefined) {
 		state.lastExpanded = expanded;
 		return state.level;
@@ -231,9 +268,13 @@ function advanceLevel(state: RowState, expanded: boolean): number {
 	return state.level;
 }
 
-function setAvailableLevels(state: RowState, levels: number[]): void {
+function setAvailableLevels(state: RowState, levels: number[], name: CompactToolName): void {
 	state.availableLevels = levels;
-	if (!levels.includes(state.level ?? 0)) state.level = 0;
+	if (state.level === undefined) {
+		state.level = config.auto_compact[name] ? 0 : (levels.at(-1) ?? 0);
+	} else if (!levels.includes(state.level)) {
+		state.level = !config.auto_compact[name] && state.level === MAX_LEVEL ? (levels.at(-1) ?? 0) : 0;
+	}
 }
 
 function getOutputLevels(output: string): number[] {
@@ -509,7 +550,7 @@ function renderFileCall(
 	// syncRow may restore a completed timing after /reload. Recompute from the
 	// synchronized state so a stale local value cannot leave the spinner visible.
 	const status = resolveCallStatus(ctx, state);
-	const level = advanceLevel(state, ctx.expanded);
+	const level = advanceLevel(state, ctx.expanded, definition.name as CompactToolName);
 	const callDetails = getCallDetails(definition.name, args);
 	const argumentDetails = getFileArgumentDetails(definition.name, args);
 	let text = `${renderIndicator(theme, state, status)} `;
@@ -554,8 +595,8 @@ function renderFileResult(
 	const state = syncRow(ctx, options.isPartial, !options.isPartial);
 	const output = getFileOutput(definition.name, ctx.args, result, ctx.isError);
 	const hasArguments = Object.keys(getFileArgumentDetails(definition.name, ctx.args)).length > 0;
-	const levels = definition.name === "edit" ? [0, 2] : [0, ...(hasArguments ? [1] : []), ...getOutputLevels(output)];
-	setAvailableLevels(state, levels);
+	const levels = definition.name === "edit" ? [0, MAX_LEVEL] : [0, ...(hasArguments ? [1] : []), ...getOutputLevels(output)];
+	setAvailableLevels(state, levels, definition.name as CompactToolName);
 
 	const level = state.level ?? 0;
 	callOriginalEditResult(definition, result, options, theme, ctx, state, level);
@@ -614,7 +655,7 @@ function renderShellCall(
 	// A completed timing can be restored inside syncRow. Derive the rendered
 	// status afterward so completion immediately replaces the spinner.
 	const status = resolveCallStatus(ctx, state);
-	const level = advanceLevel(state, ctx.expanded);
+	const level = advanceLevel(state, ctx.expanded, name);
 	const command = normalizeLineEndings(args.command ?? "");
 	const displayedCommand = (level >= 1 ? command : firstLine(command)) || "…";
 	let text = `${renderIndicator(theme, state, status)} `;
@@ -623,6 +664,7 @@ function renderShellCall(
 }
 
 function renderShellResult(
+	name: "bash" | "powershell",
 	result: AgentToolResult<BashToolDetails | undefined>,
 	options: ToolRenderResultOptions,
 	theme: Theme,
@@ -631,7 +673,7 @@ function renderShellResult(
 	const state = syncRow(ctx, options.isPartial, !options.isPartial);
 	const output = getTextResult(result);
 	const hasDetailedCall = /\r\n?|\n/.test(ctx.args.command ?? "");
-	setAvailableLevels(state, [0, ...(hasDetailedCall ? [1] : []), ...getOutputLevels(output)]);
+	setAvailableLevels(state, [0, ...(hasDetailedCall ? [1] : []), ...getOutputLevels(output)], name);
 	const level = state.level ?? 0;
 	if (level < 2) return renderControls(theme, state, options.isPartial, ctx.isError);
 
@@ -667,7 +709,12 @@ function registerShellTool(pi: ExtensionAPI, definition: BuiltInDefinition): voi
 		renderShell: "self",
 		renderCall: (args: BashToolInput, theme: Theme, ctx: RenderContext<BashToolInput>) =>
 			renderShellCall(definition.name as "bash" | "powershell", args, theme, ctx),
-		renderResult: renderShellResult,
+		renderResult: (
+			result: AgentToolResult<BashToolDetails | undefined>,
+			options: ToolRenderResultOptions,
+			theme: Theme,
+			ctx: RenderContext<BashToolInput>,
+		) => renderShellResult(definition.name as "bash" | "powershell", result, options, theme, ctx),
 	} as ToolDefinition<any, BashToolDetails | undefined, RowState>);
 }
 

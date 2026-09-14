@@ -32,6 +32,12 @@ if (!Array.isArray(example.spinner?.frames) || example.spinner.frames.length ===
 if (!Number.isInteger(example.spinner.intervalMs)) {
   throw new Error("example spinner.intervalMs must be an integer");
 }
+if (!example.auto_compact || example.auto_compact.edit !== false) {
+  throw new Error("example auto_compact policy must keep edit diffs visible by default");
+}
+if (Object.values(example.auto_compact).some((enabled) => typeof enabled !== "boolean")) {
+  throw new Error("example auto_compact values must be booleans");
+}
 const indicators = example.durationIndicators;
 if (!Array.isArray(indicators) || indicators.length === 0 || indicators.at(-1)?.underMs !== undefined) {
   throw new Error("example durationIndicators must end with a fallback rule");
@@ -50,6 +56,9 @@ const schema = JSON.parse(
 );
 if (!schema.properties?.durationIndicators?.items?.properties?.color) {
   throw new Error("schema must describe durationIndicators.color");
+}
+if (!schema.properties?.auto_compact?.properties?.edit) {
+  throw new Error("schema must describe per-tool auto_compact policies");
 }
 
 console.log("Resource checks passed");

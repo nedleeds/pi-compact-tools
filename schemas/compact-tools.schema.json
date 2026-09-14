@@ -18,6 +18,27 @@
       },
       "default": ["read", "write", "edit", "bash"]
     },
+    "auto_compact": {
+      "description": "Whether each compact-rendered tool starts in its compact summary state. Click/Ctrl+O remains available regardless of this value.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "read": { "type": "boolean", "default": true },
+        "write": { "type": "boolean", "default": true },
+        "edit": { "type": "boolean", "default": false },
+        "bash": { "type": "boolean", "default": true },
+        "powershell": { "type": "boolean", "default": true },
+        "grep": { "type": "boolean", "default": true },
+        "find": { "type": "boolean", "default": true },
+        "ls": { "type": "boolean", "default": true }
+      },
+      "default": {
+        "read": true,
+        "write": true,
+        "edit": false,
+        "bash": true
+      }
+    },
     "previewLines": {
       "description": "Number of output lines shown before the full-output expansion level.",
       "type": "integer",
