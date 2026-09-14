@@ -47,8 +47,16 @@ export function hardWrapTextWithAnsi(text: string, width: number): string[] {
 			wrapped.push("");
 			continue;
 		}
-		for (let offset = 0; offset < lineWidth; offset += safeWidth) {
+		let offset = 0;
+		while (offset < lineWidth) {
+			if (offset > 0) {
+				const remainder = sliceByColumn(logicalLine, offset, lineWidth - offset, true);
+				const whitespace = stripTerminalSequences(remainder).match(/^\s+/u)?.[0] ?? "";
+				offset += visibleWidth(whitespace);
+				if (offset >= lineWidth) break;
+			}
 			wrapped.push(sliceByColumn(logicalLine, offset, safeWidth, true));
+			offset += safeWidth;
 		}
 	}
 	return wrapped;

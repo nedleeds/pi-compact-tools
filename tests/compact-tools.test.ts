@@ -68,6 +68,12 @@ test("hard-wraps long ANSI paths into remaining columns instead of moving the pa
 	assert.equal(lines.map(stripTerminalSequences).join(""), stripTerminalSequences(input));
 });
 
+test("drops separator whitespace at the start of wrapped command lines", () => {
+	const input = `echo \x1b[90mfoo bar\x1b[39m`;
+	const lines = hardWrapTextWithAnsi(input, 4).map(stripTerminalSequences);
+	assert.deepEqual(lines, ["echo", "foo ", "bar"]);
+});
+
 test("caches immutable prefixed layout by terminal width", () => {
 	const component = prefixedText("a long line that wraps", " │ ");
 	const first = component.render(12);

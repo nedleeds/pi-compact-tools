@@ -1,6 +1,6 @@
 {
   "name": "pi-compact-tools",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "description": "Compact, expandable UI for pi's built-in tools, bundled with a polished GitHub Dark theme.",
   "type": "module",
   "license": "MIT",
@@ -56,7 +56,7 @@
     "typescript": "^5.9.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "publishConfig": {
     "access": "public"
