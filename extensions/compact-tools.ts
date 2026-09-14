@@ -604,9 +604,18 @@ function getPathArg(args: ToolArgs): string {
 	return typeof value === "string" ? normalizeLineEndings(value) : "";
 }
 
+export function formatReadCallDetails(path: string, args: ToolArgs): string {
+	const options = [
+		typeof args.offset === "number" ? `offset: ${args.offset}` : undefined,
+		typeof args.limit === "number" ? `limit: ${args.limit}` : undefined,
+	].filter((value): value is string => value !== undefined);
+	return options.length > 0 ? `${path} (${options.join(", ")})` : path;
+}
+
 function getCallDetails(name: string, args: ToolArgs): string {
 	const path = getPathArg(args) || (name === "grep" || name === "find" || name === "ls" ? "." : "");
 	const pattern = typeof args.pattern === "string" ? normalizeLineEndings(args.pattern) : "…";
+	if (name === "read") return formatReadCallDetails(path, args);
 	if (name === "grep") return `/${pattern}/ in ${path}`;
 	if (name === "find") return `${pattern} in ${path}`;
 	return path;
@@ -615,6 +624,10 @@ function getCallDetails(name: string, args: ToolArgs): string {
 function getFileArgumentDetails(name: string, args: ToolArgs): ToolArgs {
 	if (name === "edit") return {};
 	const omitted = new Set(["path", "file_path"]);
+	if (name === "read") {
+		omitted.add("offset");
+		omitted.add("limit");
+	}
 	if (name === "write") omitted.add("content");
 	if (name === "grep" || name === "find") omitted.add("pattern");
 	return Object.fromEntries(Object.entries(args).filter(([key, value]) => !omitted.has(key) && value !== undefined));

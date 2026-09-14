@@ -13,6 +13,7 @@ import {
 } from "../extensions/compact-tools-core.ts";
 import {
 	classifyToggleInput,
+	formatReadCallDetails,
 	getBinaryOutputLevels,
 	hardWrapTextWithAnsi,
 	styleMultiline,
@@ -48,6 +49,13 @@ test("hard-wraps long ANSI paths into remaining columns instead of moving the pa
 	assert.ok(lines.length > 1);
 	assert.ok(lines.every((line) => visibleWidth(line) <= 16));
 	assert.equal(lines.map(stripTerminalSequences).join(""), stripTerminalSequences(input));
+});
+
+test("formats read offset and limit inline with the path", () => {
+	assert.equal(formatReadCallDetails("file.ts", {}), "file.ts");
+	assert.equal(formatReadCallDetails("file.ts", { offset: 20 }), "file.ts (offset: 20)");
+	assert.equal(formatReadCallDetails("file.ts", { limit: 22 }), "file.ts (limit: 22)");
+	assert.equal(formatReadCallDetails("file.ts", { offset: 20, limit: 22 }), "file.ts (offset: 20, limit: 22)");
 });
 
 test("reapplies ANSI styling to every logical line", () => {
