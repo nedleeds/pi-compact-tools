@@ -574,6 +574,13 @@ function withoutLeadingBlankLines(component: Component, theme: Theme): Component
 	};
 }
 
+export function styleMultiline(text: string, style: (line: string) => string): string {
+	return normalizeLineEndings(text)
+		.split("\n")
+		.map(style)
+		.join("\n");
+}
+
 function styleToolOutput(text: string, theme: Theme, isError: boolean): string {
 	const color = isError ? "error" : "toolOutput";
 	return text
@@ -615,7 +622,8 @@ function getFileArgumentDetails(name: string, args: ToolArgs): ToolArgs {
 
 function renderArguments(args: ToolArgs, theme: Theme): Component {
 	const json = JSON.stringify(args, null, 2) ?? "{}";
-	return prefixedText(theme.fg("toolOutput", json), theme.fg("border", " │ "));
+	const styled = styleMultiline(json, (line) => theme.fg("toolOutput", line));
+	return prefixedText(styled, theme.fg("border", " │ "));
 }
 
 function callOriginalEditResult(
@@ -661,7 +669,9 @@ function renderFileCall(
 	const callDetails = getCallDetails(definition.name, args);
 	const argumentDetails = getFileArgumentDetails(definition.name, args);
 	const title = `${renderIndicator(theme, state, status)} ${theme.fg("toolTitle", theme.bold(definition.name))}`;
-	const details = callDetails ? theme.fg("toolOutput", callDetails) : undefined;
+	const details = callDetails
+		? styleMultiline(callDetails, (line) => theme.fg("toolOutput", line))
+		: undefined;
 
 	const container = new Container();
 	container.addChild(renderToolCall(title, details, theme));
@@ -763,7 +773,7 @@ function renderShellCall(
 	advanceLevel(state, ctx.expanded, name);
 	const command = normalizeLineEndings(args.command ?? "") || "…";
 	const title = `${renderIndicator(theme, state, status)} ${theme.fg("toolTitle", theme.bold(name))}`;
-	const details = theme.fg("toolOutput", command);
+	const details = styleMultiline(command, (line) => theme.fg("toolOutput", line));
 	return renderToolCall(title, details, theme);
 }
 

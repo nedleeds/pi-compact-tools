@@ -11,7 +11,12 @@ import {
 	shouldExpandAll,
 	type DurationIndicatorConfig,
 } from "../extensions/compact-tools-core.ts";
-import { classifyToggleInput, getBinaryOutputLevels, hardWrapTextWithAnsi } from "../extensions/compact-tools.ts";
+import {
+	classifyToggleInput,
+	getBinaryOutputLevels,
+	hardWrapTextWithAnsi,
+	styleMultiline,
+} from "../extensions/compact-tools.ts";
 
 const indicators: DurationIndicatorConfig[] = [
 	{ underMs: 1_000, icon: "fast" },
@@ -43,6 +48,11 @@ test("hard-wraps long ANSI paths into remaining columns instead of moving the pa
 	assert.ok(lines.length > 1);
 	assert.ok(lines.every((line) => visibleWidth(line) <= 16));
 	assert.equal(lines.map(stripTerminalSequences).join(""), stripTerminalSequences(input));
+});
+
+test("reapplies ANSI styling to every logical line", () => {
+	const styled = styleMultiline("first\nsecond", (line) => `\x1b[90m${line}\x1b[39m`);
+	assert.deepEqual(styled.split("\n"), ["\x1b[90mfirst\x1b[39m", "\x1b[90msecond\x1b[39m"]);
 });
 
 test("uses a binary hidden/full expansion model for tool output", () => {
