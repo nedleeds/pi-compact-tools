@@ -25,7 +25,16 @@ import {
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { Container, Key, matchesKey, Text, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	Container,
+	isKeyRelease,
+	Key,
+	matchesKey,
+	sliceByColumn,
+	stripTerminalSequences,
+	visibleWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import {
 	classifyCallStatus,
 	formatDurationMs,
@@ -406,10 +415,17 @@ function resetUiState(clearTimings = false): void {
 	if (clearTimings) executionTimings.clear();
 }
 
+export function classifyToggleInput(data: string): "toggle" | "release" | undefined {
+	if (!matchesKey(data, Key.ctrl("o"))) return undefined;
+	return isKeyRelease(data) ? "release" : "toggle";
+}
+
 function bindTerminalInput(ctx: ExtensionContext): void {
 	unsubscribeTerminalInput?.();
 	unsubscribeTerminalInput = ctx.ui.onTerminalInput((data) => {
-		if (!matchesKey(data, Key.ctrl("o"))) return undefined;
+		const input = classifyToggleInput(data);
+		if (!input) return undefined;
+		if (input === "release") return { consume: true };
 		const result = toggleTrackedRows();
 		if (result) ctx.ui.notify(`Compact tool rows: ${result}`, "info");
 		return { consume: true };
@@ -472,7 +488,47 @@ function styleDurationIcon(theme: Theme, indicator: DurationIndicatorConfig): st
 	return `${ansi}${indicator.icon}\x1b[39m`;
 }
 
-function renderControls(theme: Theme, state: RowState, running: boolean, isError: boolean): Text {
+function prefixedText(text: string, firstPrefix: string, continuationPrefix = firstPrefix): Component {
+	return {
+		render(width: number) {
+			const prefixWidth = Math.max(visibleWidth(firstPrefix), visibleWidth(continuationPrefix));
+			const lines = wrapTextWithAnsi(text.replace(/\t/g, "   "), Math.max(1, width - prefixWidth));
+			return lines.map((line, index) => `${index === 0 ? firstPrefix : continuationPrefix}${line}`);
+		},
+		invalidate() {},
+	};
+}
+
+export function hardWrapTextWithAnsi(text: string, width: number): string[] {
+	const wrapped: string[] = [];
+	for (const logicalLine of text.replace(/\t/g, "   ").split("\n")) {
+		const lineWidth = visibleWidth(logicalLine);
+		if (lineWidth === 0) {
+			wrapped.push("");
+			continue;
+		}
+		for (let offset = 0; offset < lineWidth; offset += width) {
+			wrapped.push(sliceByColumn(logicalLine, offset, width, true));
+		}
+	}
+	return wrapped;
+}
+
+function renderToolCall(title: string, details: string | undefined, theme: Theme): Component {
+	const combined = details ? `${title} ${details}` : title;
+	const firstPrefix = " ";
+	const continuationPrefix = theme.fg("border", " │ ");
+	return {
+		render(width: number) {
+			const prefixWidth = Math.max(visibleWidth(firstPrefix), visibleWidth(continuationPrefix));
+			const lines = hardWrapTextWithAnsi(combined, Math.max(1, width - prefixWidth));
+			return lines.map((line, index) => `${index === 0 ? firstPrefix : continuationPrefix}${line}`);
+		},
+		invalidate() {},
+	};
+}
+
+function renderControls(theme: Theme, state: RowState, running: boolean, isError: boolean): Component {
 	const duration = running && !animateRows ? undefined : formatDuration(state);
 	const levels = state.availableLevels ?? [0, 1];
 	const expandable = levels.length > 1;
@@ -488,7 +544,7 @@ function renderControls(theme: Theme, state: RowState, running: boolean, isError
 		? `${styleDurationIcon(theme, indicator)} ${theme.fg("borderAccent", status)}`
 		: theme.fg("borderAccent", status);
 	if (action) details += theme.fg("borderAccent", `, ${action}`);
-	return new Text(`${theme.fg("border", " └─ ")}${details}`, 0, 0);
+	return prefixedText(details, theme.fg("border", " └─ "), "    ");
 }
 
 function firstLine(value: string, maxLength = 100): string {
@@ -507,10 +563,21 @@ function getTextResult(result: AgentToolResult<unknown>): string {
 function withoutLeadingBlankLines(component: Component, theme: Theme): Component {
 	return {
 		render(width: number) {
-			const lines = component.render(Math.max(1, width - 4));
+			const lines = component.render(Math.max(1, width - 3));
 			const firstContentLine = lines.findIndex((line) => visibleWidth(line.trim()) > 0);
-			const prefix = theme.fg("border", " │  ");
-			return firstContentLine < 0 ? [] : lines.slice(firstContentLine).map((line) => `${prefix}${line}`);
+			if (firstContentLine < 0) return [];
+
+			const contentLines = lines.slice(firstContentLine);
+			const commonIndent = Math.min(
+				...contentLines
+					.filter((line) => visibleWidth(line.trim()) > 0)
+					.map((line) => stripTerminalSequences(line).match(/^ */)?.[0].length ?? 0),
+			);
+			const prefix = theme.fg("border", " │ ");
+			return contentLines.map((line) => {
+				const content = sliceByColumn(line, commonIndent, Math.max(0, visibleWidth(line) - commonIndent), true);
+				return `${prefix}${content}`;
+			});
 		},
 		invalidate() {
 			component.invalidate?.();
@@ -526,18 +593,17 @@ function styleToolOutput(text: string, theme: Theme, isError: boolean): string {
 		.join("");
 }
 
-function renderPreview(output: string, level: number, theme: Theme, isError: boolean): Text | undefined {
+function renderPreview(output: string, level: number, theme: Theme, isError: boolean): Component | undefined {
 	const normalized = normalizeLineEndings(output).trimEnd();
 	if (!normalized) return undefined;
 
 	const lines = normalized.split("\n");
 	const shown = level >= MAX_LEVEL ? lines : lines.slice(0, config.previewLines);
-	const prefix = theme.fg("border", " │  ");
-	let text = shown.map((line) => `${prefix}${styleToolOutput(line, theme, isError)}`).join("\n");
+	let text = shown.map((line) => styleToolOutput(line, theme, isError)).join("\n");
 	if (shown.length < lines.length) {
-		text += `\n${prefix}${theme.fg("dim", `… ${lines.length - shown.length} more lines`)}`;
+		text += `\n${theme.fg("dim", `… ${lines.length - shown.length} more lines`)}`;
 	}
-	return new Text(text, 0, 0);
+	return prefixedText(text, theme.fg("border", " │ "));
 }
 
 function getPathArg(args: ToolArgs): string {
@@ -561,14 +627,9 @@ function getFileArgumentDetails(name: string, args: ToolArgs): ToolArgs {
 	return Object.fromEntries(Object.entries(args).filter(([key, value]) => !omitted.has(key) && value !== undefined));
 }
 
-function renderArguments(args: ToolArgs, theme: Theme): Text {
+function renderArguments(args: ToolArgs, theme: Theme): Component {
 	const json = JSON.stringify(args, null, 2) ?? "{}";
-	const prefix = theme.fg("border", " │  ");
-	const text = json
-		.split("\n")
-		.map((line) => `${prefix}${theme.fg("toolOutput", line)}`)
-		.join("\n");
-	return new Text(text, 0, 0);
+	return prefixedText(theme.fg("toolOutput", json), theme.fg("border", " │ "));
 }
 
 function callOriginalEditResult(
@@ -613,12 +674,11 @@ function renderFileCall(
 	const level = advanceLevel(state, ctx.expanded, definition.name as CompactToolName);
 	const callDetails = getCallDetails(definition.name, args);
 	const argumentDetails = getFileArgumentDetails(definition.name, args);
-	let text = `${renderIndicator(theme, state, status)} `;
-	text += theme.fg("toolTitle", theme.bold(definition.name));
-	if (callDetails) text += ` ${theme.fg("toolOutput", callDetails)}`;
+	const title = `${renderIndicator(theme, state, status)} ${theme.fg("toolTitle", theme.bold(definition.name))}`;
+	const details = callDetails ? theme.fg("toolOutput", callDetails) : undefined;
 
 	const container = new Container();
-	container.addChild(new Text(text, 1, 0));
+	container.addChild(renderToolCall(title, details, theme));
 	if (level >= 1 && Object.keys(argumentDetails).length > 0) {
 		container.addChild(renderArguments(argumentDetails, theme));
 	}
@@ -711,7 +771,7 @@ function renderShellCall(
 	args: BashToolInput,
 	theme: Theme,
 	ctx: RenderContext<BashToolInput>,
-): Text {
+): Component {
 	const state = syncRow(ctx, ctx.state.endedAt === undefined);
 	trackRow(ctx, name, state);
 	// A completed timing can be restored inside syncRow. Derive the rendered
@@ -720,9 +780,9 @@ function renderShellCall(
 	const level = advanceLevel(state, ctx.expanded, name);
 	const command = normalizeLineEndings(args.command ?? "");
 	const displayedCommand = (level >= 1 ? command : firstLine(command)) || "…";
-	let text = `${renderIndicator(theme, state, status)} `;
-	text += `${theme.fg("toolTitle", theme.bold(name))} ${theme.fg("toolOutput", displayedCommand)}`;
-	return new Text(text, 1, 0);
+	const title = `${renderIndicator(theme, state, status)} ${theme.fg("toolTitle", theme.bold(name))}`;
+	const details = theme.fg("toolOutput", displayedCommand);
+	return renderToolCall(title, details, theme);
 }
 
 function renderShellResult(
@@ -744,9 +804,8 @@ function renderShellResult(
 	const preview = renderPreview(output, level, theme, ctx.isError);
 	if (preview) container.addChild(preview);
 	else {
-		const prefix = theme.fg("border", " │  ");
 		const message = theme.fg("dim", options.isPartial ? "…" : "(no output)");
-		container.addChild(new Text(`${prefix}${message}`, 0, 0));
+		container.addChild(prefixedText(message, theme.fg("border", " │ ")));
 	}
 	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError));
 	return container;

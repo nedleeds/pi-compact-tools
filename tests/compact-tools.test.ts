@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	classifyCallStatus,
 	formatDurationMs,
@@ -10,6 +11,7 @@ import {
 	shouldExpandAll,
 	type DurationIndicatorConfig,
 } from "../extensions/compact-tools-core.ts";
+import { classifyToggleInput, hardWrapTextWithAnsi } from "../extensions/compact-tools.ts";
 
 const indicators: DurationIndicatorConfig[] = [
 	{ underMs: 1_000, icon: "fast" },
@@ -25,6 +27,22 @@ test("normalizes CRLF, LF, and CR line endings", () => {
 test("formats durations with millisecond precision", () => {
 	assert.equal(formatDurationMs(23), "0.023s");
 	assert.equal(formatDurationMs(1_039), "1.039s");
+});
+
+test("ignores Ctrl+O key releases while accepting press events", () => {
+	assert.equal(classifyToggleInput("\x0f"), "toggle");
+	assert.equal(classifyToggleInput("\x1b[111;5u"), "toggle");
+	assert.equal(classifyToggleInput("\x1b[111;5:3u"), "release");
+	assert.equal(classifyToggleInput("x"), undefined);
+});
+
+test("hard-wraps long ANSI paths into remaining columns instead of moving the path", () => {
+	const input = `● read \x1b[90m/var/folders/example-with-a-long-name.png\x1b[39m`;
+	const lines = hardWrapTextWithAnsi(input, 16);
+	assert.ok(stripTerminalSequences(lines[0]!).startsWith("● read /var/"));
+	assert.ok(lines.length > 1);
+	assert.ok(lines.every((line) => visibleWidth(line) <= 16));
+	assert.equal(lines.map(stripTerminalSequences).join(""), stripTerminalSequences(input));
 });
 
 
