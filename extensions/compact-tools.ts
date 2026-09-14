@@ -134,7 +134,7 @@ function renderControls(
 	let details = indicator
 		? `${styleDurationIcon(theme, indicator)} ${theme.fg("borderAccent", status)}`
 		: theme.fg("borderAccent", status);
-	if (summary) details = `${theme.fg("borderAccent", `${summary} • `)}${details}`;
+	if (summary) details += theme.fg("borderAccent", ` • ${summary}`);
 	if (state.hasResult) {
 		const clickAction = state.expanded ? "to hide" : "for result";
 		details += theme.fg(
