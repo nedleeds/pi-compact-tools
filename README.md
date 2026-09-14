@@ -22,7 +22,7 @@ The spinner animates during execution, then changes to a duration-aware completi
 
 ### Initially visible edit diffs
 
-Completed `edit` rows show their full diff initially by default. The per-tool `auto_compact` setting controls which tools start in their compact summary state without disabling click or `Ctrl+O` interaction.
+Completed `edit` rows show their full diff initially by default. The per-tool `auto_compact` setting controls which tools start with their result hidden without disabling click or `Ctrl+O` interaction.
 
 ![Edit diff](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/edit-diff.gif)
 
@@ -32,8 +32,9 @@ Completed `edit` rows show their full diff initially by default. The per-tool `a
 - Animated configurable spinner in fullscreen TUI mode
 - Millisecond-precision duration and configurable completion icons
 - Per-tool initial compaction and global-toggle participation with `auto_compact: true` or `false`
-- Click cycles one row through meaningful detail levels; `Ctrl+O` expands or collapses all participating rows
-- Short previews, full output, and initially visible edit diffs by default
+- Tool invocation details are always fully visible
+- Click toggles one result between hidden and fully visible; `Ctrl+O` toggles all participating rows
+- Full output on expansion and initially visible edit diffs by default
 - Dark `│` and `└─` visual grouping
 - Distinct cool-blue thinking text
 - Windows, Unix, and classic Mac line-ending support
@@ -106,9 +107,9 @@ For a minimal blinking spinner that reuses the successful-tool circle, copy [`ex
 
 `auto_compact` controls each tool's initial state and whether it participates in the global `Ctrl+O` toggle:
 
-- `true` starts at the compact summary and participates in `Ctrl+O`.
-- `false` starts at the most detailed available level and is unaffected by `Ctrl+O`.
-- Clicking any compact-rendered row still cycles that row through its available levels.
+- `true` starts with the result hidden and participates in `Ctrl+O`.
+- `false` starts with the full result visible and is unaffected by `Ctrl+O`.
+- Clicking any compact-rendered row still toggles that row's result.
 
 Unspecified entries inherit the previous configuration layer. By default, `read`, `write`, and `bash` start compact and participate in the global toggle, while `edit` starts expanded and remains unaffected so code diffs stay visible.
 
@@ -150,13 +151,9 @@ The escaped code points remain readable on GitHub and are decoded to Nerd Font i
 
 ## Controls
 
-For file-oriented tools, a mouse click cycles one row through its available content:
+Every tool's complete invocation is always visible, including paths, patterns, shell commands, and auxiliary arguments. Large payloads represented as results, such as write content and edit diffs, follow the result toggle.
 
-```text
-summary → arguments → output preview → full output → summary
-```
-
-For `bash` and `powershell`, the full command is always visible. Clicking or expanding only toggles the result:
+A mouse click toggles one row's result:
 
 ```text
 result hidden ↔ full result

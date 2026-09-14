@@ -334,12 +334,6 @@ function setAvailableLevels(state: RowState, levels: number[], name: CompactTool
 	}
 }
 
-function getOutputLevels(output: string): number[] {
-	const normalized = normalizeLineEndings(output).trimEnd();
-	if (!normalized) return [];
-	return normalized.split("\n").length > config.previewLines ? [2, 3] : [2];
-}
-
 function stopSpinner(state: RowState): void {
 	if (state.timer) clearInterval(state.timer);
 	state.timer = undefined;
@@ -547,11 +541,6 @@ function renderControls(theme: Theme, state: RowState, running: boolean, isError
 	return prefixedText(details, theme.fg("border", " └─ "), "    ");
 }
 
-function firstLine(value: string, maxLength = 100): string {
-	const line = normalizeLineEndings(value).split("\n")[0] ?? "";
-	return line.length > maxLength ? `${line.slice(0, maxLength - 1)}…` : line;
-}
-
 function getTextResult(result: AgentToolResult<unknown>): string {
 	const text = result.content
 		.filter((item) => item.type === "text")
@@ -593,27 +582,24 @@ function styleToolOutput(text: string, theme: Theme, isError: boolean): string {
 		.join("");
 }
 
-function renderPreview(output: string, level: number, theme: Theme, isError: boolean): Component | undefined {
+function renderOutput(output: string, theme: Theme, isError: boolean): Component | undefined {
 	const normalized = normalizeLineEndings(output).trimEnd();
 	if (!normalized) return undefined;
-
-	const lines = normalized.split("\n");
-	const shown = level >= MAX_LEVEL ? lines : lines.slice(0, config.previewLines);
-	let text = shown.map((line) => styleToolOutput(line, theme, isError)).join("\n");
-	if (shown.length < lines.length) {
-		text += `\n${theme.fg("dim", `… ${lines.length - shown.length} more lines`)}`;
-	}
+	const text = normalized
+		.split("\n")
+		.map((line) => styleToolOutput(line, theme, isError))
+		.join("\n");
 	return prefixedText(text, theme.fg("border", " │ "));
 }
 
 function getPathArg(args: ToolArgs): string {
 	const value = args.path ?? args.file_path;
-	return typeof value === "string" ? firstLine(value) : "";
+	return typeof value === "string" ? normalizeLineEndings(value) : "";
 }
 
 function getCallDetails(name: string, args: ToolArgs): string {
 	const path = getPathArg(args) || (name === "grep" || name === "find" || name === "ls" ? "." : "");
-	const pattern = typeof args.pattern === "string" ? firstLine(args.pattern) : "…";
+	const pattern = typeof args.pattern === "string" ? normalizeLineEndings(args.pattern) : "…";
 	if (name === "grep") return `/${pattern}/ in ${path}`;
 	if (name === "find") return `${pattern} in ${path}`;
 	return path;
@@ -671,7 +657,7 @@ function renderFileCall(
 	// syncRow may restore a completed timing after /reload. Recompute from the
 	// synchronized state so a stale local value cannot leave the spinner visible.
 	const status = resolveCallStatus(ctx, state);
-	const level = advanceLevel(state, ctx.expanded, definition.name as CompactToolName);
+	advanceLevel(state, ctx.expanded, definition.name as CompactToolName);
 	const callDetails = getCallDetails(definition.name, args);
 	const argumentDetails = getFileArgumentDetails(definition.name, args);
 	const title = `${renderIndicator(theme, state, status)} ${theme.fg("toolTitle", theme.bold(definition.name))}`;
@@ -679,9 +665,7 @@ function renderFileCall(
 
 	const container = new Container();
 	container.addChild(renderToolCall(title, details, theme));
-	if (level >= 1 && Object.keys(argumentDetails).length > 0) {
-		container.addChild(renderArguments(argumentDetails, theme));
-	}
+	if (Object.keys(argumentDetails).length > 0) container.addChild(renderArguments(argumentDetails, theme));
 	return container;
 }
 
@@ -694,15 +678,15 @@ function addFileResultPreview(
 	theme: Theme,
 	isError: boolean,
 ): void {
-	if (level < 2) return;
+	if (level < MAX_LEVEL) return;
 	if (definition.name === "edit") {
 		if (state.originalResultComponent) {
 			container.addChild(withoutLeadingBlankLines(state.originalResultComponent, theme));
 		}
 		return;
 	}
-	const preview = renderPreview(output, level, theme, isError);
-	if (preview) container.addChild(preview);
+	const renderedOutput = renderOutput(output, theme, isError);
+	if (renderedOutput) container.addChild(renderedOutput);
 }
 
 function renderFileResult(
@@ -715,8 +699,7 @@ function renderFileResult(
 	const state = syncRow(ctx, options.isPartial, !options.isPartial);
 	trackRow(ctx, definition.name as CompactToolName, state);
 	const output = getFileOutput(definition.name, ctx.args, result, ctx.isError);
-	const hasArguments = Object.keys(getFileArgumentDetails(definition.name, ctx.args)).length > 0;
-	const levels = definition.name === "edit" ? [0, MAX_LEVEL] : [0, ...(hasArguments ? [1] : []), ...getOutputLevels(output)];
+	const levels = definition.name === "edit" ? [0, MAX_LEVEL] : getBinaryOutputLevels(output);
 	setAvailableLevels(state, levels, definition.name as CompactToolName);
 
 	const level = state.level ?? 0;
@@ -784,7 +767,7 @@ function renderShellCall(
 	return renderToolCall(title, details, theme);
 }
 
-export function getShellOutputLevels(output: string): number[] {
+export function getBinaryOutputLevels(output: string): number[] {
 	return output ? [0, MAX_LEVEL] : [0];
 }
 
@@ -798,13 +781,13 @@ function renderShellResult(
 	const state = syncRow(ctx, options.isPartial, !options.isPartial);
 	trackRow(ctx, name, state);
 	const output = getTextResult(result);
-	setAvailableLevels(state, getShellOutputLevels(output), name);
+	setAvailableLevels(state, getBinaryOutputLevels(output), name);
 	const level = state.level ?? 0;
 	if (level < MAX_LEVEL) return renderControls(theme, state, options.isPartial, ctx.isError);
 
 	const container = new Container();
-	const preview = renderPreview(output, MAX_LEVEL, theme, ctx.isError);
-	if (preview) container.addChild(preview);
+	const renderedOutput = renderOutput(output, theme, ctx.isError);
+	if (renderedOutput) container.addChild(renderedOutput);
 	else {
 		const message = theme.fg("dim", options.isPartial ? "…" : "(no output)");
 		container.addChild(prefixedText(message, theme.fg("border", " │ ")));

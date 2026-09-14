@@ -11,7 +11,7 @@ import {
 	shouldExpandAll,
 	type DurationIndicatorConfig,
 } from "../extensions/compact-tools-core.ts";
-import { classifyToggleInput, getShellOutputLevels, hardWrapTextWithAnsi } from "../extensions/compact-tools.ts";
+import { classifyToggleInput, getBinaryOutputLevels, hardWrapTextWithAnsi } from "../extensions/compact-tools.ts";
 
 const indicators: DurationIndicatorConfig[] = [
 	{ underMs: 1_000, icon: "fast" },
@@ -45,10 +45,10 @@ test("hard-wraps long ANSI paths into remaining columns instead of moving the pa
 	assert.equal(lines.map(stripTerminalSequences).join(""), stripTerminalSequences(input));
 });
 
-test("uses a binary hidden/full expansion model for shell output", () => {
-	assert.deepEqual(getShellOutputLevels(""), [0]);
-	assert.deepEqual(getShellOutputLevels("one line"), [0, 3]);
-	assert.deepEqual(getShellOutputLevels("line 1\nline 2\nline 3"), [0, 3]);
+test("uses a binary hidden/full expansion model for tool output", () => {
+	assert.deepEqual(getBinaryOutputLevels(""), [0]);
+	assert.deepEqual(getBinaryOutputLevels("one line"), [0, 3]);
+	assert.deepEqual(getBinaryOutputLevels("line 1\nline 2\nline 3"), [0, 3]);
 });
 
 
