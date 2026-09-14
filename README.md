@@ -35,7 +35,7 @@ Completed `edit` rows show their full diff initially by default. The per-tool `a
 - Click or `Ctrl+O` always cycles through meaningful detail levels
 - Short previews, full output, and initially visible edit diffs by default
 - Dark `│` and `└─` visual grouping
-- Cool-blue thinking text with a subtle left border
+- Distinct cool-blue thinking text
 - Windows, Unix, and classic Mac line-ending support
 - No Nerd Font requirement
 

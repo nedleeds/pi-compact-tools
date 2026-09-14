@@ -3,7 +3,6 @@ import test from "node:test";
 import {
 	classifyCallStatus,
 	formatDurationMs,
-	formatThinkingBlockquote,
 	normalizeLineEndings,
 	parseDurationIndicators,
 	rgbToAnsi256,
@@ -27,10 +26,6 @@ test("formats durations with millisecond precision", () => {
 	assert.equal(formatDurationMs(1_039), "1.039s");
 });
 
-test("wraps thinking markdown in one continuous blockquote", () => {
-	assert.equal(formatThinkingBlockquote("first\n\nsecond"), "> first\n>\n> second");
-	assert.equal(formatThinkingBlockquote("```ts\r\nconst x = 1;\r\n```"), "> ```ts\n> const x = 1;\n> ```");
-});
 
 test("classifies pending, running, completed, and failed calls", () => {
 	assert.equal(classifyCallStatus(false, false, false), "pending");

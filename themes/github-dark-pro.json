@@ -12,7 +12,8 @@
     "toolStatus": "#59616B",
     "blue": "#58A6FF",
     "blueSoft": "#79C0FF",
-    "inlineCode": "#7A96FF",
+    "quoteText": "#86C6FF",
+    "inlineCode": "#D2A8FF",
     "green": "#3FB950",
     "red": "#F85149",
     "yellow": "#E0A052",
@@ -21,8 +22,7 @@
     "toolAccent": "#95A7FF",
     "toolName": "#8B85D6",
     "toolText": "#98A1AC",
-    "thinkingText": "#7A8BA6",
-    "thinkingBorder": "#47586F",
+    "thinkingText": "#9FCFF8",
     "pink": "#FF7B72"
   },
   "colors": {
@@ -60,8 +60,8 @@
     "mdCode": "inlineCode",
     "mdCodeBlock": "text",
     "mdCodeBlockBorder": "#484F58",
-    "mdQuote": "thinkingText",
-    "mdQuoteBorder": "thinkingBorder",
+    "mdQuote": "quoteText",
+    "mdQuoteBorder": "border",
     "mdHr": "borderSubtle",
     "mdListBullet": "muted",
 

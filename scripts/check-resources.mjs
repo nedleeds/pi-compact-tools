@@ -23,8 +23,8 @@ if (theme.name !== "github-dark-pro" || !theme.colors || typeof theme.colors !==
 if (!theme.colors.border || !theme.colors.dim || !theme.colors.muted) {
   throw new Error("github-dark-pro must define spinner and separator colors");
 }
-if (!theme.vars?.thinkingText || !theme.vars?.thinkingBorder) {
-  throw new Error("github-dark-pro must define distinct thinking text and border colors");
+if (!theme.vars?.thinkingText) {
+  throw new Error("github-dark-pro must define a distinct thinking text color");
 }
 
 const example = JSON.parse(

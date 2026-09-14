@@ -53,12 +53,6 @@ export function normalizeLineEndings(value: string): string {
 	return value.replace(/\r\n?|\n/g, "\n");
 }
 
-export function formatThinkingBlockquote(markdown: string): string {
-	return normalizeLineEndings(markdown)
-		.split("\n")
-		.map((line) => line ? `> ${line}` : ">")
-		.join("\n");
-}
 
 export function classifyCallStatus(isError: boolean, executionStarted: boolean, completed: boolean): RowStatus {
 	if (isError) return "error";
