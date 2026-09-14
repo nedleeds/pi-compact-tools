@@ -31,8 +31,8 @@ Completed `edit` rows show their full diff initially by default. The per-tool `a
 - Compact rendering for `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`
 - Animated configurable spinner in fullscreen TUI mode
 - Millisecond-precision duration and configurable completion icons
-- Per-tool initial compaction with `auto_compact: true` or `false`
-- Click or `Ctrl+O` always cycles through meaningful detail levels
+- Per-tool initial compaction and global-toggle participation with `auto_compact: true` or `false`
+- Click cycles one row through meaningful detail levels; `Ctrl+O` expands or collapses all participating rows
 - Short previews, full output, and initially visible edit diffs by default
 - Dark `│` and `└─` visual grouping
 - Distinct cool-blue thinking text
@@ -104,13 +104,13 @@ These defaults use emoji and standard Unicode, so they work without a Nerd Font.
 
 For a minimal blinking spinner that reuses the successful-tool circle, copy [`examples/compact-tools-2.json`](examples/compact-tools-2.json). Its frames use `● ● (blank) ● ●` at 120 ms intervals. The renderer's built-in frame dimming turns this into a fade-out/fade-in animation without Nerd Font glyphs. Duration indicators use a small `•` whose color changes by elapsed time; the fast tier uses the theme's warning color value `#E0A052` directly. Rename it to `compact-tools.json` or copy its contents to the active configuration path.
 
-`auto_compact` controls each tool's initial state independently:
+`auto_compact` controls each tool's initial state and whether it participates in the global `Ctrl+O` toggle:
 
-- `true` starts at the compact summary.
-- `false` starts at the most detailed available level.
-- Click or `Ctrl+O` continues to cycle through available levels in either case.
+- `true` starts at the compact summary and participates in `Ctrl+O`.
+- `false` starts at the most detailed available level and is unaffected by `Ctrl+O`.
+- Clicking any compact-rendered row still cycles that row through its available levels.
 
-Unspecified entries inherit the previous configuration layer. By default, `read`, `write`, and `bash` start compact, while `edit` starts expanded so code diffs are immediately visible.
+Unspecified entries inherit the previous configuration layer. By default, `read`, `write`, and `bash` start compact and participate in the global toggle, while `edit` starts expanded and remains unaffected so code diffs stay visible.
 
 `durationIndicators` must have ascending `underMs` values, with a final fallback entry that omits `underMs`. `color` is optional and accepts a supported theme color or six-digit hex value. Existing icon-only configurations remain compatible.
 
@@ -150,13 +150,19 @@ The escaped code points remain readable on GitHub and are decoded to Nerd Font i
 
 ## Controls
 
-`Ctrl+O` or a mouse click cycles only through available content:
+A mouse click cycles one row through its available content:
 
 ```text
 summary → arguments → output preview → full output → summary
 ```
 
-The `auto_compact` boolean only chooses where that cycle starts. With the default `edit: false`, the diff starts visible and the next click collapses it.
+`Ctrl+O` operates on all rows whose tool has `auto_compact: true`:
+
+- If any participating row is not fully expanded, it expands all participating rows.
+- If every participating row is fully expanded, it collapses all participating rows.
+- Rows whose tool has `auto_compact: false` are left unchanged.
+
+The extension handles and consumes `Ctrl+O` directly, so no Pi keybinding changes are required. With the default `edit: false`, edit diffs start visible and are excluded from the global toggle, while clicking an edit row still collapses or expands it.
 
 ## Notes
 

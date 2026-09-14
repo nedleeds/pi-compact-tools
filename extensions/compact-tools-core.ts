@@ -13,6 +13,14 @@ export type DurationIndicatorConfig = {
 	color?: DurationIndicatorColor;
 };
 export type RowStatus = "pending" | "running" | "success" | "error";
+export type ExpandableLevelState = {
+	level?: number;
+	levels: readonly number[];
+};
+
+export function shouldExpandAll(rows: readonly ExpandableLevelState[]): boolean {
+	return rows.some(({ level, levels }) => level !== levels.at(-1));
+}
 
 const DURATION_INDICATOR_COLOR_SET = new Set<string>(DURATION_INDICATOR_COLORS);
 export const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;

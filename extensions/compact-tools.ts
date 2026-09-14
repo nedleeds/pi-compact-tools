@@ -7,6 +7,7 @@ import type {
 	BashToolDetails,
 	BashToolInput,
 	ExtensionAPI,
+	ExtensionContext,
 	Theme,
 	ToolDefinition,
 	ToolRenderResultOptions,
@@ -24,7 +25,7 @@ import {
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { Container, Text, visibleWidth } from "@earendil-works/pi-tui";
+import { Container, Key, matchesKey, Text, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	classifyCallStatus,
 	formatDurationMs,
@@ -33,6 +34,7 @@ import {
 	parseDurationIndicators,
 	rgbToAnsi256,
 	selectDurationIndicator,
+	shouldExpandAll,
 	type DurationIndicatorConfig,
 	type RowStatus,
 	type ThemeDurationIndicatorColor,
@@ -82,13 +84,16 @@ export const DEFAULT_CONFIG: CompactToolsConfig = {
 };
 
 let config = DEFAULT_CONFIG;
+let configRevision: object = {};
 let animateRows = false;
+let unsubscribeTerminalInput: (() => void) | undefined;
 const registeredCompactTools = new Set<CompactToolName>();
 
 interface RowState {
 	level?: number;
 	availableLevels?: number[];
 	lastExpanded?: boolean;
+	configRevision?: object;
 	frame?: number;
 	startedAt?: number;
 	endedAt?: number;
@@ -240,7 +245,13 @@ export function loadConfig(cwd?: string, projectTrusted = false): CompactToolsCo
 
 const SPINNING_ROWS_KEY = Symbol.for("pi.compact-tools.spinning-rows");
 const EXECUTION_TIMINGS_KEY = Symbol.for("pi.compact-tools.execution-timings");
+const MAX_TRACKED_ROWS = 2_000;
 type ExecutionTiming = { startedAt: number; endedAt?: number };
+type TrackedRow = {
+	state: RowState;
+	name: CompactToolName;
+	invalidate: () => void;
+};
 const globalState = globalThis as typeof globalThis & {
 	[SPINNING_ROWS_KEY]?: Set<RowState>;
 	[EXECUTION_TIMINGS_KEY]?: Map<string, ExecutionTiming>;
@@ -250,12 +261,48 @@ for (const staleState of globalState[SPINNING_ROWS_KEY] ?? []) {
 }
 const spinningRows = new Set<RowState>();
 const executionTimings = globalState[EXECUTION_TIMINGS_KEY] ?? new Map<string, ExecutionTiming>();
+const trackedRows = new Map<string, TrackedRow>();
 globalState[SPINNING_ROWS_KEY] = spinningRows;
 globalState[EXECUTION_TIMINGS_KEY] = executionTimings;
 
+function trackRow(ctx: RenderContext, name: CompactToolName, state: RowState): void {
+	trackedRows.delete(ctx.toolCallId);
+	trackedRows.set(ctx.toolCallId, { state, name, invalidate: ctx.invalidate });
+	if (trackedRows.size <= MAX_TRACKED_ROWS) return;
+	const oldestToolCallId = trackedRows.keys().next().value;
+	if (oldestToolCallId !== undefined) trackedRows.delete(oldestToolCallId);
+}
+
+function toggleTrackedRows(): "expanded" | "collapsed" | undefined {
+	const rows = [...trackedRows.values()].filter(({ name, state }) => {
+		const levels = state.availableLevels ?? [0, 1];
+		return config.auto_compact[name] && levels.length > 1;
+	});
+	if (rows.length === 0) return undefined;
+
+	const expand = shouldExpandAll(rows.map(({ state }) => ({
+		level: state.level,
+		levels: state.availableLevels ?? [0, 1],
+	})));
+	for (const { state, invalidate } of rows) {
+		const levels = state.availableLevels ?? [0, 1];
+		state.level = expand ? (levels.at(-1) ?? 0) : (levels[0] ?? 0);
+		invalidate();
+	}
+	return expand ? "expanded" : "collapsed";
+}
+
+function initializeRowLevel(state: RowState, name: CompactToolName, levels = state.availableLevels): boolean {
+	if (state.configRevision === configRevision) return false;
+	state.configRevision = configRevision;
+	state.level = config.auto_compact[name] ? (levels?.[0] ?? 0) : (levels?.at(-1) ?? MAX_LEVEL);
+	return true;
+}
+
 function advanceLevel(state: RowState, expanded: boolean, name: CompactToolName): number {
+	const initialized = initializeRowLevel(state, name);
 	state.level ??= config.auto_compact[name] ? 0 : (state.availableLevels?.at(-1) ?? MAX_LEVEL);
-	if (state.lastExpanded === undefined) {
+	if (initialized || state.lastExpanded === undefined) {
 		state.lastExpanded = expanded;
 		return state.level;
 	}
@@ -270,6 +317,7 @@ function advanceLevel(state: RowState, expanded: boolean, name: CompactToolName)
 
 function setAvailableLevels(state: RowState, levels: number[], name: CompactToolName): void {
 	state.availableLevels = levels;
+	if (initializeRowLevel(state, name, levels)) return;
 	if (state.level === undefined) {
 		state.level = config.auto_compact[name] ? 0 : (levels.at(-1) ?? 0);
 	} else if (!levels.includes(state.level)) {
@@ -354,7 +402,18 @@ function syncRow(
 
 function resetUiState(clearTimings = false): void {
 	for (const state of [...spinningRows]) stopSpinner(state);
+	trackedRows.clear();
 	if (clearTimings) executionTimings.clear();
+}
+
+function bindTerminalInput(ctx: ExtensionContext): void {
+	unsubscribeTerminalInput?.();
+	unsubscribeTerminalInput = ctx.ui.onTerminalInput((data) => {
+		if (!matchesKey(data, Key.ctrl("o"))) return undefined;
+		const result = toggleTrackedRows();
+		if (result) ctx.ui.notify(`Compact tool rows: ${result}`, "info");
+		return { consume: true };
+	});
 }
 
 function spinnerTone(frameIndex: number, frameCount: number): "muted" | "dim" | "border" {
@@ -419,7 +478,7 @@ function renderControls(theme: Theme, state: RowState, running: boolean, isError
 	const expandable = levels.length > 1;
 	const atLastLevel = state.level === levels.at(-1);
 	const action = expandable
-		? `${theme.italic("ctrl+o")} ${atLastLevel ? "to collapse" : "for more"}`
+		? `${theme.italic("ctrl+o")} toggle all • ${theme.italic("click")} ${atLastLevel ? "to collapse" : "for more"}`
 		: undefined;
 	const indicator = !running && !isError ? durationIndicator(state) : undefined;
 	const status = running
@@ -547,6 +606,7 @@ function renderFileCall(
 	// Animate and time from the first rendered call so large write/edit calls
 	// represent the full lifecycle, including streamed arguments and filesystem work.
 	const state = syncRow(ctx, ctx.state.endedAt === undefined);
+	trackRow(ctx, definition.name as CompactToolName, state);
 	// syncRow may restore a completed timing after /reload. Recompute from the
 	// synchronized state so a stale local value cannot leave the spinner visible.
 	const status = resolveCallStatus(ctx, state);
@@ -593,6 +653,7 @@ function renderFileResult(
 	ctx: RenderContext,
 ): Container {
 	const state = syncRow(ctx, options.isPartial, !options.isPartial);
+	trackRow(ctx, definition.name as CompactToolName, state);
 	const output = getFileOutput(definition.name, ctx.args, result, ctx.isError);
 	const hasArguments = Object.keys(getFileArgumentDetails(definition.name, ctx.args)).length > 0;
 	const levels = definition.name === "edit" ? [0, MAX_LEVEL] : [0, ...(hasArguments ? [1] : []), ...getOutputLevels(output)];
@@ -652,6 +713,7 @@ function renderShellCall(
 	ctx: RenderContext<BashToolInput>,
 ): Text {
 	const state = syncRow(ctx, ctx.state.endedAt === undefined);
+	trackRow(ctx, name, state);
 	// A completed timing can be restored inside syncRow. Derive the rendered
 	// status afterward so completion immediately replaces the spinner.
 	const status = resolveCallStatus(ctx, state);
@@ -671,6 +733,7 @@ function renderShellResult(
 	ctx: RenderContext<BashToolInput>,
 ): Component {
 	const state = syncRow(ctx, options.isPartial, !options.isPartial);
+	trackRow(ctx, name, state);
 	const output = getTextResult(result);
 	const hasDetailedCall = /\r\n?|\n/.test(ctx.args.command ?? "");
 	setAvailableLevels(state, [0, ...(hasDetailedCall ? [1] : []), ...getOutputLevels(output)], name);
@@ -735,6 +798,7 @@ function applyConfig(pi: ExtensionAPI, cwd: string, projectTrusted: boolean): vo
 	resetUiState();
 	animateRows = getConfiguredTuiMode() === "fullscreen";
 	config = loadConfig(cwd, projectTrusted);
+	configRevision = {};
 	registerBuiltInTools(pi, cwd);
 }
 
@@ -745,7 +809,12 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_start", (event, ctx) => {
 		if (event.reason !== "reload") executionTimings.clear();
 		applyConfig(pi, ctx.cwd, ctx.isProjectTrusted());
+		bindTerminalInput(ctx);
 	});
 	pi.on("resources_discover", (_event, ctx) => applyConfig(pi, ctx.cwd, ctx.isProjectTrusted()));
-	pi.on("session_shutdown", (event) => resetUiState(event.reason !== "reload"));
+	pi.on("session_shutdown", (event) => {
+		unsubscribeTerminalInput?.();
+		unsubscribeTerminalInput = undefined;
+		resetUiState(event.reason !== "reload");
+	});
 }

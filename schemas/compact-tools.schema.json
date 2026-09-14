@@ -19,7 +19,7 @@
       "default": ["read", "write", "edit", "bash"]
     },
     "auto_compact": {
-      "description": "Whether each compact-rendered tool starts in its compact summary state. Click/Ctrl+O remains available regardless of this value.",
+      "description": "Whether each compact-rendered tool starts compact and participates in the global Ctrl+O expand/collapse action. False starts expanded and excludes the tool from that action; clicking remains available.",
       "type": "object",
       "additionalProperties": false,
       "properties": {

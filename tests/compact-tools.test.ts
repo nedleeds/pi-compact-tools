@@ -7,6 +7,7 @@ import {
 	parseDurationIndicators,
 	rgbToAnsi256,
 	selectDurationIndicator,
+	shouldExpandAll,
 	type DurationIndicatorConfig,
 } from "../extensions/compact-tools-core.ts";
 
@@ -32,6 +33,17 @@ test("classifies pending, running, completed, and failed calls", () => {
 	assert.equal(classifyCallStatus(false, true, false), "running");
 	assert.equal(classifyCallStatus(false, true, true), "success");
 	assert.equal(classifyCallStatus(true, true, true), "error");
+});
+
+test("expands mixed rows and collapses only when every row is fully expanded", () => {
+	assert.equal(shouldExpandAll([
+		{ level: 3, levels: [0, 2, 3] },
+		{ level: 0, levels: [0, 1, 2, 3] },
+	]), true);
+	assert.equal(shouldExpandAll([
+		{ level: 3, levels: [0, 2, 3] },
+		{ level: 2, levels: [0, 2] },
+	]), false);
 });
 
 test("selects duration indicators at exact exclusive boundaries", () => {
