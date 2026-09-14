@@ -777,12 +777,15 @@ function renderShellCall(
 	// A completed timing can be restored inside syncRow. Derive the rendered
 	// status afterward so completion immediately replaces the spinner.
 	const status = resolveCallStatus(ctx, state);
-	const level = advanceLevel(state, ctx.expanded, name);
-	const command = normalizeLineEndings(args.command ?? "");
-	const displayedCommand = (level >= 1 ? command : firstLine(command)) || "…";
+	advanceLevel(state, ctx.expanded, name);
+	const command = normalizeLineEndings(args.command ?? "") || "…";
 	const title = `${renderIndicator(theme, state, status)} ${theme.fg("toolTitle", theme.bold(name))}`;
-	const details = theme.fg("toolOutput", displayedCommand);
+	const details = theme.fg("toolOutput", command);
 	return renderToolCall(title, details, theme);
+}
+
+export function getShellOutputLevels(output: string): number[] {
+	return output ? [0, MAX_LEVEL] : [0];
 }
 
 function renderShellResult(
@@ -795,13 +798,12 @@ function renderShellResult(
 	const state = syncRow(ctx, options.isPartial, !options.isPartial);
 	trackRow(ctx, name, state);
 	const output = getTextResult(result);
-	const hasDetailedCall = /\r\n?|\n/.test(ctx.args.command ?? "");
-	setAvailableLevels(state, [0, ...(hasDetailedCall ? [1] : []), ...getOutputLevels(output)], name);
+	setAvailableLevels(state, getShellOutputLevels(output), name);
 	const level = state.level ?? 0;
-	if (level < 2) return renderControls(theme, state, options.isPartial, ctx.isError);
+	if (level < MAX_LEVEL) return renderControls(theme, state, options.isPartial, ctx.isError);
 
 	const container = new Container();
-	const preview = renderPreview(output, level, theme, ctx.isError);
+	const preview = renderPreview(output, MAX_LEVEL, theme, ctx.isError);
 	if (preview) container.addChild(preview);
 	else {
 		const message = theme.fg("dim", options.isPartial ? "…" : "(no output)");

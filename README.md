@@ -150,10 +150,16 @@ The escaped code points remain readable on GitHub and are decoded to Nerd Font i
 
 ## Controls
 
-A mouse click cycles one row through its available content:
+For file-oriented tools, a mouse click cycles one row through its available content:
 
 ```text
 summary → arguments → output preview → full output → summary
+```
+
+For `bash` and `powershell`, the full command is always visible. Clicking or expanding only toggles the result:
+
+```text
+result hidden ↔ full result
 ```
 
 `Ctrl+O` operates on all rows whose tool has `auto_compact: true`:
