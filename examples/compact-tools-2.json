@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/schemas/compact-tools.schema.json",
+  "tools": ["read", "write", "edit", "bash"],
+  "auto_compact": {
+    "read": true,
+    "write": true,
+    "edit": false,
+    "bash": true
+  },
+  "previewLines": 10,
+  "spinner": {
+    "frames": ["●", "●", " ", "●", "●"],
+    "intervalMs": 120
+  },
+  "durationIndicators": [
+    { "underMs": 1000, "icon": "•", "color": "#E0A052" },
+    { "underMs": 10000, "icon": "•", "color": "#D95C3F" },
+    { "underMs": 30000, "icon": "•", "color": "#79C0FF" },
+    { "icon": "•", "color": "#D2A8FF" }
+  ]
+}

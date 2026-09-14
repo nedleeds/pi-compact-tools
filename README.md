@@ -35,6 +35,7 @@ Completed `edit` rows show their full diff initially by default. The per-tool `a
 - Click or `Ctrl+O` always cycles through meaningful detail levels
 - Short previews, full output, and initially visible edit diffs by default
 - Dark `│` and `└─` visual grouping
+- Cool-blue thinking text with a subtle left border
 - Windows, Unix, and classic Mac line-ending support
 - No Nerd Font requirement
 
@@ -100,6 +101,8 @@ Default configuration:
 ```
 
 These defaults use emoji and standard Unicode, so they work without a Nerd Font. Fast tools finish immediately; no artificial spinner delay is added.
+
+For a minimal blinking spinner that reuses the successful-tool circle, copy [`examples/compact-tools-2.json`](examples/compact-tools-2.json). Its frames use `● ● (blank) ● ●` at 120 ms intervals. The renderer's built-in frame dimming turns this into a fade-out/fade-in animation without Nerd Font glyphs. Duration indicators use a small `•` whose color changes by elapsed time; the fast tier uses the theme's warning color value `#E0A052` directly. Rename it to `compact-tools.json` or copy its contents to the active configuration path.
 
 `auto_compact` controls each tool's initial state independently:
 

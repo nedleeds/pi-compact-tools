@@ -28,6 +28,7 @@ import { Container, Text, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	classifyCallStatus,
 	formatDurationMs,
+	formatThinkingBlockquote,
 	HEX_COLOR_PATTERN,
 	normalizeLineEndings,
 	parseDurationIndicators,
@@ -739,6 +740,9 @@ function applyConfig(pi: ExtensionAPI, cwd: string, projectTrusted: boolean): vo
 }
 
 export default function (pi: ExtensionAPI): void {
+	pi.registerMarkdownTransformer((markdown, context) =>
+		context.messageType === "assistant-thinking" ? formatThinkingBlockquote(markdown) : markdown,
+	);
 	animateRows = getConfiguredTuiMode() === "fullscreen";
 	config = loadConfig();
 	registerBuiltInTools(pi, process.cwd());

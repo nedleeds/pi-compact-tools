@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 const resources = [
   "themes/github-dark-pro.json",
   "examples/compact-tools.json",
+  "examples/compact-tools-2.json",
   "schemas/compact-tools.schema.json",
 ];
 
@@ -22,6 +23,9 @@ if (theme.name !== "github-dark-pro" || !theme.colors || typeof theme.colors !==
 if (!theme.colors.border || !theme.colors.dim || !theme.colors.muted) {
   throw new Error("github-dark-pro must define spinner and separator colors");
 }
+if (!theme.vars?.thinkingText || !theme.vars?.thinkingBorder) {
+  throw new Error("github-dark-pro must define distinct thinking text and border colors");
+}
 
 const example = JSON.parse(
   await readFile(new URL("../examples/compact-tools.json", import.meta.url), "utf8"),
@@ -37,6 +41,19 @@ if (!example.auto_compact || example.auto_compact.edit !== false) {
 }
 if (Object.values(example.auto_compact).some((enabled) => typeof enabled !== "boolean")) {
   throw new Error("example auto_compact values must be booleans");
+}
+const blinkExample = JSON.parse(
+  await readFile(new URL("../examples/compact-tools-2.json", import.meta.url), "utf8"),
+);
+if (JSON.stringify(blinkExample.spinner?.frames) !== JSON.stringify(["●", "●", " ", "●", "●"])) {
+  throw new Error("compact-tools-2 spinner must fade through repeated circles and a blank frame");
+}
+if (
+  !Array.isArray(blinkExample.durationIndicators) ||
+  blinkExample.durationIndicators.some((indicator) => indicator.icon !== "•") ||
+  blinkExample.durationIndicators[0]?.color !== "#E0A052"
+) {
+  throw new Error("compact-tools-2 must use bullet duration indicators and the explicit warning hex color");
 }
 const indicators = example.durationIndicators;
 if (!Array.isArray(indicators) || indicators.length === 0 || indicators.at(-1)?.underMs !== undefined) {
