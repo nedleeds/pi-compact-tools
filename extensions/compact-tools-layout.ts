@@ -1,0 +1,115 @@
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
+import {
+	sliceByColumn,
+	stripTerminalSequences,
+	visibleWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
+import { normalizeLineEndings } from "./compact-tools-core.ts";
+import type { ToolArgs } from "./compact-tools-types.ts";
+
+class CachedComponent implements Component {
+	private cachedWidth?: number;
+	private cachedLines?: string[];
+
+	constructor(private readonly renderLines: (width: number) => string[]) {}
+
+	render(width: number): string[] {
+		if (this.cachedWidth !== width || !this.cachedLines) {
+			this.cachedWidth = width;
+			this.cachedLines = this.renderLines(width);
+		}
+		return this.cachedLines;
+	}
+
+	invalidate(): void {
+		this.cachedWidth = undefined;
+		this.cachedLines = undefined;
+	}
+}
+
+export function prefixedText(text: string, firstPrefix: string, continuationPrefix = firstPrefix): Component {
+	const prefixWidth = Math.max(visibleWidth(firstPrefix), visibleWidth(continuationPrefix));
+	const normalized = text.replace(/\t/g, "   ");
+	return new CachedComponent((width) => {
+		const lines = wrapTextWithAnsi(normalized, Math.max(1, width - prefixWidth));
+		return lines.map((line, index) => `${index === 0 ? firstPrefix : continuationPrefix}${line}`);
+	});
+}
+
+export function hardWrapTextWithAnsi(text: string, width: number): string[] {
+	const safeWidth = Math.max(1, width);
+	const wrapped: string[] = [];
+	for (const logicalLine of text.replace(/\t/g, "   ").split("\n")) {
+		const lineWidth = visibleWidth(logicalLine);
+		if (lineWidth === 0) {
+			wrapped.push("");
+			continue;
+		}
+		for (let offset = 0; offset < lineWidth; offset += safeWidth) {
+			wrapped.push(sliceByColumn(logicalLine, offset, safeWidth, true));
+		}
+	}
+	return wrapped;
+}
+
+export function renderToolCall(title: string, details: string | undefined, theme: Theme): Component {
+	const text = details ? `${title} ${details}` : title;
+	const firstPrefix = " ";
+	const continuationPrefix = theme.fg("border", " │ ");
+	const prefixWidth = visibleWidth(continuationPrefix);
+	return new CachedComponent((width) => {
+		const lines = hardWrapTextWithAnsi(text, width - prefixWidth);
+		return lines.map((line, index) => `${index === 0 ? firstPrefix : continuationPrefix}${line}`);
+	});
+}
+
+export function wrapEditResult(component: Component, theme: Theme): Component {
+	return {
+		render(width: number) {
+			const lines = component.render(Math.max(1, width - 3));
+			const first = lines.findIndex((line) => visibleWidth(line.trim()) > 0);
+			if (first < 0) return [];
+			const contentLines = lines.slice(first);
+			const commonIndent = Math.min(
+				...contentLines
+					.filter((line) => visibleWidth(line.trim()) > 0)
+					.map((line) => stripTerminalSequences(line).match(/^ */)?.[0].length ?? 0),
+			);
+			const prefix = theme.fg("border", " │ ");
+			return contentLines.map((line) => {
+				const content = sliceByColumn(line, commonIndent, visibleWidth(line) - commonIndent, true);
+				return `${prefix}${content}`;
+			});
+		},
+		invalidate() {
+			component.invalidate?.();
+		},
+	};
+}
+
+export function styleMultiline(text: string, style: (line: string) => string): string {
+	return normalizeLineEndings(text).split("\n").map(style).join("\n");
+}
+
+function styleOutputLine(text: string, theme: Theme, isError: boolean): string {
+	const color = isError ? "error" : "toolOutput";
+	return text
+		.split(/(⚡️?)/u)
+		.map((part) => theme.fg(!isError && part.startsWith("⚡") ? "warning" : color, part))
+		.join("");
+}
+
+export function renderOutput(output: string, theme: Theme, isError: boolean): Component | undefined {
+	const normalized = normalizeLineEndings(output).trimEnd();
+	if (!normalized) return undefined;
+	const styled = normalized.split("\n").map((line) => styleOutputLine(line, theme, isError)).join("\n");
+	return prefixedText(styled, theme.fg("border", " │ "));
+}
+
+export function renderArguments(args: ToolArgs, theme: Theme): Component {
+	const json = JSON.stringify(args, null, 2) ?? "{}";
+	const styled = styleMultiline(json, (line) => theme.fg("toolOutput", line));
+	return prefixedText(styled, theme.fg("border", " │ "));
+}

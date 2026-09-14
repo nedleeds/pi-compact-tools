@@ -42,6 +42,9 @@ if (!example.auto_compact || example.auto_compact.edit !== false) {
 if (Object.values(example.auto_compact).some((enabled) => typeof enabled !== "boolean")) {
   throw new Error("example auto_compact values must be booleans");
 }
+if ("previewLines" in example) {
+  throw new Error("example must not contain the removed previewLines setting");
+}
 const blinkExample = JSON.parse(
   await readFile(new URL("../examples/compact-tools-2.json", import.meta.url), "utf8"),
 );
@@ -76,6 +79,9 @@ if (!schema.properties?.durationIndicators?.items?.properties?.color) {
 }
 if (!schema.properties?.auto_compact?.properties?.edit) {
   throw new Error("schema must describe per-tool auto_compact policies");
+}
+if (schema.properties?.previewLines) {
+  throw new Error("schema must not expose the removed previewLines setting");
 }
 
 console.log("Resource checks passed");

@@ -87,7 +87,6 @@ Default configuration:
     "edit": false,
     "bash": true
   },
-  "previewLines": 10,
   "spinner": {
     "frames": ["◐", "◓", "◑", "◒"],
     "intervalMs": 120
@@ -133,7 +132,6 @@ If your terminal uses a [Nerd Font](https://www.nerdfonts.com/), this preset ena
 {
   "$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/schemas/compact-tools.schema.json",
   "tools": ["read", "write", "edit", "bash", "powershell", "grep", "find", "ls"],
-  "previewLines": 10,
   "spinner": {
     "frames": ["✽", "✻", "✲", "✢", "✲", "✻"],
     "intervalMs": 80

@@ -39,13 +39,6 @@
         "bash": true
       }
     },
-    "previewLines": {
-      "description": "Number of output lines shown before the full-output expansion level.",
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 1000,
-      "default": 10
-    },
     "spinner": {
       "type": "object",
       "additionalProperties": false,

@@ -7,7 +7,6 @@
     "edit": false,
     "bash": true
   },
-  "previewLines": 10,
   "spinner": {
     "frames": ["●", "●", " ", "●", "●"],
     "intervalMs": 120

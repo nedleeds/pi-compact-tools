@@ -8,16 +8,18 @@ import {
 	parseDurationIndicators,
 	rgbToAnsi256,
 	selectDurationIndicator,
-	shouldExpandAll,
 	type DurationIndicatorConfig,
 } from "../extensions/compact-tools-core.ts";
+import { DEFAULT_CONFIG, isFullscreenMode, mergeConfig } from "../extensions/compact-tools-config.ts";
+import { classifyToggleInput } from "../extensions/compact-tools-input.ts";
 import {
-	classifyToggleInput,
 	formatReadCallDetails,
-	getBinaryOutputLevels,
-	hardWrapTextWithAnsi,
-	styleMultiline,
-} from "../extensions/compact-tools.ts";
+	getArgumentDetails,
+	getCallDetails,
+} from "../extensions/compact-tools-invocation.ts";
+import { hardWrapTextWithAnsi, prefixedText, styleMultiline } from "../extensions/compact-tools-layout.ts";
+import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
+import type { RenderContext, RowState } from "../extensions/compact-tools-types.ts";
 
 const indicators: DurationIndicatorConfig[] = [
 	{ underMs: 1_000, icon: "fast" },
@@ -33,6 +35,21 @@ test("normalizes CRLF, LF, and CR line endings", () => {
 test("formats durations with millisecond precision", () => {
 	assert.equal(formatDurationMs(23), "0.023s");
 	assert.equal(formatDurationMs(1_039), "1.039s");
+});
+
+test("merges configuration without mutating defaults", () => {
+	const merged = mergeConfig(DEFAULT_CONFIG, {
+		tools: ["read", "grep"],
+		auto_compact: { read: false },
+		spinner: { intervalMs: 80 },
+	}, "test");
+	assert.deepEqual(merged.tools, ["read", "grep"]);
+	assert.equal(merged.auto_compact.read, false);
+	assert.equal(merged.auto_compact.edit, false);
+	assert.equal(merged.spinner.intervalMs, 80);
+	assert.equal(DEFAULT_CONFIG.auto_compact.read, true);
+	assert.equal(isFullscreenMode(["pi", "--tui-mode=fullscreen"]), true);
+	assert.equal(isFullscreenMode(["pi", "--tui-mode", "regular"]), false);
 });
 
 test("ignores Ctrl+O key releases while accepting press events", () => {
@@ -51,6 +68,14 @@ test("hard-wraps long ANSI paths into remaining columns instead of moving the pa
 	assert.equal(lines.map(stripTerminalSequences).join(""), stripTerminalSequences(input));
 });
 
+test("caches immutable prefixed layout by terminal width", () => {
+	const component = prefixedText("a long line that wraps", " │ ");
+	const first = component.render(12);
+	assert.equal(component.render(12), first);
+	component.invalidate();
+	assert.notEqual(component.render(12), first);
+});
+
 test("formats read offset and limit inline with the path", () => {
 	assert.equal(formatReadCallDetails("file.ts", {}), "file.ts");
 	assert.equal(formatReadCallDetails("file.ts", { offset: 20 }), "file.ts (offset: 20)");
@@ -58,34 +83,43 @@ test("formats read offset and limit inline with the path", () => {
 	assert.equal(formatReadCallDetails("file.ts", { offset: 20, limit: 22 }), "file.ts (offset: 20, limit: 22)");
 });
 
+test("keeps invocation metadata visible while separating large result payloads", () => {
+	const readArgs = { path: "file.ts", offset: 20, limit: 22 };
+	assert.equal(getCallDetails("read", readArgs), "file.ts (offset: 20, limit: 22)");
+	assert.deepEqual(getArgumentDetails("read", readArgs), {});
+	assert.equal(getCallDetails("grep", { path: "src", pattern: "TODO" }), "/TODO/ in src");
+	assert.deepEqual(getArgumentDetails("grep", { path: "src", pattern: "TODO", limit: 5 }), { limit: 5 });
+	assert.deepEqual(getArgumentDetails("write", { path: "file.ts", content: "large payload" }), {});
+});
+
 test("reapplies ANSI styling to every logical line", () => {
 	const styled = styleMultiline("first\nsecond", (line) => `\x1b[90m${line}\x1b[39m`);
 	assert.deepEqual(styled.split("\n"), ["\x1b[90mfirst\x1b[39m", "\x1b[90msecond\x1b[39m"]);
 });
 
-test("uses a binary hidden/full expansion model for tool output", () => {
-	assert.deepEqual(getBinaryOutputLevels(""), [0]);
-	assert.deepEqual(getBinaryOutputLevels("one line"), [0, 3]);
-	assert.deepEqual(getBinaryOutputLevels("line 1\nline 2\nline 3"), [0, 3]);
+test("keeps result expansion binary and respects per-tool defaults", () => {
+	const runtime = new ToolRuntime();
+	runtime.configure(DEFAULT_CONFIG, false);
+	const read: RowState = {};
+	const edit: RowState = {};
+	assert.equal(runtime.syncExpansion(read, false, "read"), false);
+	assert.equal(runtime.syncExpansion(edit, false, "edit"), true);
+	runtime.setResultAvailable(read, "read", true);
+	let invalidations = 0;
+	runtime.track({ toolCallId: "read-1", invalidate: () => invalidations++ } as RenderContext, "read", read);
+	assert.equal(runtime.toggleTrackedRows(), "expanded");
+	assert.equal(read.expanded, true);
+	assert.equal(runtime.toggleTrackedRows(), "collapsed");
+	assert.equal(read.expanded, false);
+	assert.equal(invalidations, 2);
+	runtime.reset(true);
 });
-
 
 test("classifies pending, running, completed, and failed calls", () => {
 	assert.equal(classifyCallStatus(false, false, false), "pending");
 	assert.equal(classifyCallStatus(false, true, false), "running");
 	assert.equal(classifyCallStatus(false, true, true), "success");
 	assert.equal(classifyCallStatus(true, true, true), "error");
-});
-
-test("expands mixed rows and collapses only when every row is fully expanded", () => {
-	assert.equal(shouldExpandAll([
-		{ level: 3, levels: [0, 2, 3] },
-		{ level: 0, levels: [0, 1, 2, 3] },
-	]), true);
-	assert.equal(shouldExpandAll([
-		{ level: 3, levels: [0, 2, 3] },
-		{ level: 2, levels: [0, 2] },
-	]), false);
 });
 
 test("selects duration indicators at exact exclusive boundaries", () => {

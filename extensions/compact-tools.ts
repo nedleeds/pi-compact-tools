@@ -1,7 +1,3 @@
-/** Compact rendering and shared status indicators for built-in tools. */
-
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import type {
 	AgentToolResult,
 	BashToolDetails,
@@ -13,7 +9,6 @@ import type {
 	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import {
-	CONFIG_DIR_NAME,
 	createBashToolDefinition,
 	createEditToolDefinition,
 	createFindToolDefinition,
@@ -22,397 +17,49 @@ import {
 	createPowerShellToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
-	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import {
-	Container,
-	isKeyRelease,
-	Key,
-	matchesKey,
-	sliceByColumn,
-	stripTerminalSequences,
-	visibleWidth,
-	wrapTextWithAnsi,
-} from "@earendil-works/pi-tui";
+import { Container } from "@earendil-works/pi-tui";
 import {
 	classifyCallStatus,
 	formatDurationMs,
 	HEX_COLOR_PATTERN,
 	normalizeLineEndings,
-	parseDurationIndicators,
 	rgbToAnsi256,
 	selectDurationIndicator,
-	shouldExpandAll,
 	type DurationIndicatorConfig,
 	type RowStatus,
 	type ThemeDurationIndicatorColor,
 } from "./compact-tools-core.ts";
+import { isFullscreenMode, loadConfig } from "./compact-tools-config.ts";
+import { classifyToggleInput } from "./compact-tools-input.ts";
+import {
+	getArgumentDetails,
+	getCallDetails,
+	getFileOutput,
+	getTextResult,
+} from "./compact-tools-invocation.ts";
+import {
+	prefixedText,
+	renderArguments,
+	renderOutput,
+	renderToolCall,
+	styleMultiline,
+	wrapEditResult,
+} from "./compact-tools-layout.ts";
+import { ToolRuntime } from "./compact-tools-runtime.ts";
+import type {
+	BuiltInDefinition,
+	CompactToolName,
+	RenderContext,
+	RowState,
+	ShellToolName,
+	ToolArgs,
+} from "./compact-tools-types.ts";
 
-const MAX_LEVEL = 3;
-const CONFIG_FILE = "compact-tools.json";
-const SUPPORTED_TOOLS = ["read", "write", "edit", "bash", "powershell", "grep", "find", "ls"] as const;
-const SUPPORTED_TOOL_SET = new Set<string>(SUPPORTED_TOOLS);
-
-type CompactToolName = (typeof SUPPORTED_TOOLS)[number];
-
-export interface CompactToolsConfig {
-	tools: CompactToolName[];
-	auto_compact: Record<CompactToolName, boolean>;
-	previewLines: number;
-	spinner: {
-		frames: string[];
-		intervalMs: number;
-	};
-	durationIndicators: DurationIndicatorConfig[];
-}
-
-export const DEFAULT_CONFIG: CompactToolsConfig = {
-	tools: ["read", "write", "edit", "bash"],
-	auto_compact: {
-		read: true,
-		write: true,
-		edit: false,
-		bash: true,
-		powershell: true,
-		grep: true,
-		find: true,
-		ls: true,
-	},
-	previewLines: 10,
-	spinner: {
-		frames: ["◐", "◓", "◑", "◒"],
-		intervalMs: 120,
-	},
-	durationIndicators: [
-		{ underMs: 1_000, icon: "⚡️", color: "warning" },
-		{ underMs: 10_000, icon: "🔥", color: "#D95C3F" },
-		{ underMs: 30_000, icon: "○", color: "#79C0FF" },
-		{ icon: "⏳", color: "#D2A8FF" },
-	],
-};
-
-let config = DEFAULT_CONFIG;
-let configRevision: object = {};
-let animateRows = false;
+const runtime = new ToolRuntime();
+const registeredTools = new Set<CompactToolName>();
 let unsubscribeTerminalInput: (() => void) | undefined;
-const registeredCompactTools = new Set<CompactToolName>();
-
-interface RowState {
-	level?: number;
-	availableLevels?: number[];
-	lastExpanded?: boolean;
-	configRevision?: object;
-	frame?: number;
-	startedAt?: number;
-	endedAt?: number;
-	timer?: ReturnType<typeof setInterval>;
-	originalResultComponent?: Component;
-}
-
-type ToolArgs = Record<string, unknown>;
-type BuiltInDefinition = ToolDefinition<any, any, any>;
-type BaseRenderContext = Parameters<NonNullable<BuiltInDefinition["renderCall"]>>[2];
-type RenderContext<TArgs = ToolArgs> = Omit<BaseRenderContext, "args" | "state"> & {
-	args: TArgs;
-	state: RowState;
-};
-
-type JsonObject = Record<string, unknown>;
-
-function isObject(value: unknown): value is JsonObject {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function warnConfig(path: string, message: string): void {
-	console.error(`[compact-tools] ${path}: ${message}`);
-}
-
-function isIntegerInRange(value: unknown, minimum: number, maximum: number): value is number {
-	return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= maximum;
-}
-
-function isNonEmptyStringArray(value: unknown): value is string[] {
-	return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item.length > 0);
-}
-
-function parseTools(value: unknown, path: string): CompactToolName[] | undefined {
-	if (!Array.isArray(value)) {
-		warnConfig(path, "tools must be an array; using previous values");
-		return undefined;
-	}
-	const valid = value.filter((item): item is CompactToolName => typeof item === "string" && SUPPORTED_TOOL_SET.has(item));
-	const invalid = value.filter((item) => typeof item !== "string" || !SUPPORTED_TOOL_SET.has(item));
-	if (invalid.length > 0) warnConfig(path, `ignoring unsupported tools: ${invalid.map(String).join(", ")}`);
-	return [...new Set(valid)];
-}
-
-function parseAutoCompact(
-	base: CompactToolsConfig["auto_compact"],
-	value: unknown,
-	path: string,
-): CompactToolsConfig["auto_compact"] {
-	if (value === undefined) return base;
-	if (!isObject(value)) {
-		warnConfig(path, "auto_compact must be an object; using previous values");
-		return base;
-	}
-	const autoCompact = { ...base };
-	for (const [name, enabled] of Object.entries(value)) {
-		if (!SUPPORTED_TOOL_SET.has(name)) {
-			warnConfig(path, `ignoring unsupported auto_compact tool: ${name}`);
-			continue;
-		}
-		if (typeof enabled !== "boolean") {
-			warnConfig(path, `auto_compact.${name} must be true or false; using previous value`);
-			continue;
-		}
-		autoCompact[name as CompactToolName] = enabled;
-	}
-	return autoCompact;
-}
-
-function mergeConfig(base: CompactToolsConfig, value: unknown, path: string): CompactToolsConfig {
-	if (value === undefined) return base;
-	if (!isObject(value)) {
-		warnConfig(path, "expected a JSON object; using previous values");
-		return base;
-	}
-	const tools = value.tools === undefined ? base.tools : (parseTools(value.tools, path) ?? base.tools);
-	const auto_compact = parseAutoCompact(base.auto_compact, value.auto_compact, path);
-	const previewValue = value.previewLines;
-	const validPreviewLines = isIntegerInRange(previewValue, 1, 1_000);
-	const previewLines = validPreviewLines ? previewValue : base.previewLines;
-	if (previewValue !== undefined && !validPreviewLines) {
-		warnConfig(path, "previewLines must be an integer from 1 to 1000; using previous value");
-	}
-	const spinner = parseSpinnerConfig(base.spinner, value.spinner, path);
-	const durationIndicators = parseDurationIndicators(value.durationIndicators) ?? base.durationIndicators;
-	if (value.durationIndicators !== undefined && durationIndicators === base.durationIndicators) {
-		warnConfig(path, "invalid durationIndicators; using previous values");
-	}
-	return { tools, auto_compact, previewLines, spinner, durationIndicators };
-}
-
-function parseSpinnerConfig(
-	base: CompactToolsConfig["spinner"],
-	value: unknown,
-	path: string,
-): CompactToolsConfig["spinner"] {
-	if (value === undefined) return base;
-	if (!isObject(value)) {
-		warnConfig(path, "spinner must be an object; using previous values");
-		return base;
-	}
-	const framesValue = value.frames;
-	const intervalValue = value.intervalMs;
-	const validFrames = isNonEmptyStringArray(framesValue);
-	const validInterval = isIntegerInRange(intervalValue, 40, 5_000);
-	if (framesValue !== undefined && !validFrames) warnConfig(path, "spinner.frames must be a non-empty string array");
-	if (intervalValue !== undefined && !validInterval) warnConfig(path, "spinner.intervalMs must be 40–5000");
-	return {
-		frames: validFrames ? framesValue : base.frames,
-		intervalMs: validInterval ? intervalValue : base.intervalMs,
-	};
-}
-
-function readConfig(path: string): unknown {
-	if (!existsSync(path)) return undefined;
-	try {
-		return JSON.parse(readFileSync(path, "utf8"));
-	} catch (error) {
-		warnConfig(path, error instanceof Error ? error.message : String(error));
-		return undefined;
-	}
-}
-
-function getConfiguredTuiMode(): "regular" | "fullscreen" {
-	for (let index = 0; index < process.argv.length; index++) {
-		const argument = process.argv[index];
-		if (argument === "--tui-mode") {
-			const value = process.argv[index + 1];
-			if (value === "regular" || value === "fullscreen") return value;
-		}
-		if (argument?.startsWith("--tui-mode=")) {
-			const value = argument.slice("--tui-mode=".length);
-			if (value === "regular" || value === "fullscreen") return value;
-		}
-	}
-
-	const settings = readConfig(join(getAgentDir(), "settings.json"));
-	return isObject(settings) && settings.tuiMode === "fullscreen" ? "fullscreen" : "regular";
-}
-
-export function loadConfig(cwd?: string, projectTrusted = false): CompactToolsConfig {
-	const globalPath = join(getAgentDir(), CONFIG_FILE);
-	let loaded = mergeConfig(DEFAULT_CONFIG, readConfig(globalPath), globalPath);
-	if (!cwd || !projectTrusted) return loaded;
-	const projectPath = join(cwd, CONFIG_DIR_NAME, CONFIG_FILE);
-	loaded = mergeConfig(loaded, readConfig(projectPath), projectPath);
-	return loaded;
-}
-
-const SPINNING_ROWS_KEY = Symbol.for("pi.compact-tools.spinning-rows");
-const EXECUTION_TIMINGS_KEY = Symbol.for("pi.compact-tools.execution-timings");
-const MAX_TRACKED_ROWS = 2_000;
-type ExecutionTiming = { startedAt: number; endedAt?: number };
-type TrackedRow = {
-	state: RowState;
-	name: CompactToolName;
-	invalidate: () => void;
-};
-const globalState = globalThis as typeof globalThis & {
-	[SPINNING_ROWS_KEY]?: Set<RowState>;
-	[EXECUTION_TIMINGS_KEY]?: Map<string, ExecutionTiming>;
-};
-for (const staleState of globalState[SPINNING_ROWS_KEY] ?? []) {
-	if (staleState.timer) clearInterval(staleState.timer);
-}
-const spinningRows = new Set<RowState>();
-const executionTimings = globalState[EXECUTION_TIMINGS_KEY] ?? new Map<string, ExecutionTiming>();
-const trackedRows = new Map<string, TrackedRow>();
-globalState[SPINNING_ROWS_KEY] = spinningRows;
-globalState[EXECUTION_TIMINGS_KEY] = executionTimings;
-
-function trackRow(ctx: RenderContext, name: CompactToolName, state: RowState): void {
-	trackedRows.delete(ctx.toolCallId);
-	trackedRows.set(ctx.toolCallId, { state, name, invalidate: ctx.invalidate });
-	if (trackedRows.size <= MAX_TRACKED_ROWS) return;
-	const oldestToolCallId = trackedRows.keys().next().value;
-	if (oldestToolCallId !== undefined) trackedRows.delete(oldestToolCallId);
-}
-
-function toggleTrackedRows(): "expanded" | "collapsed" | undefined {
-	const rows = [...trackedRows.values()].filter(({ name, state }) => {
-		const levels = state.availableLevels ?? [0, 1];
-		return config.auto_compact[name] && levels.length > 1;
-	});
-	if (rows.length === 0) return undefined;
-
-	const expand = shouldExpandAll(rows.map(({ state }) => ({
-		level: state.level,
-		levels: state.availableLevels ?? [0, 1],
-	})));
-	for (const { state, invalidate } of rows) {
-		const levels = state.availableLevels ?? [0, 1];
-		state.level = expand ? (levels.at(-1) ?? 0) : (levels[0] ?? 0);
-		invalidate();
-	}
-	return expand ? "expanded" : "collapsed";
-}
-
-function initializeRowLevel(state: RowState, name: CompactToolName, levels = state.availableLevels): boolean {
-	if (state.configRevision === configRevision) return false;
-	state.configRevision = configRevision;
-	state.level = config.auto_compact[name] ? (levels?.[0] ?? 0) : (levels?.at(-1) ?? MAX_LEVEL);
-	return true;
-}
-
-function advanceLevel(state: RowState, expanded: boolean, name: CompactToolName): number {
-	const initialized = initializeRowLevel(state, name);
-	state.level ??= config.auto_compact[name] ? 0 : (state.availableLevels?.at(-1) ?? MAX_LEVEL);
-	if (initialized || state.lastExpanded === undefined) {
-		state.lastExpanded = expanded;
-		return state.level;
-	}
-	if (state.lastExpanded !== expanded) {
-		state.lastExpanded = expanded;
-		const levels = state.availableLevels ?? [0, 1];
-		const index = levels.indexOf(state.level);
-		state.level = levels[(index + 1) % levels.length] ?? 0;
-	}
-	return state.level;
-}
-
-function setAvailableLevels(state: RowState, levels: number[], name: CompactToolName): void {
-	state.availableLevels = levels;
-	if (initializeRowLevel(state, name, levels)) return;
-	if (state.level === undefined) {
-		state.level = config.auto_compact[name] ? 0 : (levels.at(-1) ?? 0);
-	} else if (!levels.includes(state.level)) {
-		state.level = !config.auto_compact[name] && state.level === MAX_LEVEL ? (levels.at(-1) ?? 0) : 0;
-	}
-}
-
-function stopSpinner(state: RowState): void {
-	if (state.timer) clearInterval(state.timer);
-	state.timer = undefined;
-	spinningRows.delete(state);
-}
-
-function syncSpinner(state: RowState, running: boolean, invalidate: () => void): void {
-	// Regular mode cannot safely redraw a transcript row after it has scrolled
-	// above the viewport. Keep active rows static there to avoid full transcript
-	// redraws and duplicated-looking terminal output.
-	if (!running || !animateRows || config.spinner.frames.length < 2) {
-		stopSpinner(state);
-		return;
-	}
-	if (state.timer) return;
-
-	state.frame ??= 0;
-	state.timer = setInterval(() => {
-		state.frame = ((state.frame ?? 0) + 1) % config.spinner.frames.length;
-		try {
-			invalidate();
-		} catch {
-			stopSpinner(state);
-		}
-	}, config.spinner.intervalMs);
-	state.timer.unref?.();
-	spinningRows.add(state);
-}
-
-function syncTiming(state: RowState, callStarted: boolean, finished: boolean): void {
-	if (callStarted && state.startedAt === undefined) state.startedAt = Date.now();
-	if (finished && state.startedAt !== undefined && state.endedAt === undefined) {
-		state.endedAt = Date.now();
-	}
-}
-
-function restoreExecutionTiming(state: RowState, toolCallId: string): boolean {
-	const timing = executionTimings.get(toolCallId);
-	if (!timing) return false;
-	state.startedAt = timing.startedAt;
-	state.endedAt = timing.endedAt;
-	return timing.endedAt !== undefined;
-}
-
-function persistExecutionTiming(state: RowState, toolCallId: string): void {
-	if (state.startedAt === undefined) return;
-	const timing = executionTimings.get(toolCallId) ?? { startedAt: state.startedAt };
-	timing.startedAt = state.startedAt;
-	if (state.endedAt !== undefined) timing.endedAt = state.endedAt;
-	executionTimings.set(toolCallId, timing);
-	if (executionTimings.size <= 2_000) return;
-	const oldestToolCallId = executionTimings.keys().next().value;
-	if (oldestToolCallId !== undefined) executionTimings.delete(oldestToolCallId);
-}
-
-function syncRow(
-	ctx: RenderContext,
-	running = ctx.executionStarted && ctx.state.endedAt === undefined,
-	finished = false,
-): RowState {
-	const state = ctx.state;
-	if (restoreExecutionTiming(state, ctx.toolCallId)) running = false;
-	const callStarted = !ctx.argsComplete || ctx.executionStarted || running;
-	syncTiming(state, callStarted, finished);
-	persistExecutionTiming(state, ctx.toolCallId);
-	syncSpinner(state, running, ctx.invalidate);
-	return state;
-}
-
-function resetUiState(clearTimings = false): void {
-	for (const state of [...spinningRows]) stopSpinner(state);
-	trackedRows.clear();
-	if (clearTimings) executionTimings.clear();
-}
-
-export function classifyToggleInput(data: string): "toggle" | "release" | undefined {
-	if (!matchesKey(data, Key.ctrl("o"))) return undefined;
-	return isKeyRelease(data) ? "release" : "toggle";
-}
 
 function bindTerminalInput(ctx: ExtensionContext): void {
 	unsubscribeTerminalInput?.();
@@ -420,7 +67,7 @@ function bindTerminalInput(ctx: ExtensionContext): void {
 		const input = classifyToggleInput(data);
 		if (!input) return undefined;
 		if (input === "release") return { consume: true };
-		const result = toggleTrackedRows();
+		const result = runtime.toggleTrackedRows();
 		if (result) ctx.ui.notify(`Compact tool rows: ${result}`, "info");
 		return { consume: true };
 	});
@@ -428,24 +75,21 @@ function bindTerminalInput(ctx: ExtensionContext): void {
 
 function spinnerTone(frameIndex: number, frameCount: number): "muted" | "dim" | "border" {
 	if (frameCount < 3) return "muted";
-	const position = frameIndex / (frameCount - 1);
-	const distanceFromCenter = Math.abs(position - 0.5) * 2;
+	const distanceFromCenter = Math.abs(frameIndex / (frameCount - 1) - 0.5) * 2;
 	if (distanceFromCenter < 0.34) return "border";
-	if (distanceFromCenter < 0.75) return "dim";
-	return "muted";
+	return distanceFromCenter < 0.75 ? "dim" : "muted";
 }
 
-function resolveCallStatus(ctx: RenderContext, state: RowState): RowStatus {
+function callStatus(ctx: RenderContext, state: RowState): RowStatus {
 	return classifyCallStatus(ctx.isError, ctx.executionStarted, state.endedAt !== undefined);
 }
 
 function renderIndicator(theme: Theme, state: RowState, status: RowStatus): string {
 	if (status === "error") return theme.fg("error", "⊗");
 	if (status === "success") return theme.fg("success", "●");
-	// A new pending or running row starts at frame zero, then shares the same animation.
+	const frames = runtime.config.spinner.frames;
 	const frameIndex = state.frame ?? 0;
-	const frame = config.spinner.frames[frameIndex] ?? config.spinner.frames[0] ?? "◐";
-	return theme.fg(spinnerTone(frameIndex, config.spinner.frames.length), frame);
+	return theme.fg(spinnerTone(frameIndex, frames.length), frames[frameIndex] ?? frames[0] ?? "◐");
 }
 
 function formatDuration(state: RowState): string | undefined {
@@ -454,20 +98,10 @@ function formatDuration(state: RowState): string | undefined {
 }
 
 function durationIndicator(state: RowState): DurationIndicatorConfig | undefined {
-	// Reloading extensions recreates row state, so already-completed rows no longer
-	// have timing data. Keep their configured indicator visible using the first rule.
-	const elapsedMs = state.startedAt !== undefined && state.endedAt !== undefined
+	const elapsed = state.startedAt !== undefined && state.endedAt !== undefined
 		? state.endedAt - state.startedAt
 		: undefined;
-	return selectDurationIndicator(config.durationIndicators, elapsedMs);
-}
-
-function parseHexColor(color: string): [number, number, number] {
-	return [
-		Number.parseInt(color.slice(1, 3), 16),
-		Number.parseInt(color.slice(3, 5), 16),
-		Number.parseInt(color.slice(5, 7), 16),
-	];
+	return selectDurationIndicator(runtime.config.durationIndicators, elapsed);
 }
 
 function styleDurationIcon(theme: Theme, indicator: DurationIndicatorConfig): string {
@@ -475,61 +109,17 @@ function styleDurationIcon(theme: Theme, indicator: DurationIndicatorConfig): st
 	if (!HEX_COLOR_PATTERN.test(color)) {
 		return theme.fg(color as ThemeDurationIndicatorColor, indicator.icon);
 	}
-	const [red, green, blue] = parseHexColor(color);
+	const red = Number.parseInt(color.slice(1, 3), 16);
+	const green = Number.parseInt(color.slice(3, 5), 16);
+	const blue = Number.parseInt(color.slice(5, 7), 16);
 	const ansi = theme.getColorMode() === "truecolor"
 		? `\x1b[38;2;${red};${green};${blue}m`
 		: `\x1b[38;5;${rgbToAnsi256(red, green, blue)}m`;
 	return `${ansi}${indicator.icon}\x1b[39m`;
 }
 
-function prefixedText(text: string, firstPrefix: string, continuationPrefix = firstPrefix): Component {
-	return {
-		render(width: number) {
-			const prefixWidth = Math.max(visibleWidth(firstPrefix), visibleWidth(continuationPrefix));
-			const lines = wrapTextWithAnsi(text.replace(/\t/g, "   "), Math.max(1, width - prefixWidth));
-			return lines.map((line, index) => `${index === 0 ? firstPrefix : continuationPrefix}${line}`);
-		},
-		invalidate() {},
-	};
-}
-
-export function hardWrapTextWithAnsi(text: string, width: number): string[] {
-	const wrapped: string[] = [];
-	for (const logicalLine of text.replace(/\t/g, "   ").split("\n")) {
-		const lineWidth = visibleWidth(logicalLine);
-		if (lineWidth === 0) {
-			wrapped.push("");
-			continue;
-		}
-		for (let offset = 0; offset < lineWidth; offset += width) {
-			wrapped.push(sliceByColumn(logicalLine, offset, width, true));
-		}
-	}
-	return wrapped;
-}
-
-function renderToolCall(title: string, details: string | undefined, theme: Theme): Component {
-	const combined = details ? `${title} ${details}` : title;
-	const firstPrefix = " ";
-	const continuationPrefix = theme.fg("border", " │ ");
-	return {
-		render(width: number) {
-			const prefixWidth = Math.max(visibleWidth(firstPrefix), visibleWidth(continuationPrefix));
-			const lines = hardWrapTextWithAnsi(combined, Math.max(1, width - prefixWidth));
-			return lines.map((line, index) => `${index === 0 ? firstPrefix : continuationPrefix}${line}`);
-		},
-		invalidate() {},
-	};
-}
-
 function renderControls(theme: Theme, state: RowState, running: boolean, isError: boolean): Component {
-	const duration = running && !animateRows ? undefined : formatDuration(state);
-	const levels = state.availableLevels ?? [0, 1];
-	const expandable = levels.length > 1;
-	const atLastLevel = state.level === levels.at(-1);
-	const action = expandable
-		? `${theme.italic("ctrl+o")} toggle all • ${theme.italic("click")} ${atLastLevel ? "to collapse" : "for more"}`
-		: undefined;
+	const duration = running && !runtime.animatesRows ? undefined : formatDuration(state);
 	const indicator = !running && !isError ? durationIndicator(state) : undefined;
 	const status = running
 		? (duration ?? "Running")
@@ -537,132 +127,18 @@ function renderControls(theme: Theme, state: RowState, running: boolean, isError
 	let details = indicator
 		? `${styleDurationIcon(theme, indicator)} ${theme.fg("borderAccent", status)}`
 		: theme.fg("borderAccent", status);
-	if (action) details += theme.fg("borderAccent", `, ${action}`);
+	if (state.hasResult) {
+		const clickAction = state.expanded ? "to hide" : "for result";
+		details += theme.fg(
+			"borderAccent",
+			`, ${theme.italic("ctrl+o")} toggle all • ${theme.italic("click")} ${clickAction}`,
+		);
+	}
 	return prefixedText(details, theme.fg("border", " └─ "), "    ");
 }
 
-function getTextResult(result: AgentToolResult<unknown>): string {
-	const text = result.content
-		.filter((item) => item.type === "text")
-		.map((item) => item.text)
-		.join("\n");
-	return normalizeLineEndings(text).trimEnd();
-}
-
-function withoutLeadingBlankLines(component: Component, theme: Theme): Component {
-	return {
-		render(width: number) {
-			const lines = component.render(Math.max(1, width - 3));
-			const firstContentLine = lines.findIndex((line) => visibleWidth(line.trim()) > 0);
-			if (firstContentLine < 0) return [];
-
-			const contentLines = lines.slice(firstContentLine);
-			const commonIndent = Math.min(
-				...contentLines
-					.filter((line) => visibleWidth(line.trim()) > 0)
-					.map((line) => stripTerminalSequences(line).match(/^ */)?.[0].length ?? 0),
-			);
-			const prefix = theme.fg("border", " │ ");
-			return contentLines.map((line) => {
-				const content = sliceByColumn(line, commonIndent, Math.max(0, visibleWidth(line) - commonIndent), true);
-				return `${prefix}${content}`;
-			});
-		},
-		invalidate() {
-			component.invalidate?.();
-		},
-	};
-}
-
-export function styleMultiline(text: string, style: (line: string) => string): string {
-	return normalizeLineEndings(text)
-		.split("\n")
-		.map(style)
-		.join("\n");
-}
-
-function styleToolOutput(text: string, theme: Theme, isError: boolean): string {
-	const color = isError ? "error" : "toolOutput";
-	return text
-		.split(/(⚡️?)/u)
-		.map((part) => theme.fg(!isError && part.startsWith("⚡") ? "warning" : color, part))
-		.join("");
-}
-
-function renderOutput(output: string, theme: Theme, isError: boolean): Component | undefined {
-	const normalized = normalizeLineEndings(output).trimEnd();
-	if (!normalized) return undefined;
-	const text = normalized
-		.split("\n")
-		.map((line) => styleToolOutput(line, theme, isError))
-		.join("\n");
-	return prefixedText(text, theme.fg("border", " │ "));
-}
-
-function getPathArg(args: ToolArgs): string {
-	const value = args.path ?? args.file_path;
-	return typeof value === "string" ? normalizeLineEndings(value) : "";
-}
-
-export function formatReadCallDetails(path: string, args: ToolArgs): string {
-	const options = [
-		typeof args.offset === "number" ? `offset: ${args.offset}` : undefined,
-		typeof args.limit === "number" ? `limit: ${args.limit}` : undefined,
-	].filter((value): value is string => value !== undefined);
-	return options.length > 0 ? `${path} (${options.join(", ")})` : path;
-}
-
-function getCallDetails(name: string, args: ToolArgs): string {
-	const path = getPathArg(args) || (name === "grep" || name === "find" || name === "ls" ? "." : "");
-	const pattern = typeof args.pattern === "string" ? normalizeLineEndings(args.pattern) : "…";
-	if (name === "read") return formatReadCallDetails(path, args);
-	if (name === "grep") return `/${pattern}/ in ${path}`;
-	if (name === "find") return `${pattern} in ${path}`;
-	return path;
-}
-
-function getFileArgumentDetails(name: string, args: ToolArgs): ToolArgs {
-	if (name === "edit") return {};
-	const omitted = new Set(["path", "file_path"]);
-	if (name === "read") {
-		omitted.add("offset");
-		omitted.add("limit");
-	}
-	if (name === "write") omitted.add("content");
-	if (name === "grep" || name === "find") omitted.add("pattern");
-	return Object.fromEntries(Object.entries(args).filter(([key, value]) => !omitted.has(key) && value !== undefined));
-}
-
-function renderArguments(args: ToolArgs, theme: Theme): Component {
-	const json = JSON.stringify(args, null, 2) ?? "{}";
-	const styled = styleMultiline(json, (line) => theme.fg("toolOutput", line));
-	return prefixedText(styled, theme.fg("border", " │ "));
-}
-
-function callOriginalEditResult(
-	definition: BuiltInDefinition,
-	result: AgentToolResult<unknown>,
-	options: ToolRenderResultOptions,
-	theme: Theme,
-	ctx: RenderContext,
-	state: RowState,
-	level: number,
-): void {
-	if (definition.name !== "edit" || !definition.renderResult) return;
-	state.originalResultComponent = definition.renderResult(
-		result,
-		{ ...options, expanded: level >= MAX_LEVEL },
-		theme,
-		{ ...ctx, state: {}, lastComponent: state.originalResultComponent },
-	);
-}
-
-function getFileOutput(name: string, args: ToolArgs, result: AgentToolResult<unknown>, isError: boolean): string {
-	if (isError || name === "read" || name === "grep" || name === "find" || name === "ls") {
-		return getTextResult(result);
-	}
-	if (name === "write") return String(args.content ?? "");
-	return "";
+function renderCallTitle(name: string, theme: Theme, ctx: RenderContext, state: RowState): string {
+	return `${renderIndicator(theme, state, callStatus(ctx, state))} ${theme.fg("toolTitle", theme.bold(name))}`;
 }
 
 function renderFileCall(
@@ -671,45 +147,53 @@ function renderFileCall(
 	theme: Theme,
 	ctx: RenderContext,
 ): Container {
-	// Animate and time from the first rendered call so large write/edit calls
-	// represent the full lifecycle, including streamed arguments and filesystem work.
-	const state = syncRow(ctx, ctx.state.endedAt === undefined);
-	trackRow(ctx, definition.name as CompactToolName, state);
-	// syncRow may restore a completed timing after /reload. Recompute from the
-	// synchronized state so a stale local value cannot leave the spinner visible.
-	const status = resolveCallStatus(ctx, state);
-	advanceLevel(state, ctx.expanded, definition.name as CompactToolName);
-	const callDetails = getCallDetails(definition.name, args);
-	const argumentDetails = getFileArgumentDetails(definition.name, args);
-	const title = `${renderIndicator(theme, state, status)} ${theme.fg("toolTitle", theme.bold(definition.name))}`;
+	const name = definition.name as CompactToolName;
+	const state = runtime.syncRow(ctx, ctx.state.endedAt === undefined);
+	runtime.track(ctx, name, state);
+	runtime.syncExpansion(state, ctx.expanded, name);
+	const callDetails = getCallDetails(name, args);
 	const details = callDetails
 		? styleMultiline(callDetails, (line) => theme.fg("toolOutput", line))
 		: undefined;
-
 	const container = new Container();
-	container.addChild(renderToolCall(title, details, theme));
-	if (Object.keys(argumentDetails).length > 0) container.addChild(renderArguments(argumentDetails, theme));
+	container.addChild(renderToolCall(renderCallTitle(name, theme, ctx, state), details, theme));
+	const arguments_ = getArgumentDetails(name, args);
+	if (Object.keys(arguments_).length > 0) container.addChild(renderArguments(arguments_, theme));
 	return container;
 }
 
-function addFileResultPreview(
+function updateEditResult(
+	definition: BuiltInDefinition,
+	result: AgentToolResult<unknown>,
+	options: ToolRenderResultOptions,
+	theme: Theme,
+	ctx: RenderContext,
+	state: RowState,
+): void {
+	if (definition.name !== "edit" || !definition.renderResult) return;
+	state.originalResultComponent = definition.renderResult(
+		result,
+		{ ...options, expanded: state.expanded ?? false },
+		theme,
+		{ ...ctx, state: {}, lastComponent: state.originalResultComponent },
+	);
+}
+
+function appendFileResult(
 	container: Container,
 	definition: BuiltInDefinition,
 	state: RowState,
 	output: string,
-	level: number,
 	theme: Theme,
 	isError: boolean,
 ): void {
-	if (level < MAX_LEVEL) return;
+	if (!state.expanded) return;
 	if (definition.name === "edit") {
-		if (state.originalResultComponent) {
-			container.addChild(withoutLeadingBlankLines(state.originalResultComponent, theme));
-		}
+		if (state.originalResultComponent) container.addChild(wrapEditResult(state.originalResultComponent, theme));
 		return;
 	}
-	const renderedOutput = renderOutput(output, theme, isError);
-	if (renderedOutput) container.addChild(renderedOutput);
+	const component = renderOutput(output, theme, isError);
+	if (component) container.addChild(component);
 }
 
 function renderFileResult(
@@ -719,169 +203,128 @@ function renderFileResult(
 	theme: Theme,
 	ctx: RenderContext,
 ): Container {
-	const state = syncRow(ctx, options.isPartial, !options.isPartial);
-	trackRow(ctx, definition.name as CompactToolName, state);
-	const output = getFileOutput(definition.name, ctx.args, result, ctx.isError);
-	const levels = definition.name === "edit" ? [0, MAX_LEVEL] : getBinaryOutputLevels(output);
-	setAvailableLevels(state, levels, definition.name as CompactToolName);
-
-	const level = state.level ?? 0;
-	callOriginalEditResult(definition, result, options, theme, ctx, state, level);
+	const name = definition.name as CompactToolName;
+	const state = runtime.syncRow(ctx, options.isPartial, !options.isPartial);
+	runtime.track(ctx, name, state);
+	const output = getFileOutput(name, ctx.args, result, ctx.isError);
+	runtime.setResultAvailable(state, name, name === "edit" || output.length > 0);
+	updateEditResult(definition, result, options, theme, ctx, state);
 	const container = new Container();
-	addFileResultPreview(container, definition, state, output, level, theme, ctx.isError);
+	appendFileResult(container, definition, state, output, theme, ctx.isError);
 	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError));
 	return container;
 }
 
-function createFileCallRenderer(definition: BuiltInDefinition) {
-	return (args: ToolArgs, theme: Theme, ctx: RenderContext) => renderFileCall(definition, args, theme, ctx);
-}
-
-function createFileResultRenderer(definition: BuiltInDefinition) {
-	return (result: AgentToolResult<unknown>, options: ToolRenderResultOptions, theme: Theme, ctx: RenderContext) =>
-		renderFileResult(definition, result, options, theme, ctx);
-}
-
-type TimedExecute = (...args: any[]) => Promise<AgentToolResult<unknown>>;
-
-function createTimedExecute(definition: BuiltInDefinition): TimedExecute {
-	const execute = definition.execute as TimedExecute;
-	return async (...args: any[]) => {
-		const toolCallId = typeof args[0] === "string" ? args[0] : undefined;
-		const startedAt = (toolCallId ? executionTimings.get(toolCallId)?.startedAt : undefined) ?? Date.now();
-		if (toolCallId && !executionTimings.has(toolCallId)) executionTimings.set(toolCallId, { startedAt });
-		try {
-			return await execute.apply(definition, args);
-		} finally {
-			const endedAt = Date.now();
-			const timing = toolCallId ? executionTimings.get(toolCallId) : undefined;
-			if (timing) timing.endedAt = endedAt;
-		}
-	};
-}
-
-function registerFileTool(pi: ExtensionAPI, definition: BuiltInDefinition): void {
-	const tool = {
-		...definition,
-		execute: createTimedExecute(definition),
-		renderShell: "self" as const,
-		renderCall: createFileCallRenderer(definition),
-		renderResult: createFileResultRenderer(definition),
-	};
-	// Built-in file schemas are intentionally erased at this shared renderer boundary.
-	pi.registerTool(tool as ToolDefinition<any, any, RowState>);
-}
-
 function renderShellCall(
-	name: "bash" | "powershell",
+	name: ShellToolName,
 	args: BashToolInput,
 	theme: Theme,
 	ctx: RenderContext<BashToolInput>,
 ): Component {
-	const state = syncRow(ctx, ctx.state.endedAt === undefined);
-	trackRow(ctx, name, state);
-	// A completed timing can be restored inside syncRow. Derive the rendered
-	// status afterward so completion immediately replaces the spinner.
-	const status = resolveCallStatus(ctx, state);
-	advanceLevel(state, ctx.expanded, name);
+	const state = runtime.syncRow(ctx, ctx.state.endedAt === undefined);
+	runtime.track(ctx, name, state);
+	runtime.syncExpansion(state, ctx.expanded, name);
 	const command = normalizeLineEndings(args.command ?? "") || "…";
-	const title = `${renderIndicator(theme, state, status)} ${theme.fg("toolTitle", theme.bold(name))}`;
 	const details = styleMultiline(command, (line) => theme.fg("toolOutput", line));
-	return renderToolCall(title, details, theme);
-}
-
-export function getBinaryOutputLevels(output: string): number[] {
-	return output ? [0, MAX_LEVEL] : [0];
+	return renderToolCall(renderCallTitle(name, theme, ctx, state), details, theme);
 }
 
 function renderShellResult(
-	name: "bash" | "powershell",
+	name: ShellToolName,
 	result: AgentToolResult<BashToolDetails | undefined>,
 	options: ToolRenderResultOptions,
 	theme: Theme,
 	ctx: RenderContext<BashToolInput>,
 ): Component {
-	const state = syncRow(ctx, options.isPartial, !options.isPartial);
-	trackRow(ctx, name, state);
+	const state = runtime.syncRow(ctx, options.isPartial, !options.isPartial);
+	runtime.track(ctx, name, state);
 	const output = getTextResult(result);
-	setAvailableLevels(state, getBinaryOutputLevels(output), name);
-	const level = state.level ?? 0;
-	if (level < MAX_LEVEL) return renderControls(theme, state, options.isPartial, ctx.isError);
-
+	runtime.setResultAvailable(state, name, output.length > 0);
+	if (!state.expanded) return renderControls(theme, state, options.isPartial, ctx.isError);
 	const container = new Container();
-	const renderedOutput = renderOutput(output, theme, ctx.isError);
-	if (renderedOutput) container.addChild(renderedOutput);
-	else {
-		const message = theme.fg("dim", options.isPartial ? "…" : "(no output)");
-		container.addChild(prefixedText(message, theme.fg("border", " │ ")));
-	}
+	const component = renderOutput(output, theme, ctx.isError);
+	if (component) container.addChild(component);
 	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError));
 	return container;
 }
 
+const toolFactories: Record<CompactToolName, (cwd: string) => BuiltInDefinition> = {
+	read: createReadToolDefinition,
+	write: createWriteToolDefinition,
+	edit: createEditToolDefinition,
+	bash: createBashToolDefinition,
+	powershell: createPowerShellToolDefinition,
+	grep: createGrepToolDefinition,
+	find: createFindToolDefinition,
+	ls: createLsToolDefinition,
+};
+
 function createBuiltInDefinition(name: CompactToolName, cwd: string): BuiltInDefinition {
-	switch (name) {
-		case "read": return createReadToolDefinition(cwd);
-		case "write": return createWriteToolDefinition(cwd);
-		case "edit": return createEditToolDefinition(cwd);
-		case "bash": return createBashToolDefinition(cwd);
-		case "powershell": return createPowerShellToolDefinition(cwd);
-		case "grep": return createGrepToolDefinition(cwd);
-		case "find": return createFindToolDefinition(cwd);
-		case "ls": return createLsToolDefinition(cwd);
-	}
+	return toolFactories[name](cwd);
+}
+
+function registerFileTool(pi: ExtensionAPI, definition: BuiltInDefinition): void {
+	pi.registerTool({
+		...definition,
+		execute: runtime.createTimedExecute(definition),
+		renderShell: "self",
+		renderCall: (args: ToolArgs, theme: Theme, ctx: RenderContext) => renderFileCall(definition, args, theme, ctx),
+		renderResult: (
+			result: AgentToolResult<unknown>,
+			options: ToolRenderResultOptions,
+			theme: Theme,
+			ctx: RenderContext,
+		) => renderFileResult(definition, result, options, theme, ctx),
+	} as ToolDefinition<any, any, RowState>);
 }
 
 function registerShellTool(pi: ExtensionAPI, definition: BuiltInDefinition): void {
+	const name = definition.name as ShellToolName;
 	pi.registerTool({
 		...definition,
-		execute: createTimedExecute(definition),
+		execute: runtime.createTimedExecute(definition),
 		renderShell: "self",
 		renderCall: (args: BashToolInput, theme: Theme, ctx: RenderContext<BashToolInput>) =>
-			renderShellCall(definition.name as "bash" | "powershell", args, theme, ctx),
+			renderShellCall(name, args, theme, ctx),
 		renderResult: (
 			result: AgentToolResult<BashToolDetails | undefined>,
 			options: ToolRenderResultOptions,
 			theme: Theme,
 			ctx: RenderContext<BashToolInput>,
-		) => renderShellResult(definition.name as "bash" | "powershell", result, options, theme, ctx),
+		) => renderShellResult(name, result, options, theme, ctx),
 	} as ToolDefinition<any, BashToolDetails | undefined, RowState>);
 }
 
-function registerBuiltInTools(pi: ExtensionAPI, cwd: string): void {
-	for (const name of registeredCompactTools) {
-		if (!config.tools.includes(name)) pi.registerTool(createBuiltInDefinition(name, cwd));
+function registerTools(pi: ExtensionAPI, cwd: string): void {
+	const enabledTools = new Set(runtime.config.tools);
+	for (const name of registeredTools) {
+		if (!enabledTools.has(name)) pi.registerTool(createBuiltInDefinition(name, cwd));
 	}
-	registeredCompactTools.clear();
-	for (const name of config.tools) {
+	registeredTools.clear();
+	for (const name of runtime.config.tools) {
 		const definition = createBuiltInDefinition(name, cwd);
 		if (name === "bash" || name === "powershell") registerShellTool(pi, definition);
 		else registerFileTool(pi, definition);
-		registeredCompactTools.add(name);
+		registeredTools.add(name);
 	}
 }
 
-function applyConfig(pi: ExtensionAPI, cwd: string, projectTrusted: boolean): void {
-	resetUiState();
-	animateRows = getConfiguredTuiMode() === "fullscreen";
-	config = loadConfig(cwd, projectTrusted);
-	configRevision = {};
-	registerBuiltInTools(pi, cwd);
+function configure(pi: ExtensionAPI, cwd?: string, projectTrusted = false): void {
+	runtime.configure(loadConfig(cwd, projectTrusted), isFullscreenMode());
+	registerTools(pi, cwd ?? process.cwd());
 }
 
-export default function (pi: ExtensionAPI): void {
-	animateRows = getConfiguredTuiMode() === "fullscreen";
-	config = loadConfig();
-	registerBuiltInTools(pi, process.cwd());
+export default function compactTools(pi: ExtensionAPI): void {
+	configure(pi);
 	pi.on("session_start", (event, ctx) => {
-		if (event.reason !== "reload") executionTimings.clear();
-		applyConfig(pi, ctx.cwd, ctx.isProjectTrusted());
+		if (event.reason !== "reload") runtime.clearTimings();
+		configure(pi, ctx.cwd, ctx.isProjectTrusted());
 		bindTerminalInput(ctx);
 	});
-	pi.on("resources_discover", (_event, ctx) => applyConfig(pi, ctx.cwd, ctx.isProjectTrusted()));
+	pi.on("resources_discover", (_event, ctx) => configure(pi, ctx.cwd, ctx.isProjectTrusted()));
 	pi.on("session_shutdown", (event) => {
 		unsubscribeTerminalInput?.();
 		unsubscribeTerminalInput = undefined;
-		resetUiState(event.reason !== "reload");
+		runtime.reset(event.reason !== "reload");
 	});
 }
