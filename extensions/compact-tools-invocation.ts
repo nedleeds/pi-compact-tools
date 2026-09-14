@@ -7,16 +7,9 @@ function pathFrom(args: ToolArgs): string {
 	return typeof value === "string" ? normalizeLineEndings(value) : "";
 }
 
-export function formatReadCallDetails(path: string, args: ToolArgs): string {
-	const options: string[] = [];
-	if (typeof args.offset === "number") options.push(`offset: ${args.offset}`);
-	if (typeof args.limit === "number") options.push(`limit: ${args.limit}`);
-	return options.length === 0 ? path : `${path} (${options.join(", ")})`;
-}
-
 export function getCallDetails(name: string, args: ToolArgs): string {
 	const path = pathFrom(args) || (name === "grep" || name === "find" || name === "ls" ? "." : "");
-	if (name === "read") return formatReadCallDetails(path, args);
+	if (name === "read") return path;
 	if (name !== "grep" && name !== "find") return path;
 	const pattern = typeof args.pattern === "string" ? normalizeLineEndings(args.pattern) : "…";
 	return name === "grep" ? `/${pattern}/ in ${path}` : `${pattern} in ${path}`;
@@ -44,6 +37,23 @@ export function getTextResult(result: AgentToolResult<unknown>): string {
 		if (item.type === "text") parts.push(item.text);
 	}
 	return normalizeLineEndings(parts.join("\n")).trimEnd();
+}
+
+export function formatReadResultSummary(result: AgentToolResult<unknown>): string | undefined {
+	if (!result.content.some((item) => item.type === "text")) return undefined;
+	const truncation = (result.details as {
+		truncation?: { firstLineExceedsLimit?: boolean; outputLines?: number };
+	} | undefined)?.truncation;
+	if (truncation?.firstLineExceedsLimit) return undefined;
+	let lineCount = truncation?.outputLines;
+	if (!Number.isInteger(lineCount) || lineCount === undefined || lineCount < 0) {
+		const content = getTextResult(result).replace(
+			/\n\n\[(?:Showing lines |\d+ more lines in file\.)[^\n]*\]$/u,
+			"",
+		);
+		lineCount = content.length === 0 ? 0 : content.split("\n").length;
+	}
+	return `${lineCount} ${lineCount === 1 ? "line" : "lines"}`;
 }
 
 export function getFileOutput(

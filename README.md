@@ -149,7 +149,7 @@ The escaped code points remain readable on GitHub and are decoded to Nerd Font i
 
 ## Controls
 
-Every tool's complete invocation is always visible, including paths, patterns, shell commands, and auxiliary arguments. Large payloads represented as results, such as write content and edit diffs, follow the result toggle.
+Relevant invocation details stay visible, including paths, patterns, shell commands, and auxiliary arguments. Read calls omit offset and limit noise, then report the number of lines read after completion. Large payloads represented as results, such as write content and edit diffs, follow the result toggle.
 
 A mouse click toggles one row's result:
 

@@ -34,6 +34,7 @@ import {
 import { isFullscreenMode, loadConfig } from "./compact-tools-config.ts";
 import { classifyToggleInput } from "./compact-tools-input.ts";
 import {
+	formatReadResultSummary,
 	getArgumentDetails,
 	getCallDetails,
 	getFileOutput,
@@ -118,7 +119,13 @@ function styleDurationIcon(theme: Theme, indicator: DurationIndicatorConfig): st
 	return `${ansi}${indicator.icon}\x1b[39m`;
 }
 
-function renderControls(theme: Theme, state: RowState, running: boolean, isError: boolean): Component {
+function renderControls(
+	theme: Theme,
+	state: RowState,
+	running: boolean,
+	isError: boolean,
+	summary?: string,
+): Component {
 	const duration = running && !runtime.animatesRows ? undefined : formatDuration(state);
 	const indicator = !running && !isError ? durationIndicator(state) : undefined;
 	const status = running
@@ -127,6 +134,7 @@ function renderControls(theme: Theme, state: RowState, running: boolean, isError
 	let details = indicator
 		? `${styleDurationIcon(theme, indicator)} ${theme.fg("borderAccent", status)}`
 		: theme.fg("borderAccent", status);
+	if (summary) details = `${theme.fg("borderAccent", `${summary} • `)}${details}`;
 	if (state.hasResult) {
 		const clickAction = state.expanded ? "to hide" : "for result";
 		details += theme.fg(
@@ -211,7 +219,8 @@ function renderFileResult(
 	updateEditResult(definition, result, options, theme, ctx, state);
 	const container = new Container();
 	appendFileResult(container, definition, state, output, theme, ctx.isError);
-	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError));
+	const summary = name === "read" && !ctx.isError ? formatReadResultSummary(result) : undefined;
+	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, summary));
 	return container;
 }
 

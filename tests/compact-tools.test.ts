@@ -13,7 +13,7 @@ import {
 import { DEFAULT_CONFIG, isFullscreenMode, mergeConfig } from "../extensions/compact-tools-config.ts";
 import { classifyToggleInput } from "../extensions/compact-tools-input.ts";
 import {
-	formatReadCallDetails,
+	formatReadResultSummary,
 	getArgumentDetails,
 	getCallDetails,
 } from "../extensions/compact-tools-invocation.ts";
@@ -82,16 +82,19 @@ test("caches immutable prefixed layout by terminal width", () => {
 	assert.notEqual(component.render(12), first);
 });
 
-test("formats read offset and limit inline with the path", () => {
-	assert.equal(formatReadCallDetails("file.ts", {}), "file.ts");
-	assert.equal(formatReadCallDetails("file.ts", { offset: 20 }), "file.ts (offset: 20)");
-	assert.equal(formatReadCallDetails("file.ts", { limit: 22 }), "file.ts (limit: 22)");
-	assert.equal(formatReadCallDetails("file.ts", { offset: 20, limit: 22 }), "file.ts (offset: 20, limit: 22)");
+test("shows read line counts instead of offset and limit", () => {
+	const readArgs = { path: "file.ts", offset: 20, limit: 22 };
+	assert.equal(getCallDetails("read", readArgs), "file.ts");
+	assert.equal(formatReadResultSummary({ content: [{ type: "text", text: "one\ntwo\nthree" }] }), "3 lines");
+	assert.equal(formatReadResultSummary({ content: [{ type: "text", text: "one" }] }), "1 line");
+	assert.equal(formatReadResultSummary({
+		content: [{ type: "text", text: "one\ntwo\n\n[8 more lines in file. Use offset=3 to continue.]" }],
+	}), "2 lines");
 });
 
 test("keeps invocation metadata visible while separating large result payloads", () => {
 	const readArgs = { path: "file.ts", offset: 20, limit: 22 };
-	assert.equal(getCallDetails("read", readArgs), "file.ts (offset: 20, limit: 22)");
+	assert.equal(getCallDetails("read", readArgs), "file.ts");
 	assert.deepEqual(getArgumentDetails("read", readArgs), {});
 	assert.equal(getCallDetails("grep", { path: "src", pattern: "TODO" }), "/TODO/ in src");
 	assert.deepEqual(getArgumentDetails("grep", { path: "src", pattern: "TODO", limit: 5 }), { limit: 5 });
