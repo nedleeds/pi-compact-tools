@@ -30,7 +30,7 @@ Completed `edit` rows show their full diff initially by default. The per-tool `a
 
 - Compact rendering for `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`
 - Animated configurable spinner in fullscreen TUI mode
-- Three-state `Ctrl+T` thinking view: summary, detail, then hidden
+- Four-step `Ctrl+T` thinking cycle: summary, detail, summary, then hidden
 - Millisecond-precision duration with neutral status text
 - Per-tool initial compaction and global-toggle participation with `auto_compact: true` or `false`
 - Tool invocation details are always fully visible
@@ -140,12 +140,12 @@ Remove `"powershell"` on systems where it is unavailable.
 `Ctrl+T` cycles every thinking block through:
 
 ```text
-one-line summary + controls → summary + │-indented detail + controls → Thinking...
+one-line summary → summary + │-indented detail → one-line summary → Thinking...
 ```
 
 Standalone bold lines and Markdown headings split one provider thinking run into logical sections. Each section gets its own summary, optional `│`-indented detail, and control row; `Ctrl+T` cycles all sections together. While thinking streams, a text-color highlight sweeps across summaries using streaming updates; no spinner glyph or title circle is shown. The transformation is display-only; complete thinking remains unchanged in the session and model context.
 
-Relevant invocation details stay visible, including paths, patterns, shell commands, and auxiliary arguments. Read calls omit offset and limit noise, then report the number of lines read after completion. Large payloads represented as results, such as write content and edit diffs, follow the result toggle.
+Relevant invocation details stay visible, including paths, patterns, shell commands, and auxiliary arguments. After `grep`, `find`, or `ls` completes, auxiliary arguments appear in parentheses beside the `Done in …s` status instead of in the invocation line or a JSON block. Read calls omit offset and limit noise, then report the number of lines read after completion. Large payloads represented as results, such as write content and edit diffs, follow the result toggle.
 
 A mouse click toggles one row's result:
 

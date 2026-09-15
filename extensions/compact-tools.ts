@@ -28,6 +28,7 @@ import {
 import { isFullscreenMode, loadConfig } from "./compact-tools-config.ts";
 import { classifyToggleInput } from "./compact-tools-input.ts";
 import {
+	formatArgumentSummary,
 	formatReadResultSummary,
 	getArgumentDetails,
 	getCallDetails,
@@ -100,12 +101,14 @@ function renderControls(
 	running: boolean,
 	isError: boolean,
 	summary?: string,
+	argumentSummary?: string,
 ): Component {
 	const duration = running && !runtime.animatesRows ? undefined : formatDuration(state);
 	const status = running
 		? (duration ?? "Running")
 		: `${isError ? "Failed" : "Done"}${duration ? ` in ${duration}` : ""}`;
 	let details = theme.fg("borderAccent", status);
+	if (argumentSummary && !running) details += theme.fg("borderAccent", ` (${argumentSummary})`);
 	if (summary) details += theme.fg("borderAccent", ` • ${summary}`);
 	if (state.hasResult) {
 		const clickAction = state.expanded ? "to hide" : "for result";
@@ -192,7 +195,8 @@ function renderFileResult(
 	const container = new CachedContainer();
 	appendFileResult(container, definition, state, output, theme, ctx.isError);
 	const summary = name === "read" && !ctx.isError ? formatReadResultSummary(result) : undefined;
-	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, summary));
+	const argumentSummary = formatArgumentSummary(name, ctx.args);
+	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, summary, argumentSummary));
 	return container;
 }
 

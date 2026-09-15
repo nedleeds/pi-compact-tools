@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	isKeyRelease,
+	isKeyRepeat,
 	Key,
 	matchesKey,
 	stripTerminalSequences,
@@ -11,6 +12,7 @@ import {
 } from "@earendil-works/pi-tui";
 
 export type ThinkingView = "summary" | "detail" | "hidden";
+export type ThinkingPhase = "summary" | "detail" | "summary-after-detail" | "hidden";
 
 type ThinkingRenderOptions = {
 	styleSummary?: (summary: string, sectionIndex: number) => string;
@@ -19,11 +21,28 @@ type ThinkingRenderOptions = {
 	styleControlPrefix?: (prefix: string) => string;
 };
 
-const NEXT_VIEW: Record<ThinkingView, ThinkingView> = {
+const NEXT_PHASE: Record<ThinkingPhase, ThinkingPhase> = {
 	summary: "detail",
-	detail: "hidden",
+	detail: "summary-after-detail",
+	"summary-after-detail": "hidden",
 	hidden: "summary",
 };
+
+export function thinkingViewForPhase(phase: ThinkingPhase): ThinkingView {
+	return phase === "summary-after-detail" ? "summary" : phase;
+}
+
+export function nextThinkingPhase(phase: ThinkingPhase): ThinkingPhase {
+	return NEXT_PHASE[phase];
+}
+
+export type ThinkingToggleInput = "toggle" | "repeat" | "release";
+
+export function classifyThinkingToggleInput(data: string): ThinkingToggleInput | undefined {
+	if (!matchesKey(data, Key.ctrl("t"))) return undefined;
+	if (isKeyRelease(data)) return "release";
+	return isKeyRepeat(data) ? "repeat" : "toggle";
+}
 
 function plainSummary(line: string): string {
 	return line
@@ -145,7 +164,7 @@ export function renderThinkingView(
 		.join("\n\n");
 }
 
-function getInitialThinkingView(): ThinkingView {
+function getInitialThinkingPhase(): ThinkingPhase {
 	try {
 		const settings = JSON.parse(readFileSync(join(getAgentDir(), "settings.json"), "utf8")) as {
 			hideThinkingBlock?: unknown;
@@ -160,6 +179,8 @@ export function isThinkingStreamEvent(eventType: string): boolean {
 	return eventType === "thinking_start" || eventType === "thinking_delta";
 }
 
+const SHIMMER_FRAME_INTERVAL_MS = 80;
+
 function shimmer(summary: string, theme: Theme, startedAt: number): string {
 	const characters = [...summary];
 	if (characters.length === 0) return summary;
@@ -168,7 +189,7 @@ function shimmer(summary: string, theme: Theme, startedAt: number): string {
 	// enters at its first character instead of inheriting another section's
 	// wall-clock phase.
 	const elapsed = Math.max(0, Date.now() - startedAt);
-	const center = Math.floor(elapsed / 80) % (characters.length + sweepTail);
+	const center = Math.floor(elapsed / SHIMMER_FRAME_INTERVAL_MS) % (characters.length + sweepTail);
 	let currentColor: Parameters<Theme["fg"]>[0] | undefined;
 	let chunk = "";
 	let output = "";
@@ -194,17 +215,15 @@ function shimmer(summary: string, theme: Theme, startedAt: number): string {
 }
 
 export class ThinkingCycleController {
-	private view: ThinkingView = "summary";
+	private phase: ThinkingPhase = "summary";
 	private unsubscribe: (() => void) | undefined;
 	private theme: Theme | undefined;
 	private thinkingStreamActive = false;
+	private refreshThinking: (() => void) | undefined;
 	private readonly summarySweepStartedAt = new Map<number, number>();
 
 	constructor(pi: ExtensionAPI) {
-		pi.on("message_start", () => {
-			this.thinkingStreamActive = false;
-			this.summarySweepStartedAt.clear();
-		});
+		pi.on("message_start", () => this.resetSweep());
 		pi.on("message_update", (event) => {
 			// `context.isStreaming` describes the whole assistant message. Tool-call
 			// argument streaming therefore remains true after thinking has ended.
@@ -213,20 +232,14 @@ export class ThinkingCycleController {
 			if (eventType === "thinking_start") this.summarySweepStartedAt.clear();
 			this.thinkingStreamActive = isThinkingStreamEvent(eventType);
 		});
-		pi.on("message_end", () => {
-			this.thinkingStreamActive = false;
-			this.summarySweepStartedAt.clear();
-		});
-		pi.on("tool_call", () => {
-			this.thinkingStreamActive = false;
-			this.summarySweepStartedAt.clear();
-		});
+		pi.on("message_end", () => this.resetSweep());
+		pi.on("tool_call", () => this.resetSweep());
 
 		pi.registerMarkdownTransformer((markdown, context) => {
 			if (context.messageType !== "assistant-thinking") return markdown;
 			const theme = this.theme;
 			const detailTextPrefix = theme?.getFgAnsi("thinkingText");
-			return renderThinkingView(markdown, this.view, context.availableWidth, {
+			return renderThinkingView(markdown, thinkingViewForPhase(this.phase), context.availableWidth, {
 				styleSummary: theme
 					? context.isStreaming && this.thinkingStreamActive
 						? (summary, sectionIndex) => {
@@ -254,6 +267,11 @@ export class ThinkingCycleController {
 		});
 	}
 
+	private resetSweep(): void {
+		this.thinkingStreamActive = false;
+		this.summarySweepStartedAt.clear();
+	}
+
 	bind(ctx: ExtensionContext): void {
 		this.unsubscribe?.();
 		this.theme = ctx.ui.theme;
@@ -263,21 +281,29 @@ export class ThinkingCycleController {
 		// host is hidden, Markdown transformers are not invoked at all. Pi wraps
 		// this label in thinkingText, so an inner thinkingMax span is required to
 		// keep it consistent with completed summary titles.
-		this.view = getInitialThinkingView();
+		this.phase = getInitialThinkingPhase();
 		const hiddenLabel = this.theme.fg("thinkingMax", this.theme.bold("Thinking..."));
-		ctx.ui.setHiddenThinkingLabel(hiddenLabel);
+		// Pi does not currently expose transcript invalidation directly. Updating
+		// this label rebuilds assistant Markdown and requests a render without
+		// changing the message or its hidden/visible state.
+		this.refreshThinking = () => ctx.ui.setHiddenThinkingLabel(hiddenLabel);
+		this.refreshThinking();
 		this.unsubscribe = ctx.ui.onTerminalInput((data) => {
-			if (!matchesKey(data, Key.ctrl("t"))) return undefined;
-			if (isKeyRelease(data)) return { consume: true };
-			this.view = NEXT_VIEW[this.view];
-			if (this.view === "detail") {
-				// summary -> detail stays host-visible; rebuild to apply the transformer.
-				ctx.ui.setHiddenThinkingLabel(hiddenLabel);
+			const input = classifyThinkingToggleInput(data);
+			if (input === undefined) return undefined;
+			// Kitty-capable macOS terminals report held keys as repeat events. Treating
+			// those as presses can skip detail before the user sees it.
+			if (input === "release" || input === "repeat") return { consume: true };
+			this.phase = nextThinkingPhase(this.phase);
+			if (this.phase === "detail" || this.phase === "summary-after-detail") {
+				// Visible-to-visible transitions are owned by this extension. Rebuild the
+				// Markdown and prevent Pi's built-in two-state toggle from hiding it.
+				this.refreshThinking?.();
 				return { consume: true };
 			}
-			// detail -> hidden and hidden -> summary intentionally reach Pi's existing
-			// two-state handler. This keeps host visibility/settings synchronized and
-			// clears built-in per-block click overrides without modifying Pi itself.
+			// summary-after-detail -> hidden and hidden -> summary intentionally reach
+			// Pi's existing two-state handler. This keeps visibility/settings in sync
+			// and clears built-in per-block click overrides.
 			return undefined;
 		});
 	}
@@ -285,6 +311,7 @@ export class ThinkingCycleController {
 	dispose(): void {
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
+		this.refreshThinking = undefined;
 		this.thinkingStreamActive = false;
 		this.summarySweepStartedAt.clear();
 		this.theme = undefined;

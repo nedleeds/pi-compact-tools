@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import {
@@ -11,6 +11,7 @@ import {
 import { DEFAULT_CONFIG, isFullscreenMode, mergeConfig } from "../extensions/compact-tools-config.ts";
 import { classifyToggleInput } from "../extensions/compact-tools-input.ts";
 import {
+	formatArgumentSummary,
 	formatReadResultSummary,
 	getArgumentDetails,
 	getCallDetails,
@@ -23,7 +24,15 @@ import {
 	wrapEditResult,
 } from "../extensions/compact-tools-layout.ts";
 import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
-import { isThinkingStreamEvent, renderThinkingView } from "../extensions/compact-tools-thinking.ts";
+import {
+	classifyThinkingToggleInput,
+	isThinkingStreamEvent,
+	nextThinkingPhase,
+	renderThinkingView,
+	thinkingViewForPhase,
+	ThinkingCycleController,
+	type ThinkingPhase,
+} from "../extensions/compact-tools-thinking.ts";
 import type { RenderContext, RowState } from "../extensions/compact-tools-types.ts";
 
 test("normalizes CRLF, LF, and CR line endings", () => {
@@ -94,8 +103,17 @@ test("keeps invocation metadata visible while separating large result payloads",
 	const readArgs = { path: "file.ts", offset: 20, limit: 22 };
 	assert.equal(getCallDetails("read", readArgs), "file.ts");
 	assert.deepEqual(getArgumentDetails("read", readArgs), {});
-	assert.equal(getCallDetails("grep", { path: "src", pattern: "TODO" }), "/TODO/ in src");
-	assert.deepEqual(getArgumentDetails("grep", { path: "src", pattern: "TODO", limit: 5 }), { limit: 5 });
+	const grepArgs = { path: "src", pattern: "TODO", glob: "*.ts", context: 3, limit: 5 };
+	assert.equal(getCallDetails("grep", grepArgs), "/TODO/ in src");
+	assert.equal(formatArgumentSummary("grep", grepArgs), "glob *.ts · context 3 · limit 5");
+	const findArgs = { path: "src", pattern: "**/*.test.ts", limit: 20 };
+	assert.equal(getCallDetails("find", findArgs), "**/*.test.ts in src");
+	assert.equal(formatArgumentSummary("find", findArgs), "limit 20");
+	assert.equal(getCallDetails("ls", { path: "src", limit: 50 }), "src");
+	assert.equal(formatArgumentSummary("ls", { path: "src", limit: 50 }), "limit 50");
+	assert.deepEqual(getArgumentDetails("grep", { path: "src", pattern: "TODO", limit: 5 }), {});
+	assert.deepEqual(getArgumentDetails("find", { path: "src", pattern: "*.ts", limit: 5 }), {});
+	assert.deepEqual(getArgumentDetails("ls", { path: "src", limit: 5 }), {});
 	assert.deepEqual(getArgumentDetails("write", { path: "file.ts", content: "large payload" }), {});
 });
 
@@ -178,7 +196,67 @@ test("limits the thinking sweep to active thinking provider events", () => {
 	assert.equal(isThinkingStreamEvent("done"), false);
 });
 
-test("renders the three-state thinking cycle without changing source content", () => {
+test("cycles summary, detail, summary, and hidden in order", () => {
+	let phase: ThinkingPhase = "summary";
+	const views = [];
+	for (let index = 0; index < 4; index++) {
+		phase = nextThinkingPhase(phase);
+		views.push(thinkingViewForPhase(phase));
+	}
+	assert.deepEqual(views, ["detail", "summary", "hidden", "summary"]);
+});
+
+test("ignores Ctrl+T repeat and release events on Kitty terminals", () => {
+	assert.equal(classifyThinkingToggleInput("\x14"), "toggle");
+	assert.equal(classifyThinkingToggleInput("\x1b[116;5u"), "toggle");
+	assert.equal(classifyThinkingToggleInput("\x1b[116;5:2u"), "repeat");
+	assert.equal(classifyThinkingToggleInput("\x1b[116;5:3u"), "release");
+	assert.equal(classifyThinkingToggleInput("x"), undefined);
+});
+
+test("enters the detail phase on the first Ctrl+T press without invoking Pi's hide toggle", () => {
+	let transform: ((markdown: string, context: any) => string) | undefined;
+	let terminalInput: ((data: string) => { consume?: boolean } | undefined) | undefined;
+	const pi = {
+		on: () => {},
+		registerMarkdownTransformer: (handler: typeof transform) => {
+			transform = handler;
+		},
+	} as unknown as ExtensionAPI;
+	const theme = {
+		fg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+		italic: (text: string) => text,
+		getFgAnsi: () => "",
+	} as Theme;
+	const controller = new ThinkingCycleController(pi);
+	controller.bind({
+		ui: {
+			theme,
+			setHiddenThinkingLabel: () => {},
+			onTerminalInput: (handler: typeof terminalInput) => {
+				terminalInput = handler;
+				return () => {};
+			},
+		},
+	} as unknown as ExtensionContext);
+	const render = () => transform?.("**Planning integration harness testing**", {
+		messageType: "assistant-thinking",
+		isStreaming: false,
+		availableWidth: 80,
+	});
+
+	assert.equal(render(), "Planning integration harness testing  \n└─ ctrl+t toggle • click to hide");
+	assert.deepEqual(terminalInput?.("\x14"), { consume: true });
+	assert.equal(render(), "Planning integration harness testing  \n└─ ctrl+t toggle • click to hide");
+	assert.deepEqual(terminalInput?.("\x14"), { consume: true });
+	assert.equal(render(), "Planning integration harness testing  \n└─ ctrl+t toggle • click to hide");
+	assert.equal(terminalInput?.("\x14"), undefined);
+	assert.equal(terminalInput?.("\x14"), undefined);
+	controller.dispose();
+});
+
+test("renders each thinking view without changing source content", () => {
 	const thinking = "## **Check the implementation**\n\nInspect the renderer.\nKeep the cache.";
 	assert.equal(
 		renderThinkingView(thinking, "summary", 80),
