@@ -6,7 +6,7 @@ Compact, expandable rendering for Pi's built-in tools, with a polished GitHub Da
 
 ## Demo
 
-The recordings below use the optional [Nerd Font](#nerd-font-preset) preset. **The default configuration does not require a Nerd Font**: it uses portable emoji and standard Unicode icons instead, with the same spinner, timing, and expansion behavior.
+The recordings below use the optional [Nerd Font](#nerd-font-spinner-preset) spinner preset. **The default configuration does not require a Nerd Font**.
 
 ### Compact tool workflow
 
@@ -14,11 +14,11 @@ Active, successful, and failed tool calls stay compact while preserving useful s
 
 ![Compact tool workflow with Nerd Font](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/nerd-font-workflow-optimized.gif)
 
-### Spinner and duration indicators
+### Spinner and duration display
 
-The spinner animates during execution, then changes to a duration-aware completion icon.
+The spinner animates during execution, then returns to a green success circle or red failure circle. Elapsed time remains visible in the neutral control color.
 
-![Spinner and duration indicators](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/spinner-duration-optimized.gif)
+![Spinner and elapsed-time display](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/spinner-duration-optimized.gif)
 
 ### Initially visible edit diffs
 
@@ -30,11 +30,13 @@ Completed `edit` rows show their full diff initially by default. The per-tool `a
 
 - Compact rendering for `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`
 - Animated configurable spinner in fullscreen TUI mode
-- Millisecond-precision duration and configurable completion icons
+- Three-state `Ctrl+T` thinking view: summary, detail, then hidden
+- Millisecond-precision duration with neutral status text
 - Per-tool initial compaction and global-toggle participation with `auto_compact: true` or `false`
 - Tool invocation details are always fully visible
 - Click toggles one result between hidden and fully visible; `Ctrl+O` toggles all participating rows
 - Full output on expansion and initially visible edit diffs by default
+- Width-cached expanded results and edit-diff processing for responsive fullscreen scrolling
 - Dark `│` and `└─` visual grouping
 - Distinct cool-blue thinking text
 - Windows, Unix, and classic Mac line-ending support
@@ -90,19 +92,13 @@ Default configuration:
   "spinner": {
     "frames": ["◐", "◓", "◑", "◒"],
     "intervalMs": 120
-  },
-  "durationIndicators": [
-    { "underMs": 1000, "icon": "⚡️", "color": "warning" },
-    { "underMs": 10000, "icon": "🔥", "color": "#D95C3F" },
-    { "underMs": 30000, "icon": "○", "color": "#79C0FF" },
-    { "icon": "⏳", "color": "#D2A8FF" }
-  ]
+  }
 }
 ```
 
-These defaults use emoji and standard Unicode, so they work without a Nerd Font. Fast tools finish immediately; no artificial spinner delay is added.
+Successful call titles use a green `●`, while failed call titles use a red `●`. `Done`, `Failed`, and elapsed time use the same neutral control color. Fast tools finish immediately; no artificial spinner delay is added.
 
-For a minimal blinking spinner that reuses the successful-tool circle, copy [`examples/compact-tools-2.json`](examples/compact-tools-2.json). Its frames use `● ● (blank) ● ●` at 120 ms intervals. The renderer's built-in frame dimming turns this into a fade-out/fade-in animation without Nerd Font glyphs. Duration indicators use a small `•` whose color changes by elapsed time; the fast tier uses the theme's warning color value `#E0A052` directly. Rename it to `compact-tools.json` or copy its contents to the active configuration path.
+For a minimal blinking spinner, copy [`examples/compact-tools-2.json`](examples/compact-tools-2.json). Its frames use `● ● (blank) ● ●` at 120 ms intervals. The renderer's built-in frame dimming turns this into a fade-out/fade-in animation. Rename it to `compact-tools.json` or copy its contents to the active configuration path.
 
 `auto_compact` controls each tool's initial state and whether it participates in the global `Ctrl+O` toggle:
 
@@ -111,8 +107,6 @@ For a minimal blinking spinner that reuses the successful-tool circle, copy [`ex
 - Clicking any compact-rendered row still toggles that row's result.
 
 Unspecified entries inherit the previous configuration layer. By default, `read`, `write`, and `bash` start compact and participate in the global toggle, while `edit` starts expanded and remains unaffected so code diffs stay visible.
-
-`durationIndicators` must have ascending `underMs` values, with a final fallback entry that omits `underMs`. `color` is optional and accepts a supported theme color or six-digit hex value. Existing icon-only configurations remain compatible.
 
 To enable all Unix-compatible tools:
 
@@ -124,9 +118,9 @@ To enable all Unix-compatible tools:
 
 Add `"powershell"` on Windows if desired.
 
-## Nerd Font preset
+## Nerd Font spinner preset
 
-If your terminal uses a [Nerd Font](https://www.nerdfonts.com/), this preset enables all eight tools and the icons shown in the demos:
+If your terminal uses a [Nerd Font](https://www.nerdfonts.com/), this preset enables all eight tools and the spinner shown in the demos:
 
 ```json
 {
@@ -135,19 +129,21 @@ If your terminal uses a [Nerd Font](https://www.nerdfonts.com/), this preset ena
   "spinner": {
     "frames": ["✽", "✻", "✲", "✢", "✲", "✻"],
     "intervalMs": 80
-  },
-  "durationIndicators": [
-    { "underMs": 1000, "icon": "\uf0e7", "color": "warning" },
-    { "underMs": 10000, "icon": "\uf490", "color": "#D95C3F" },
-    { "underMs": 30000, "icon": "\udb81\udde3", "color": "#79C0FF" },
-    { "icon": "\udb81\udd1f", "color": "#D2A8FF" }
-  ]
+  }
 }
 ```
 
-The escaped code points remain readable on GitHub and are decoded to Nerd Font icons when JSON is loaded. Remove `"powershell"` on systems where it is unavailable.
+Remove `"powershell"` on systems where it is unavailable.
 
 ## Controls
+
+`Ctrl+T` cycles every thinking block through:
+
+```text
+one-line summary + controls → summary + │-indented detail + controls → Thinking...
+```
+
+Standalone bold lines and Markdown headings split one provider thinking run into logical sections. Each section gets its own summary, optional `│`-indented detail, and control row; `Ctrl+T` cycles all sections together. While thinking streams, a text-color highlight sweeps across summaries using streaming updates; no spinner glyph or title circle is shown. The transformation is display-only; complete thinking remains unchanged in the session and model context.
 
 Relevant invocation details stay visible, including paths, patterns, shell commands, and auxiliary arguments. Read calls omit offset and limit noise, then report the number of lines read after completion. Large payloads represented as results, such as write content and edit diffs, follow the result toggle.
 

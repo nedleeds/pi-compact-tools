@@ -1,6 +1,5 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import type { DurationIndicatorConfig } from "./compact-tools-core.ts";
 
 export const SUPPORTED_TOOLS = ["read", "write", "edit", "bash", "powershell", "grep", "find", "ls"] as const;
 export const SUPPORTED_TOOL_SET = new Set<string>(SUPPORTED_TOOLS);
@@ -17,7 +16,6 @@ export interface CompactToolsConfig {
 		frames: string[];
 		intervalMs: number;
 	};
-	durationIndicators: DurationIndicatorConfig[];
 }
 
 export interface RowState {

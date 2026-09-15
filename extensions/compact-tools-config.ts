@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { parseDurationIndicators } from "./compact-tools-core.ts";
 import {
 	SUPPORTED_TOOL_SET,
 	type CompactToolName,
@@ -27,12 +26,6 @@ export const DEFAULT_CONFIG: CompactToolsConfig = {
 		frames: ["◐", "◓", "◑", "◒"],
 		intervalMs: 120,
 	},
-	durationIndicators: [
-		{ underMs: 1_000, icon: "⚡️", color: "warning" },
-		{ underMs: 10_000, icon: "🔥", color: "#D95C3F" },
-		{ underMs: 30_000, icon: "○", color: "#79C0FF" },
-		{ icon: "⏳", color: "#D2A8FF" },
-	],
 };
 
 function isObject(value: unknown): value is JsonObject {
@@ -120,18 +113,7 @@ export function mergeConfig(base: CompactToolsConfig, value: unknown, path: stri
 	const tools = value.tools === undefined ? base.tools : (parseTools(value.tools, path) ?? base.tools);
 	const auto_compact = parseAutoCompact(base.auto_compact, value.auto_compact, path);
 	const spinner = parseSpinner(base.spinner, value.spinner, path);
-	const parsedIndicators = value.durationIndicators === undefined
-		? undefined
-		: parseDurationIndicators(value.durationIndicators);
-	if (value.durationIndicators !== undefined && !parsedIndicators) {
-		warn(path, "invalid durationIndicators; using previous values");
-	}
-	return {
-		tools,
-		auto_compact,
-		spinner,
-		durationIndicators: parsedIndicators ?? base.durationIndicators,
-	};
+	return { tools, auto_compact, spinner };
 }
 
 function readJson(path: string): unknown {

@@ -1,14 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	classifyCallStatus,
 	formatDurationMs,
 	normalizeLineEndings,
-	parseDurationIndicators,
-	rgbToAnsi256,
-	selectDurationIndicator,
-	type DurationIndicatorConfig,
 } from "../extensions/compact-tools-core.ts";
 import { DEFAULT_CONFIG, isFullscreenMode, mergeConfig } from "../extensions/compact-tools-config.ts";
 import { classifyToggleInput } from "../extensions/compact-tools-input.ts";
@@ -17,16 +15,16 @@ import {
 	getArgumentDetails,
 	getCallDetails,
 } from "../extensions/compact-tools-invocation.ts";
-import { hardWrapTextWithAnsi, prefixedText, styleMultiline } from "../extensions/compact-tools-layout.ts";
+import {
+	CachedContainer,
+	hardWrapTextWithAnsi,
+	prefixedText,
+	styleMultiline,
+	wrapEditResult,
+} from "../extensions/compact-tools-layout.ts";
 import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
+import { isThinkingStreamEvent, renderThinkingView } from "../extensions/compact-tools-thinking.ts";
 import type { RenderContext, RowState } from "../extensions/compact-tools-types.ts";
-
-const indicators: DurationIndicatorConfig[] = [
-	{ underMs: 1_000, icon: "fast" },
-	{ underMs: 10_000, icon: "medium" },
-	{ underMs: 30_000, icon: "slow" },
-	{ icon: "fallback" },
-];
 
 test("normalizes CRLF, LF, and CR line endings", () => {
 	assert.equal(normalizeLineEndings("a\r\nb\rc\nd"), "a\nb\nc\nd");
@@ -131,36 +129,94 @@ test("classifies pending, running, completed, and failed calls", () => {
 	assert.equal(classifyCallStatus(true, true, true), "error");
 });
 
-test("selects duration indicators at exact exclusive boundaries", () => {
-	assert.equal(selectDurationIndicator(indicators, undefined)?.icon, "fast");
-	assert.equal(selectDurationIndicator(indicators, 999)?.icon, "fast");
-	assert.equal(selectDurationIndicator(indicators, 1_000)?.icon, "medium");
-	assert.equal(selectDurationIndicator(indicators, 10_000)?.icon, "slow");
-	assert.equal(selectDurationIndicator(indicators, 30_000)?.icon, "fallback");
+test("caches expanded container lines by width", () => {
+	let renders = 0;
+	const child: Component = {
+		render: (width) => {
+			renders++;
+			return ["x".repeat(width)];
+		},
+		invalidate() {},
+	};
+	const container = new CachedContainer();
+	container.addChild(child);
+	const first = container.render(80);
+	assert.equal(container.render(80), first);
+	assert.equal(renders, 1);
+	container.render(79);
+	assert.equal(renders, 2);
+	container.invalidate();
+	container.render(79);
+	assert.equal(renders, 3);
 });
 
-test("accepts backwards-compatible icon-only and semantic or hex colors", () => {
-	assert.ok(parseDurationIndicators(indicators));
-	assert.ok(parseDurationIndicators([
-		{ underMs: 1_000, icon: "a", color: "warning" },
-		{ icon: "b", color: "#D95C3F" },
-	]));
+test("caches wrapped edit processing by width", () => {
+	let renders = 0;
+	const source: Component = {
+		render: () => {
+			renders++;
+			return ["", "  first", "  second"];
+		},
+		invalidate() {},
+	};
+	const theme = { fg: (_color: string, text: string) => text } as Theme;
+	const wrapped = wrapEditResult(source, theme);
+	const first = wrapped.render(80);
+	assert.equal(wrapped.render(80), first);
+	assert.equal(renders, 1);
+	assert.deepEqual(first, [" │ first", " │ second"]);
+	wrapped.render(79);
+	assert.equal(renders, 2);
 });
 
-test("rejects invalid duration indicator sequences and colors", () => {
-	assert.equal(parseDurationIndicators([{ underMs: 1_000, icon: "a" }]), undefined);
-	assert.equal(parseDurationIndicators([
-		{ underMs: 1_000, icon: "a" },
-		{ underMs: 1_000, icon: "b" },
-		{ icon: "c" },
-	]), undefined);
-	assert.equal(parseDurationIndicators([{ icon: "a", color: "#fff" }]), undefined);
-	assert.equal(parseDurationIndicators([{ icon: "a", color: "orange" }]), undefined);
+test("limits the thinking sweep to active thinking provider events", () => {
+	assert.equal(isThinkingStreamEvent("thinking_start"), true);
+	assert.equal(isThinkingStreamEvent("thinking_delta"), true);
+	assert.equal(isThinkingStreamEvent("thinking_end"), false);
+	assert.equal(isThinkingStreamEvent("toolcall_start"), false);
+	assert.equal(isThinkingStreamEvent("toolcall_delta"), false);
+	assert.equal(isThinkingStreamEvent("done"), false);
 });
 
-test("maps RGB colors to ANSI-256 cube or grayscale entries", () => {
-	assert.equal(rgbToAnsi256(0, 0, 0), 16);
-	assert.equal(rgbToAnsi256(255, 255, 255), 231);
-	assert.equal(rgbToAnsi256(128, 128, 128), 244);
-	assert.equal(rgbToAnsi256(217, 92, 63), 173);
+test("renders the three-state thinking cycle without changing source content", () => {
+	const thinking = "## **Check the implementation**\n\nInspect the renderer.\nKeep the cache.";
+	assert.equal(
+		renderThinkingView(thinking, "summary", 80),
+		"Check the implementation  \n└─ ctrl+t toggle • click to hide",
+	);
+	assert.equal(
+		renderThinkingView(thinking, "detail", 80),
+		"Check the implementation  \n│  \n│ Inspect the renderer.  \n│ Keep the cache.  \n└─ ctrl+t toggle • click to hide",
+	);
+	assert.equal(renderThinkingView(thinking, "hidden", 80), "Thinking...");
+	assert.equal(thinking, "## **Check the implementation**\n\nInspect the renderer.\nKeep the cache.");
+});
+
+test("keeps the thinking summary on one visual line", () => {
+	const rendered = renderThinkingView("A very long summary that must be truncated", "summary", 16);
+	assert.match(rendered.split("\n")[0]!, /^.{1,15}…  $/u);
+});
+
+test("renders a connected detail rail while preserving fenced code", () => {
+	const rendered = renderThinkingView(
+		"Summary\n**Emphasis** and `code`.\n\n```js\nconst value = 1;\n```",
+		"detail",
+		80,
+	);
+	assert.ok(rendered.includes("│ **Emphasis** and `code`.  "));
+	assert.ok(rendered.includes("> ```js\n> const value = 1;\n> ```"));
+});
+
+test("splits headings into independently styled thinking sections", () => {
+	const styledSections: number[] = [];
+	const rendered = renderThinkingView("Summary\n**Detail heading**\nBody", "detail", 80, {
+		styleSummary: (summary, sectionIndex) => {
+			styledSections.push(sectionIndex);
+			return `<thinking>${summary}</thinking>`;
+		},
+	});
+	assert.ok(rendered.includes("<thinking>Summary</thinking>"));
+	assert.ok(rendered.includes("<thinking>Detail heading</thinking>  \n│  \n│ Body"));
+	assert.equal(rendered.match(/ctrl\+t toggle/gu)?.length, 2);
+	assert.deepEqual(styledSections, [0, 1]);
 });

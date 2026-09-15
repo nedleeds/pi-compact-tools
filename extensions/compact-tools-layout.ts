@@ -1,6 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import {
+	Container,
 	sliceByColumn,
 	stripTerminalSequences,
 	visibleWidth,
@@ -13,7 +14,10 @@ class CachedComponent implements Component {
 	private cachedWidth?: number;
 	private cachedLines?: string[];
 
-	constructor(private readonly renderLines: (width: number) => string[]) {}
+	constructor(
+		private readonly renderLines: (width: number) => string[],
+		private readonly invalidateSource?: () => void,
+	) {}
 
 	render(width: number): string[] {
 		if (this.cachedWidth !== width || !this.cachedLines) {
@@ -24,8 +28,48 @@ class CachedComponent implements Component {
 	}
 
 	invalidate(): void {
+		this.invalidateSource?.();
 		this.cachedWidth = undefined;
 		this.cachedLines = undefined;
+	}
+}
+
+/** A Container that does not re-copy all child lines on every fullscreen scroll frame. */
+export class CachedContainer extends Container {
+	private cachedWidth?: number;
+	private cachedLines?: string[];
+
+	private clearRenderCache(): void {
+		this.cachedWidth = undefined;
+		this.cachedLines = undefined;
+	}
+
+	override addChild(component: Component): void {
+		super.addChild(component);
+		this.clearRenderCache();
+	}
+
+	override removeChild(component: Component): void {
+		super.removeChild(component);
+		this.clearRenderCache();
+	}
+
+	override clear(): void {
+		super.clear();
+		this.clearRenderCache();
+	}
+
+	override render(width: number): string[] {
+		if (this.cachedWidth !== width || !this.cachedLines) {
+			this.cachedWidth = width;
+			this.cachedLines = super.render(width);
+		}
+		return this.cachedLines;
+	}
+
+	override invalidate(): void {
+		super.invalidate();
+		this.clearRenderCache();
 	}
 }
 
@@ -74,45 +118,36 @@ export function renderToolCall(title: string, details: string | undefined, theme
 }
 
 export function wrapEditResult(component: Component, theme: Theme): Component {
-	return {
-		render(width: number) {
-			const lines = component.render(Math.max(1, width - 3));
-			const first = lines.findIndex((line) => visibleWidth(line.trim()) > 0);
-			if (first < 0) return [];
-			const contentLines = lines.slice(first);
-			const commonIndent = Math.min(
-				...contentLines
-					.filter((line) => visibleWidth(line.trim()) > 0)
-					.map((line) => stripTerminalSequences(line).match(/^ */)?.[0].length ?? 0),
-			);
-			const prefix = theme.fg("border", " │ ");
-			return contentLines.map((line) => {
-				const content = sliceByColumn(line, commonIndent, visibleWidth(line) - commonIndent, true);
-				return `${prefix}${content}`;
-			});
-		},
-		invalidate() {
-			component.invalidate?.();
-		},
-	};
+	return new CachedComponent((width) => {
+		const lines = component.render(Math.max(1, width - 3));
+		const first = lines.findIndex((line) => visibleWidth(line.trim()) > 0);
+		if (first < 0) return [];
+		const contentLines = lines.slice(first);
+		let commonIndent = Number.POSITIVE_INFINITY;
+		for (const line of contentLines) {
+			const plain = stripTerminalSequences(line);
+			if (plain.trim().length === 0) continue;
+			commonIndent = Math.min(commonIndent, plain.match(/^ */)?.[0].length ?? 0);
+			if (commonIndent === 0) break;
+		}
+		if (!Number.isFinite(commonIndent)) commonIndent = 0;
+		const prefix = theme.fg("border", " │ ");
+		return contentLines.map((line) => {
+			const content = sliceByColumn(line, commonIndent, Math.max(0, visibleWidth(line) - commonIndent), true);
+			return `${prefix}${content}`;
+		});
+	}, () => component.invalidate?.());
 }
 
 export function styleMultiline(text: string, style: (line: string) => string): string {
 	return normalizeLineEndings(text).split("\n").map(style).join("\n");
 }
 
-function styleOutputLine(text: string, theme: Theme, isError: boolean): string {
-	const color = isError ? "error" : "toolOutput";
-	return text
-		.split(/(⚡️?)/u)
-		.map((part) => theme.fg(!isError && part.startsWith("⚡") ? "warning" : color, part))
-		.join("");
-}
-
 export function renderOutput(output: string, theme: Theme, isError: boolean): Component | undefined {
 	const normalized = normalizeLineEndings(output).trimEnd();
 	if (!normalized) return undefined;
-	const styled = normalized.split("\n").map((line) => styleOutputLine(line, theme, isError)).join("\n");
+	const color = isError ? "error" : "toolOutput";
+	const styled = normalized.split("\n").map((line) => theme.fg(color, line)).join("\n");
 	return prefixedText(styled, theme.fg("border", " │ "));
 }
 

@@ -23,8 +23,11 @@ if (theme.name !== "github-dark-pro" || !theme.colors || typeof theme.colors !==
 if (!theme.colors.border || !theme.colors.dim || !theme.colors.muted) {
   throw new Error("github-dark-pro must define spinner and separator colors");
 }
-if (!theme.vars?.thinkingText) {
-  throw new Error("github-dark-pro must define a distinct thinking text color");
+if (!theme.vars?.thinkingText || !theme.colors.thinkingMax) {
+  throw new Error("github-dark-pro must define thinking text and summary colors");
+}
+if (!theme.colors.mdQuote || !theme.colors.mdCodeBlockBorder) {
+  throw new Error("github-dark-pro must define thinking detail and code fence colors");
 }
 
 const example = JSON.parse(
@@ -51,31 +54,17 @@ const blinkExample = JSON.parse(
 if (JSON.stringify(blinkExample.spinner?.frames) !== JSON.stringify(["●", "●", " ", "●", "●"])) {
   throw new Error("compact-tools-2 spinner must fade through repeated circles and a blank frame");
 }
-if (
-  !Array.isArray(blinkExample.durationIndicators) ||
-  blinkExample.durationIndicators.some((indicator) => indicator.icon !== "•") ||
-  blinkExample.durationIndicators[0]?.color !== "#E0A052"
-) {
-  throw new Error("compact-tools-2 must use bullet duration indicators and the explicit warning hex color");
-}
-const indicators = example.durationIndicators;
-if (!Array.isArray(indicators) || indicators.length === 0 || indicators.at(-1)?.underMs !== undefined) {
-  throw new Error("example durationIndicators must end with a fallback rule");
-}
-for (let index = 0; index < indicators.length - 1; index++) {
-  if (!(indicators[index].underMs > (indicators[index - 1]?.underMs ?? 0))) {
-    throw new Error("example durationIndicators thresholds must be ascending");
+for (const [name, config] of [["compact-tools", example], ["compact-tools-2", blinkExample]]) {
+  if ("durationIndicators" in config) {
+    throw new Error(`${name} must not contain the removed durationIndicators setting`);
   }
-}
-if (indicators.some((indicator) => indicator.color !== undefined && typeof indicator.color !== "string")) {
-  throw new Error("example duration indicator colors must be strings");
 }
 
 const schema = JSON.parse(
   await readFile(new URL("../schemas/compact-tools.schema.json", import.meta.url), "utf8"),
 );
-if (!schema.properties?.durationIndicators?.items?.properties?.color) {
-  throw new Error("schema must describe durationIndicators.color");
+if (schema.properties?.durationIndicators) {
+  throw new Error("schema must not expose the removed durationIndicators setting");
 }
 if (!schema.properties?.auto_compact?.properties?.edit) {
   throw new Error("schema must describe per-tool auto_compact policies");

@@ -10,11 +10,5 @@
   "spinner": {
     "frames": ["◐", "◓", "◑", "◒"],
     "intervalMs": 120
-  },
-  "durationIndicators": [
-    { "underMs": 1000, "icon": "⚡️", "color": "warning" },
-    { "underMs": 10000, "icon": "🔥", "color": "#D95C3F" },
-    { "underMs": 30000, "icon": "○", "color": "#79C0FF" },
-    { "icon": "⏳", "color": "#D2A8FF" }
-  ]
+  }
 }

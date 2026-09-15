@@ -36,7 +36,7 @@
     "muted": "muted",
     "dim": "dim",
     "text": "text",
-    "thinkingText": "thinkingText",
+    "thinkingText": "toolText",
 
     "selectedBg": "surfaceMuted",
     "searchMatchBg": "#3B2E10",
@@ -59,8 +59,8 @@
     "mdLinkUrl": "dim",
     "mdCode": "inlineCode",
     "mdCodeBlock": "text",
-    "mdCodeBlockBorder": "#484F58",
-    "mdQuote": "quoteText",
+    "mdCodeBlockBorder": "#0D1117",
+    "mdQuote": "toolText",
     "mdQuoteBorder": "border",
     "mdHr": "borderSubtle",
     "mdListBullet": "muted",
@@ -85,7 +85,7 @@
     "thinkingMedium": "muted",
     "thinkingHigh": "blue",
     "thinkingXhigh": "blueSoft",
-    "thinkingMax": "blueSoft",
+    "thinkingMax": "#9FCFF8",
     "bashMode": "green"
   },
   "export": {
