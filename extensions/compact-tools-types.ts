@@ -28,6 +28,8 @@ export interface RowState {
 	endedAt?: number;
 	timer?: ReturnType<typeof setInterval>;
 	originalResultComponent?: Component;
+	resultLineSummary?: string;
+	resultLineSummaryComputed?: boolean;
 }
 
 type BaseRenderContext = Parameters<NonNullable<BuiltInDefinition["renderCall"]>>[2];

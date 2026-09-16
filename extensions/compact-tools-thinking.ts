@@ -17,7 +17,7 @@ export type ThinkingPhase = "summary" | "detail" | "summary-after-detail" | "hid
 type ThinkingRenderOptions = {
 	styleSummary?: (summary: string, sectionIndex: number) => string;
 	styleDetailPrefix?: (prefix: string) => string;
-	controls?: string | ((hasDetail: boolean) => string);
+	controls?: string | ((hasDetail: boolean) => string | undefined);
 	styleControlPrefix?: (prefix: string) => string;
 };
 
@@ -148,7 +148,7 @@ export function renderThinkingView(
 ): string {
 	if (view === "hidden") return "Thinking...";
 	const controls = options.controls ?? ((hasDetail: boolean) =>
-		hasDetail ? "ctrl+t toggle • click to hide" : "click to hide");
+		hasDetail ? "ctrl+t toggle • click to hide" : undefined);
 	const styleControlPrefix = options.styleControlPrefix ?? ((prefix: string) => prefix);
 	return splitThinkingSections(markdown)
 		.map(({ summary, detail }, sectionIndex) => {
@@ -157,13 +157,16 @@ export function renderThinkingView(
 			);
 			const title = options.styleSummary?.(fittedSummary, sectionIndex) ?? fittedSummary;
 			const sectionControls = typeof controls === "function" ? controls(detail.length > 0) : controls;
-			const controlLines = wrapTextWithAnsi(sectionControls, Math.max(1, availableWidth - 3)).map(
-				(line, index) => `${index === 0 ? styleControlPrefix("└─ ") : "   "}${line}`,
-			);
+			const controlLines = sectionControls
+				? wrapTextWithAnsi(sectionControls, Math.max(1, availableWidth - 3)).map(
+						(line, index) => `${index === 0 ? styleControlPrefix("└─ ") : "   "}${line}`,
+					)
+				: [];
 			if (view === "detail" && detail) {
 				const styleDetailPrefix = options.styleDetailPrefix ?? ((prefix: string) => prefix);
 				const connector = `${styleDetailPrefix("│")}  `;
-				return `${title}  \n${connector}\n${compactDetail(detail, availableWidth, styleDetailPrefix)}\n${hardBreak(controlLines)}`;
+				const detailOutput = `${title}  \n${connector}\n${compactDetail(detail, availableWidth, styleDetailPrefix)}`;
+				return controlLines.length > 0 ? `${detailOutput}\n${hardBreak(controlLines)}` : detailOutput;
 			}
 			return hardBreak([title, ...controlLines]);
 		})
@@ -265,12 +268,12 @@ export class ThinkingCycleController {
 					? (prefix) => theme.fg("border", prefix) + detailTextPrefix
 					: undefined,
 				controls: theme
-					? (hasDetail) => theme.fg(
-							"borderAccent",
-							hasDetail
-								? `${theme.italic("ctrl+t")} toggle • ${theme.italic("click")} to hide`
-								: `${theme.italic("click")} to hide`,
-						)
+					? (hasDetail) => hasDetail
+						? theme.fg(
+								"borderAccent",
+								`${theme.italic("ctrl+t")} toggle • ${theme.italic("click")} to hide`,
+							)
+						: undefined
 					: undefined,
 				styleControlPrefix: theme ? (prefix) => theme.fg("border", prefix) : undefined,
 			});

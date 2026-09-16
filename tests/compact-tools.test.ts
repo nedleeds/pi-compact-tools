@@ -11,8 +11,7 @@ import {
 import { DEFAULT_CONFIG, isFullscreenMode, mergeConfig } from "../extensions/compact-tools-config.ts";
 import { classifyToggleInput } from "../extensions/compact-tools-input.ts";
 import {
-	formatArgumentSummary,
-	formatReadResultSummary,
+	formatResultLineSummary,
 	getArgumentDetails,
 	getCallDetails,
 } from "../extensions/compact-tools-invocation.ts";
@@ -90,28 +89,46 @@ test("caches immutable prefixed layout by terminal width", () => {
 	assert.notEqual(component.render(12), first);
 });
 
-test("shows read line counts instead of offset and limit", () => {
+test("reports completed output lines instead of invocation limits", () => {
 	const readArgs = { path: "file.ts", offset: 20, limit: 22 };
 	assert.equal(getCallDetails("read", readArgs), "file.ts");
-	assert.equal(formatReadResultSummary({ content: [{ type: "text", text: "one\ntwo\nthree" }] }), "3 lines");
-	assert.equal(formatReadResultSummary({ content: [{ type: "text", text: "one" }] }), "1 line");
-	assert.equal(formatReadResultSummary({
+	assert.equal(formatResultLineSummary("read", readArgs, {
+		content: [{ type: "text", text: "one\ntwo\nthree" }],
+	}), "3 lines");
+	assert.equal(formatResultLineSummary("read", readArgs, {
+		content: [{ type: "text", text: "one" }],
+	}), "1 line");
+	assert.equal(formatResultLineSummary("read", readArgs, {
 		content: [{ type: "text", text: "one\ntwo\n\n[8 more lines in file. Use offset=3 to continue.]" }],
 	}), "2 lines");
+	assert.equal(formatResultLineSummary("grep", { context: 3, limit: 5 }, {
+		content: [{ type: "text", text: "match\ncontext\ncontext" }],
+	}), "3 lines");
+	assert.equal(formatResultLineSummary("bash", {}, {
+		content: [{ type: "text", text: "" }],
+	}), "0 lines");
+	assert.equal(formatResultLineSummary("write", { content: "one\r\ntwo\r\n" }, {
+		content: [{ type: "text", text: "ok" }],
+	}), "2 lines");
+	assert.equal(formatResultLineSummary("edit", {}, {
+		content: [{ type: "text", text: "ok" }],
+		details: { diff: "-old\n+new" },
+	}), "2 lines");
+	assert.equal(formatResultLineSummary("grep", {}, {
+		content: [{ type: "text", text: "visible\nfooter" }],
+		details: { truncation: { outputLines: 42 } },
+	}), "42 lines");
 });
 
-test("keeps invocation metadata visible while separating large result payloads", () => {
+test("keeps invocation targets visible while separating large result payloads", () => {
 	const readArgs = { path: "file.ts", offset: 20, limit: 22 };
 	assert.equal(getCallDetails("read", readArgs), "file.ts");
 	assert.deepEqual(getArgumentDetails("read", readArgs), {});
 	const grepArgs = { path: "src", pattern: "TODO", glob: "*.ts", context: 3, limit: 5 };
 	assert.equal(getCallDetails("grep", grepArgs), "/TODO/ in src");
-	assert.equal(formatArgumentSummary("grep", grepArgs), "glob *.ts · context 3 · limit 5");
 	const findArgs = { path: "src", pattern: "**/*.test.ts", limit: 20 };
 	assert.equal(getCallDetails("find", findArgs), "**/*.test.ts in src");
-	assert.equal(formatArgumentSummary("find", findArgs), "limit 20");
 	assert.equal(getCallDetails("ls", { path: "src", limit: 50 }), "src");
-	assert.equal(formatArgumentSummary("ls", { path: "src", limit: 50 }), "limit 50");
 	assert.deepEqual(getArgumentDetails("grep", { path: "src", pattern: "TODO", limit: 5 }), {});
 	assert.deepEqual(getArgumentDetails("find", { path: "src", pattern: "*.ts", limit: 5 }), {});
 	assert.deepEqual(getArgumentDetails("ls", { path: "src", limit: 5 }), {});
@@ -247,9 +264,9 @@ test("leaves Ctrl+T to Pi's visibility toggle when thinking has no detail", () =
 		availableWidth: 80,
 	});
 
-	assert.equal(render(), "Planning integration harness testing  \n└─ click to hide");
+	assert.equal(render(), "Planning integration harness testing");
 	assert.equal(terminalInput?.("\x14"), undefined);
-	assert.equal(render(), "Planning integration harness testing  \n└─ click to hide");
+	assert.equal(render(), "Planning integration harness testing");
 	assert.equal(terminalInput?.("\x14"), undefined);
 	controller.dispose();
 });
@@ -276,7 +293,7 @@ test("renders each thinking view without changing source content", () => {
 
 test("keeps the thinking summary on one visual line", () => {
 	const rendered = renderThinkingView("A very long summary that must be truncated", "summary", 16);
-	assert.match(rendered.split("\n")[0]!, /^.{1,15}…  $/u);
+	assert.match(rendered.split("\n")[0]!, /^.{1,15}…$/u);
 });
 
 test("renders a connected detail rail while preserving fenced code", () => {
@@ -297,7 +314,7 @@ test("splits headings into independently styled thinking sections", () => {
 			return `<thinking>${summary}</thinking>`;
 		},
 	});
-	assert.ok(rendered.includes("<thinking>Summary</thinking>  \n└─ click to hide"));
+	assert.ok(rendered.includes("<thinking>Summary</thinking>\n\n<thinking>Detail heading</thinking>"));
 	assert.ok(rendered.includes("<thinking>Detail heading</thinking>  \n│  \n│ Body"));
 	assert.equal(rendered.match(/ctrl\+t toggle/gu)?.length, 1);
 	assert.deepEqual(styledSections, [0, 1]);

@@ -28,8 +28,7 @@ import {
 import { isFullscreenMode, loadConfig } from "./compact-tools-config.ts";
 import { classifyToggleInput } from "./compact-tools-input.ts";
 import {
-	formatArgumentSummary,
-	formatReadResultSummary,
+	formatResultLineSummary,
 	getArgumentDetails,
 	getCallDetails,
 	getFileOutput,
@@ -99,16 +98,14 @@ function renderControls(
 	state: RowState,
 	running: boolean,
 	isError: boolean,
-	summary?: string,
-	argumentSummary?: string,
+	lineSummary?: string,
 ): Component {
 	const duration = running && !runtime.animatesRows ? undefined : formatDuration(state);
 	const status = running
 		? (duration ?? "Running")
 		: `${isError ? "Failed" : "Done"}${duration ? ` in ${duration}` : ""}`;
 	let details = theme.fg("borderAccent", status);
-	if (argumentSummary && !running) details += theme.fg("borderAccent", ` (${argumentSummary})`);
-	if (summary) details += theme.fg("borderAccent", ` • ${summary}`);
+	if (lineSummary && !running) details += theme.fg("borderAccent", ` (${lineSummary})`);
 	if (state.hasResult) {
 		const clickAction = state.expanded ? "to hide" : "for result";
 		details += theme.fg(
@@ -193,9 +190,11 @@ function renderFileResult(
 	updateEditResult(definition, result, options, theme, ctx, state);
 	const container = new CachedContainer();
 	appendFileResult(container, definition, state, output, theme, ctx.isError);
-	const summary = name === "read" && !ctx.isError ? formatReadResultSummary(result) : undefined;
-	const argumentSummary = formatArgumentSummary(name, ctx.args);
-	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, summary, argumentSummary));
+	if (!options.isPartial && !state.resultLineSummaryComputed) {
+		state.resultLineSummary = formatResultLineSummary(name, ctx.args, result, output);
+		state.resultLineSummaryComputed = true;
+	}
+	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary));
 	return container;
 }
 
@@ -224,11 +223,17 @@ function renderShellResult(
 	runtime.track(ctx, name, state);
 	const output = getTextResult(result);
 	runtime.setResultAvailable(state, name, output.length > 0);
-	if (!state.expanded) return renderControls(theme, state, options.isPartial, ctx.isError);
+	if (!options.isPartial && !state.resultLineSummaryComputed) {
+		state.resultLineSummary = formatResultLineSummary(name, ctx.args, result, output);
+		state.resultLineSummaryComputed = true;
+	}
+	if (!state.expanded) {
+		return renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary);
+	}
 	const container = new CachedContainer();
 	const component = renderOutput(output, theme, ctx.isError);
 	if (component) container.addChild(component);
-	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError));
+	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary));
 	return container;
 }
 

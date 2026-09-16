@@ -24,24 +24,6 @@ function collectArgumentDetails(name: string, args: ToolArgs): ToolArgs {
 	return details;
 }
 
-function formatInlineValue(value: unknown): string {
-	if (typeof value === "string") {
-		const compact = normalizeLineEndings(value).replace(/\s+/gu, " ").trim();
-		return compact || '""';
-	}
-	if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-		return String(value);
-	}
-	return JSON.stringify(value) ?? String(value);
-}
-
-export function formatArgumentSummary(name: string, args: ToolArgs): string | undefined {
-	if (!INLINE_ARGUMENT_TOOLS.has(name)) return undefined;
-	const arguments_ = Object.entries(collectArgumentDetails(name, args));
-	if (arguments_.length === 0) return undefined;
-	return arguments_.map(([key, value]) => `${key} ${formatInlineValue(value)}`).join(" · ");
-}
-
 export function getCallDetails(name: string, args: ToolArgs): string {
 	const path = pathFrom(args) || (INLINE_ARGUMENT_TOOLS.has(name) ? "." : "");
 	if (name === "read") return path;
@@ -63,20 +45,62 @@ export function getTextResult(result: AgentToolResult<unknown>): string {
 	return normalizeLineEndings(parts.join("\n")).trimEnd();
 }
 
-export function formatReadResultSummary(result: AgentToolResult<unknown>): string | undefined {
-	if (!result.content.some((item) => item.type === "text")) return undefined;
-	const truncation = (result.details as {
-		truncation?: { firstLineExceedsLimit?: boolean; outputLines?: number };
-	} | undefined)?.truncation;
-	if (truncation?.firstLineExceedsLimit) return undefined;
-	let lineCount = truncation?.outputLines;
-	if (!Number.isInteger(lineCount) || lineCount === undefined || lineCount < 0) {
-		const content = getTextResult(result).replace(
-			/\n\n\[(?:Showing lines |\d+ more lines in file\.)[^\n]*\]$/u,
-			"",
-		);
-		lineCount = content.length === 0 ? 0 : content.split("\n").length;
+type ResultDetails = {
+	diff?: unknown;
+	truncation?: {
+		firstLineExceedsLimit?: boolean;
+		outputLines?: number;
+	};
+	matchLimitReached?: unknown;
+	resultLimitReached?: unknown;
+	entryLimitReached?: unknown;
+	linesTruncated?: unknown;
+};
+
+function countTextLines(text: string): number {
+	const normalized = normalizeLineEndings(text).trimEnd();
+	if (!normalized) return 0;
+	let count = 1;
+	for (let index = 0; index < normalized.length; index++) {
+		if (normalized.charCodeAt(index) === 10) count++;
 	}
+	return count;
+}
+
+function stripGeneratedFooter(name: string, text: string, details: ResultDetails | undefined): string {
+	if (name === "read") {
+		return text.replace(/\n\n\[(?:Showing lines |\d+ more lines in file\.)[^\n]*\]$/u, "");
+	}
+	const hasGeneratedFooter = details?.truncation?.outputLines !== undefined
+		|| details?.matchLimitReached !== undefined
+		|| details?.resultLimitReached !== undefined
+		|| details?.entryLimitReached !== undefined
+		|| details?.linesTruncated !== undefined;
+	return hasGeneratedFooter ? text.replace(/\n\n\[[^\n]*\]$/u, "") : text;
+}
+
+export function formatResultLineSummary(
+	name: string,
+	args: ToolArgs,
+	result: AgentToolResult<unknown>,
+	output?: string,
+): string | undefined {
+	const details = result.details as ResultDetails | undefined;
+	const text = name === "edit" && typeof details?.diff === "string"
+		? details.diff
+		: output ?? (name === "write"
+			? String(args.content ?? "")
+			: result.content.some((item) => item.type === "text")
+				? getTextResult(result)
+				: undefined);
+	if (text === undefined) return undefined;
+	const truncationLines = details?.truncation?.outputLines;
+	const lineCount = !details?.truncation?.firstLineExceedsLimit
+		&& typeof truncationLines === "number"
+		&& Number.isInteger(truncationLines)
+		&& truncationLines >= 0
+		? truncationLines
+		: countTextLines(stripGeneratedFooter(name, text, details));
 	return `${lineCount} ${lineCount === 1 ? "line" : "lines"}`;
 }
 
