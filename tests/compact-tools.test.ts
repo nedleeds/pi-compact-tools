@@ -26,6 +26,7 @@ import {
 import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
 import {
 	classifyThinkingToggleInput,
+	hasThinkingDetail,
 	isThinkingStreamEvent,
 	nextThinkingPhase,
 	renderThinkingView,
@@ -214,7 +215,7 @@ test("ignores Ctrl+T repeat and release events on Kitty terminals", () => {
 	assert.equal(classifyThinkingToggleInput("x"), undefined);
 });
 
-test("enters the detail phase on the first Ctrl+T press without invoking Pi's hide toggle", () => {
+test("leaves Ctrl+T to Pi's visibility toggle when thinking has no detail", () => {
 	let transform: ((markdown: string, context: any) => string) | undefined;
 	let terminalInput: ((data: string) => { consume?: boolean } | undefined) | undefined;
 	const pi = {
@@ -246,14 +247,17 @@ test("enters the detail phase on the first Ctrl+T press without invoking Pi's hi
 		availableWidth: 80,
 	});
 
-	assert.equal(render(), "Planning integration harness testing  \n└─ ctrl+t toggle • click to hide");
-	assert.deepEqual(terminalInput?.("\x14"), { consume: true });
-	assert.equal(render(), "Planning integration harness testing  \n└─ ctrl+t toggle • click to hide");
-	assert.deepEqual(terminalInput?.("\x14"), { consume: true });
-	assert.equal(render(), "Planning integration harness testing  \n└─ ctrl+t toggle • click to hide");
+	assert.equal(render(), "Planning integration harness testing  \n└─ click to hide");
 	assert.equal(terminalInput?.("\x14"), undefined);
+	assert.equal(render(), "Planning integration harness testing  \n└─ click to hide");
 	assert.equal(terminalInput?.("\x14"), undefined);
 	controller.dispose();
+});
+
+test("detects whether provider thinking includes expandable detail", () => {
+	assert.equal(hasThinkingDetail("Planning integration harness testing"), false);
+	assert.equal(hasThinkingDetail("Summary\n\nDetailed reasoning"), true);
+	assert.equal(hasThinkingDetail("Summary\n**Another summary**"), false);
 });
 
 test("renders each thinking view without changing source content", () => {
@@ -293,8 +297,8 @@ test("splits headings into independently styled thinking sections", () => {
 			return `<thinking>${summary}</thinking>`;
 		},
 	});
-	assert.ok(rendered.includes("<thinking>Summary</thinking>"));
+	assert.ok(rendered.includes("<thinking>Summary</thinking>  \n└─ click to hide"));
 	assert.ok(rendered.includes("<thinking>Detail heading</thinking>  \n│  \n│ Body"));
-	assert.equal(rendered.match(/ctrl\+t toggle/gu)?.length, 2);
+	assert.equal(rendered.match(/ctrl\+t toggle/gu)?.length, 1);
 	assert.deepEqual(styledSections, [0, 1]);
 });

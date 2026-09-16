@@ -17,7 +17,7 @@ export type ThinkingPhase = "summary" | "detail" | "summary-after-detail" | "hid
 type ThinkingRenderOptions = {
 	styleSummary?: (summary: string, sectionIndex: number) => string;
 	styleDetailPrefix?: (prefix: string) => string;
-	controls?: string;
+	controls?: string | ((hasDetail: boolean) => string);
 	styleControlPrefix?: (prefix: string) => string;
 };
 
@@ -56,7 +56,7 @@ function plainSummary(line: string): string {
 
 type ThinkingSection = { summary: string; detail: string };
 
-function splitThinkingSections(markdown: string, includeDetail: boolean): ThinkingSection[] {
+function splitThinkingSections(markdown: string): ThinkingSection[] {
 	const normalized = markdown.includes("\r") ? markdown.replace(/\r\n?/gu, "\n") : markdown;
 	const lines = normalized.split("\n");
 	let first = -1;
@@ -73,7 +73,7 @@ function splitThinkingSections(markdown: string, includeDetail: boolean): Thinki
 	let detail: string[] = [];
 	let inFence = false;
 	const flush = () => {
-		sections.push({ summary, detail: includeDetail ? detail.join("\n").trim() : "" });
+		sections.push({ summary, detail: detail.join("\n").trim() });
 		detail = [];
 	};
 	for (let index = first + 1; index < lines.length; index++) {
@@ -89,7 +89,7 @@ function splitThinkingSections(markdown: string, includeDetail: boolean): Thinki
 				continue;
 			}
 		}
-		if (includeDetail) detail.push(line);
+		detail.push(line);
 		if (fence) inFence = !inFence;
 	}
 	flush();
@@ -135,6 +135,10 @@ function hardBreak(lines: string[]): string {
 	return lines.map((line, index) => (index < lines.length - 1 ? `${line}  ` : line)).join("\n");
 }
 
+export function hasThinkingDetail(markdown: string): boolean {
+	return splitThinkingSections(markdown).some(({ detail }) => detail.length > 0);
+}
+
 /** Display-only transformation; the original thinking remains unchanged in session/model context. */
 export function renderThinkingView(
 	markdown: string,
@@ -143,15 +147,17 @@ export function renderThinkingView(
 	options: ThinkingRenderOptions = {},
 ): string {
 	if (view === "hidden") return "Thinking...";
-	const controls = options.controls ?? "ctrl+t toggle • click to hide";
+	const controls = options.controls ?? ((hasDetail: boolean) =>
+		hasDetail ? "ctrl+t toggle • click to hide" : "click to hide");
 	const styleControlPrefix = options.styleControlPrefix ?? ((prefix: string) => prefix);
-	return splitThinkingSections(markdown, view === "detail")
+	return splitThinkingSections(markdown)
 		.map(({ summary, detail }, sectionIndex) => {
 			const fittedSummary = stripTerminalSequences(
 				truncateToWidth(summary, Math.max(1, availableWidth), "…"),
 			);
 			const title = options.styleSummary?.(fittedSummary, sectionIndex) ?? fittedSummary;
-			const controlLines = wrapTextWithAnsi(controls, Math.max(1, availableWidth - 3)).map(
+			const sectionControls = typeof controls === "function" ? controls(detail.length > 0) : controls;
+			const controlLines = wrapTextWithAnsi(sectionControls, Math.max(1, availableWidth - 3)).map(
 				(line, index) => `${index === 0 ? styleControlPrefix("└─ ") : "   "}${line}`,
 			);
 			if (view === "detail" && detail) {
@@ -219,6 +225,7 @@ export class ThinkingCycleController {
 	private unsubscribe: (() => void) | undefined;
 	private theme: Theme | undefined;
 	private thinkingStreamActive = false;
+	private hasToggleableThinking = false;
 	private refreshThinking: (() => void) | undefined;
 	private readonly summarySweepStartedAt = new Map<number, number>();
 
@@ -237,6 +244,7 @@ export class ThinkingCycleController {
 
 		pi.registerMarkdownTransformer((markdown, context) => {
 			if (context.messageType !== "assistant-thinking") return markdown;
+			this.hasToggleableThinking ||= hasThinkingDetail(markdown);
 			const theme = this.theme;
 			const detailTextPrefix = theme?.getFgAnsi("thinkingText");
 			return renderThinkingView(markdown, thinkingViewForPhase(this.phase), context.availableWidth, {
@@ -257,9 +265,11 @@ export class ThinkingCycleController {
 					? (prefix) => theme.fg("border", prefix) + detailTextPrefix
 					: undefined,
 				controls: theme
-					? theme.fg(
+					? (hasDetail) => theme.fg(
 							"borderAccent",
-							`${theme.italic("ctrl+t")} toggle • ${theme.italic("click")} to hide`,
+							hasDetail
+								? `${theme.italic("ctrl+t")} toggle • ${theme.italic("click")} to hide`
+								: `${theme.italic("click")} to hide`,
 						)
 					: undefined,
 				styleControlPrefix: theme ? (prefix) => theme.fg("border", prefix) : undefined,
@@ -276,6 +286,7 @@ export class ThinkingCycleController {
 		this.unsubscribe?.();
 		this.theme = ctx.ui.theme;
 		this.thinkingStreamActive = false;
+		this.hasToggleableThinking = false;
 		this.summarySweepStartedAt.clear();
 		// Match Pi's persisted host visibility after startup or /reload. When the
 		// host is hidden, Markdown transformers are not invoked at all. Pi wraps
@@ -294,6 +305,9 @@ export class ThinkingCycleController {
 			// Kitty-capable macOS terminals report held keys as repeat events. Treating
 			// those as presses can skip detail before the user sees it.
 			if (input === "release" || input === "repeat") return { consume: true };
+			// With no provider-supplied detail, leave Ctrl+T to Pi's normal
+			// visible/hidden toggle instead of inserting an identical detail phase.
+			if (!this.hasToggleableThinking) return undefined;
 			this.phase = nextThinkingPhase(this.phase);
 			if (this.phase === "detail" || this.phase === "summary-after-detail") {
 				// Visible-to-visible transitions are owned by this extension. Rebuild the
@@ -313,6 +327,7 @@ export class ThinkingCycleController {
 		this.unsubscribe = undefined;
 		this.refreshThinking = undefined;
 		this.thinkingStreamActive = false;
+		this.hasToggleableThinking = false;
 		this.summarySweepStartedAt.clear();
 		this.theme = undefined;
 	}

@@ -65,8 +65,7 @@ function bindTerminalInput(ctx: ExtensionContext): void {
 		const input = classifyToggleInput(data);
 		if (!input) return undefined;
 		if (input === "release") return { consume: true };
-		const result = runtime.toggleTrackedRows();
-		if (result) ctx.ui.notify(`Compact tool rows: ${result}`, "info");
+		runtime.toggleTrackedRows();
 		return { consume: true };
 	});
 }
