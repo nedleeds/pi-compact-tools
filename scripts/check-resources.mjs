@@ -45,8 +45,8 @@ if (!example.auto_compact || example.auto_compact.edit !== false) {
 if (Object.values(example.auto_compact).some((enabled) => typeof enabled !== "boolean")) {
   throw new Error("example auto_compact values must be booleans");
 }
-if ("previewLines" in example) {
-  throw new Error("example must not contain the removed previewLines setting");
+if (!Number.isInteger(example.previewLines) || example.previewLines < 1 || example.previewLines > 100) {
+  throw new Error("example previewLines must be an integer from 1 to 100");
 }
 const blinkExample = JSON.parse(
   await readFile(new URL("../examples/compact-tools-2.json", import.meta.url), "utf8"),
@@ -69,8 +69,8 @@ if (schema.properties?.durationIndicators) {
 if (!schema.properties?.auto_compact?.properties?.edit) {
   throw new Error("schema must describe per-tool auto_compact policies");
 }
-if (schema.properties?.previewLines) {
-  throw new Error("schema must not expose the removed previewLines setting");
+if (schema.properties?.previewLines?.default !== 10) {
+  throw new Error("schema must expose the bounded previewLines setting");
 }
 
 console.log("Resource checks passed");

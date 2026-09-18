@@ -184,85 +184,21 @@ function getInitialThinkingPhase(): ThinkingPhase {
 	}
 }
 
-export function isThinkingStreamEvent(eventType: string): boolean {
-	return eventType === "thinking_start" || eventType === "thinking_delta";
-}
-
-const SHIMMER_FRAME_INTERVAL_MS = 80;
-
-function shimmer(summary: string, theme: Theme, startedAt: number): string {
-	const characters = [...summary];
-	if (characters.length === 0) return summary;
-	const sweepTail = 5;
-	// Each logical section receives its own start time. The highlight therefore
-	// enters at its first character instead of inheriting another section's
-	// wall-clock phase.
-	const elapsed = Math.max(0, Date.now() - startedAt);
-	const center = Math.floor(elapsed / SHIMMER_FRAME_INTERVAL_MS) % (characters.length + sweepTail);
-	let currentColor: Parameters<Theme["fg"]>[0] | undefined;
-	let chunk = "";
-	let output = "";
-	for (let index = 0; index < characters.length; index++) {
-		const distance = Math.abs(index - center);
-		// Stay entirely in the sky-blue family: the active baseline is blue,
-		// and the sweep fades through light blue into a near-white core.
-		const color = distance === 0
-			? "userMessageText"
-			: distance === 1
-				? "text"
-				: distance === 2
-					? "thinkingMax"
-					: "thinkingXhigh";
-		if (currentColor !== undefined && color !== currentColor) {
-			output += theme.fg(currentColor, theme.bold(chunk));
-			chunk = "";
-		}
-		currentColor = color;
-		chunk += characters[index];
-	}
-	return currentColor === undefined ? output : output + theme.fg(currentColor, theme.bold(chunk));
-}
-
 export class ThinkingCycleController {
 	private phase: ThinkingPhase = "summary";
 	private unsubscribe: (() => void) | undefined;
 	private theme: Theme | undefined;
-	private thinkingStreamActive = false;
 	private hasToggleableThinking = false;
 	private refreshThinking: (() => void) | undefined;
-	private readonly summarySweepStartedAt = new Map<number, number>();
 
 	constructor(pi: ExtensionAPI) {
-		pi.on("message_start", () => this.resetSweep());
-		pi.on("message_update", (event) => {
-			// `context.isStreaming` describes the whole assistant message. Tool-call
-			// argument streaming therefore remains true after thinking has ended.
-			// Track the actual provider event so the sweep ends on thinking_end.
-			const eventType = event.assistantMessageEvent.type;
-			if (eventType === "thinking_start") this.summarySweepStartedAt.clear();
-			this.thinkingStreamActive = isThinkingStreamEvent(eventType);
-		});
-		pi.on("message_end", () => this.resetSweep());
-		pi.on("tool_call", () => this.resetSweep());
-
 		pi.registerMarkdownTransformer((markdown, context) => {
 			if (context.messageType !== "assistant-thinking") return markdown;
 			this.hasToggleableThinking ||= hasThinkingDetail(markdown);
 			const theme = this.theme;
 			const detailTextPrefix = theme?.getFgAnsi("thinkingText");
 			return renderThinkingView(markdown, thinkingViewForPhase(this.phase), context.availableWidth, {
-				styleSummary: theme
-					? context.isStreaming && this.thinkingStreamActive
-						? (summary, sectionIndex) => {
-								let startedAt = this.summarySweepStartedAt.get(sectionIndex);
-								if (startedAt === undefined) {
-									startedAt = Date.now();
-									this.summarySweepStartedAt.set(sectionIndex, startedAt);
-								}
-								return shimmer(summary, theme, startedAt);
-							}
-						: (summary) => theme.fg("thinkingMax", theme.bold(summary))
-					: undefined,
+				styleSummary: theme ? (summary) => theme.fg("thinkingMax", theme.bold(summary)) : undefined,
 				// border styling resets the foreground; resume detail gray immediately.
 				styleDetailPrefix: theme && detailTextPrefix
 					? (prefix) => theme.fg("border", prefix) + detailTextPrefix
@@ -280,17 +216,10 @@ export class ThinkingCycleController {
 		});
 	}
 
-	private resetSweep(): void {
-		this.thinkingStreamActive = false;
-		this.summarySweepStartedAt.clear();
-	}
-
 	bind(ctx: ExtensionContext): void {
 		this.unsubscribe?.();
 		this.theme = ctx.ui.theme;
-		this.thinkingStreamActive = false;
 		this.hasToggleableThinking = false;
-		this.summarySweepStartedAt.clear();
 		// Match Pi's persisted host visibility after startup or /reload. When the
 		// host is hidden, Markdown transformers are not invoked at all. Pi wraps
 		// this label in thinkingText, so an inner thinkingMax span is required to
@@ -329,9 +258,7 @@ export class ThinkingCycleController {
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
 		this.refreshThinking = undefined;
-		this.thinkingStreamActive = false;
 		this.hasToggleableThinking = false;
-		this.summarySweepStartedAt.clear();
 		this.theme = undefined;
 	}
 }

@@ -151,6 +151,19 @@ export function renderOutput(output: string, theme: Theme, isError: boolean): Co
 	return prefixedText(styled, theme.fg("border", " │ "));
 }
 
+/** Limit a result preview by rendered rows while preserving the full source component for expansion. */
+export function limitComponentLines(component: Component, maximumLines: number, theme: Theme): Component {
+	return new CachedComponent((width) => {
+		const lines = component.render(width);
+		if (lines.length <= maximumLines) return lines;
+		const omitted = lines.length - maximumLines;
+		return [
+			...lines.slice(0, maximumLines),
+			theme.fg("border", " │ ") + theme.fg("borderAccent", `… ${omitted} more ${omitted === 1 ? "line" : "lines"}`),
+		];
+	}, () => component.invalidate?.());
+}
+
 export function renderArguments(args: ToolArgs, theme: Theme): Component {
 	const json = JSON.stringify(args, null, 2) ?? "{}";
 	const styled = styleMultiline(json, (line) => theme.fg("toolOutput", line));

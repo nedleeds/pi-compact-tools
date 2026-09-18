@@ -12,6 +12,7 @@ export type BuiltInDefinition = ToolDefinition<any, any, any>;
 export interface CompactToolsConfig {
 	tools: CompactToolName[];
 	auto_compact: Record<CompactToolName, boolean>;
+	previewLines: number;
 	spinner: {
 		frames: string[];
 		intervalMs: number;
@@ -20,13 +21,12 @@ export interface CompactToolsConfig {
 
 export interface RowState {
 	expanded?: boolean;
+	preview?: boolean;
 	hasResult?: boolean;
 	lastHostExpanded?: boolean;
 	configRevision?: object;
-	frame?: number;
 	startedAt?: number;
 	endedAt?: number;
-	timer?: ReturnType<typeof setInterval>;
 	originalResultComponent?: Component;
 	resultLineSummary?: string;
 	resultLineSummaryComputed?: boolean;

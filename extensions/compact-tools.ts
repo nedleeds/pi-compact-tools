@@ -3,7 +3,6 @@ import type {
 	BashToolDetails,
 	BashToolInput,
 	ExtensionAPI,
-	ExtensionContext,
 	Theme,
 	ToolDefinition,
 	ToolRenderResultOptions,
@@ -25,8 +24,7 @@ import {
 	normalizeLineEndings,
 	type RowStatus,
 } from "./compact-tools-core.ts";
-import { isFullscreenMode, loadConfig } from "./compact-tools-config.ts";
-import { classifyToggleInput } from "./compact-tools-input.ts";
+import { loadConfig } from "./compact-tools-config.ts";
 import {
 	formatResultLineSummary,
 	getArgumentDetails,
@@ -36,6 +34,7 @@ import {
 } from "./compact-tools-invocation.ts";
 import {
 	CachedContainer,
+	limitComponentLines,
 	prefixedText,
 	renderArguments,
 	renderOutput,
@@ -43,6 +42,7 @@ import {
 	styleMultiline,
 	wrapEditResult,
 } from "./compact-tools-layout.ts";
+import { ProgressController } from "./compact-tools-progress.ts";
 import { ToolRuntime } from "./compact-tools-runtime.ts";
 import { ThinkingCycleController } from "./compact-tools-thinking.ts";
 import type {
@@ -56,36 +56,15 @@ import type {
 
 const runtime = new ToolRuntime();
 const registeredTools = new Set<CompactToolName>();
-let unsubscribeTerminalInput: (() => void) | undefined;
-
-function bindTerminalInput(ctx: ExtensionContext): void {
-	unsubscribeTerminalInput?.();
-	unsubscribeTerminalInput = ctx.ui.onTerminalInput((data) => {
-		const input = classifyToggleInput(data);
-		if (!input) return undefined;
-		if (input === "release") return { consume: true };
-		runtime.toggleTrackedRows();
-		return { consume: true };
-	});
-}
-
-function spinnerTone(frameIndex: number, frameCount: number): "muted" | "dim" | "border" {
-	if (frameCount < 3) return "muted";
-	const distanceFromCenter = Math.abs(frameIndex / (frameCount - 1) - 0.5) * 2;
-	if (distanceFromCenter < 0.34) return "border";
-	return distanceFromCenter < 0.75 ? "dim" : "muted";
-}
 
 function callStatus(ctx: RenderContext, state: RowState): RowStatus {
 	return classifyCallStatus(ctx.isError, ctx.executionStarted, state.endedAt !== undefined);
 }
 
-function renderIndicator(theme: Theme, state: RowState, status: RowStatus): string {
+function renderIndicator(theme: Theme, _state: RowState, status: RowStatus): string {
 	if (status === "error") return theme.fg("error", "●");
 	if (status === "success") return theme.fg("success", "●");
-	const frames = runtime.config.spinner.frames;
-	const frameIndex = state.frame ?? 0;
-	return theme.fg(spinnerTone(frameIndex, frames.length), frames[frameIndex] ?? frames[0] ?? "◐");
+	return theme.fg("accent", runtime.config.spinner.frames[0] ?? "◐");
 }
 
 function formatDuration(state: RowState): string | undefined {
@@ -100,14 +79,14 @@ function renderControls(
 	isError: boolean,
 	lineSummary?: string,
 ): Component {
-	const duration = running && !runtime.animatesRows ? undefined : formatDuration(state);
+	const duration = running ? undefined : formatDuration(state);
 	const status = running
 		? (duration ?? "Running")
 		: `${isError ? "Failed" : "Done"}${duration ? ` in ${duration}` : ""}`;
 	let details = theme.fg("borderAccent", status);
 	if (lineSummary && !running) details += theme.fg("borderAccent", ` (${lineSummary})`);
 	if (state.hasResult) {
-		const clickAction = state.expanded ? "to hide" : "for result";
+		const clickAction = state.expanded ? "to hide" : state.preview ? "to expand" : "for result";
 		details += theme.fg(
 			"borderAccent",
 			`, ${theme.italic("ctrl+o")} toggle all • ${theme.italic("click")} ${clickAction}`,
@@ -128,7 +107,6 @@ function renderFileCall(
 ): Container {
 	const name = definition.name as CompactToolName;
 	const state = runtime.syncRow(ctx, ctx.state.endedAt === undefined);
-	runtime.track(ctx, name, state);
 	runtime.syncExpansion(state, ctx.expanded, name);
 	const callDetails = getCallDetails(name, args);
 	const details = callDetails
@@ -166,13 +144,12 @@ function appendFileResult(
 	theme: Theme,
 	isError: boolean,
 ): void {
-	if (!state.expanded) return;
-	if (definition.name === "edit") {
-		if (state.originalResultComponent) container.addChild(wrapEditResult(state.originalResultComponent, theme));
-		return;
-	}
-	const component = renderOutput(output, theme, isError);
-	if (component) container.addChild(component);
+	if (!state.expanded && !state.preview) return;
+	const component = definition.name === "edit"
+		? state.originalResultComponent ? wrapEditResult(state.originalResultComponent, theme) : undefined
+		: renderOutput(output, theme, isError);
+	if (!component) return;
+	container.addChild(state.expanded ? component : limitComponentLines(component, runtime.config.previewLines, theme));
 }
 
 function renderFileResult(
@@ -184,7 +161,7 @@ function renderFileResult(
 ): Container {
 	const name = definition.name as CompactToolName;
 	const state = runtime.syncRow(ctx, options.isPartial, !options.isPartial);
-	runtime.track(ctx, name, state);
+	runtime.syncExpansion(state, ctx.expanded, name);
 	const output = getFileOutput(name, ctx.args, result, ctx.isError);
 	runtime.setResultAvailable(state, name, name === "edit" || output.length > 0);
 	updateEditResult(definition, result, options, theme, ctx, state);
@@ -205,11 +182,11 @@ function renderShellCall(
 	ctx: RenderContext<BashToolInput>,
 ): Component {
 	const state = runtime.syncRow(ctx, ctx.state.endedAt === undefined);
-	runtime.track(ctx, name, state);
 	runtime.syncExpansion(state, ctx.expanded, name);
 	const command = normalizeLineEndings(args.command ?? "") || "…";
 	const details = styleMultiline(command, (line) => theme.fg("toolOutput", line));
-	return renderToolCall(renderCallTitle(name, theme, ctx, state), details, theme);
+	const component = renderToolCall(renderCallTitle(name, theme, ctx, state), details, theme);
+	return state.expanded ? component : limitComponentLines(component, runtime.config.previewLines, theme);
 }
 
 function renderShellResult(
@@ -220,19 +197,21 @@ function renderShellResult(
 	ctx: RenderContext<BashToolInput>,
 ): Component {
 	const state = runtime.syncRow(ctx, options.isPartial, !options.isPartial);
-	runtime.track(ctx, name, state);
+	runtime.syncExpansion(state, ctx.expanded, name);
 	const output = getTextResult(result);
 	runtime.setResultAvailable(state, name, output.length > 0);
 	if (!options.isPartial && !state.resultLineSummaryComputed) {
 		state.resultLineSummary = formatResultLineSummary(name, ctx.args, result, output);
 		state.resultLineSummaryComputed = true;
 	}
-	if (!state.expanded) {
+	if (!state.expanded && !state.preview) {
 		return renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary);
 	}
 	const container = new CachedContainer();
 	const component = renderOutput(output, theme, ctx.isError);
-	if (component) container.addChild(component);
+	if (component) {
+		container.addChild(state.expanded ? component : limitComponentLines(component, runtime.config.previewLines, theme));
+	}
 	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary));
 	return container;
 }
@@ -299,24 +278,27 @@ function registerTools(pi: ExtensionAPI, cwd: string): void {
 }
 
 function configure(pi: ExtensionAPI, cwd?: string, projectTrusted = false): void {
-	runtime.configure(loadConfig(cwd, projectTrusted), isFullscreenMode());
+	runtime.configure(loadConfig(cwd, projectTrusted));
 	registerTools(pi, cwd ?? process.cwd());
 }
 
 export default function compactTools(pi: ExtensionAPI): void {
 	const thinkingCycle = new ThinkingCycleController(pi);
+	const progress = new ProgressController(pi);
 	configure(pi);
 	pi.on("session_start", (event, ctx) => {
 		if (event.reason !== "reload") runtime.clearTimings();
 		configure(pi, ctx.cwd, ctx.isProjectTrusted());
-		bindTerminalInput(ctx);
+		progress.bind(ctx, runtime.config);
 		thinkingCycle.bind(ctx);
 	});
-	pi.on("resources_discover", (_event, ctx) => configure(pi, ctx.cwd, ctx.isProjectTrusted()));
+	pi.on("resources_discover", (_event, ctx) => {
+		configure(pi, ctx.cwd, ctx.isProjectTrusted());
+		progress.bind(ctx, runtime.config);
+	});
 	pi.on("session_shutdown", (event) => {
 		thinkingCycle.dispose();
-		unsubscribeTerminalInput?.();
-		unsubscribeTerminalInput = undefined;
+		progress.dispose();
 		runtime.reset(event.reason !== "reload");
 	});
 }

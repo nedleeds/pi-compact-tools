@@ -8,8 +8,7 @@ import {
 	formatDurationMs,
 	normalizeLineEndings,
 } from "../extensions/compact-tools-core.ts";
-import { DEFAULT_CONFIG, isFullscreenMode, mergeConfig } from "../extensions/compact-tools-config.ts";
-import { classifyToggleInput } from "../extensions/compact-tools-input.ts";
+import { DEFAULT_CONFIG, mergeConfig } from "../extensions/compact-tools-config.ts";
 import {
 	formatResultLineSummary,
 	getArgumentDetails,
@@ -18,22 +17,23 @@ import {
 import {
 	CachedContainer,
 	hardWrapTextWithAnsi,
+	limitComponentLines,
 	prefixedText,
 	styleMultiline,
 	wrapEditResult,
 } from "../extensions/compact-tools-layout.ts";
+import { formatToolProgress, ProgressController } from "../extensions/compact-tools-progress.ts";
 import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
 import {
 	classifyThinkingToggleInput,
 	hasThinkingDetail,
-	isThinkingStreamEvent,
 	nextThinkingPhase,
 	renderThinkingView,
 	thinkingViewForPhase,
 	ThinkingCycleController,
 	type ThinkingPhase,
 } from "../extensions/compact-tools-thinking.ts";
-import type { RenderContext, RowState } from "../extensions/compact-tools-types.ts";
+import type { RowState } from "../extensions/compact-tools-types.ts";
 
 test("normalizes CRLF, LF, and CR line endings", () => {
 	assert.equal(normalizeLineEndings("a\r\nb\rc\nd"), "a\nb\nc\nd");
@@ -49,21 +49,15 @@ test("merges configuration without mutating defaults", () => {
 		tools: ["read", "grep"],
 		auto_compact: { read: false },
 		spinner: { intervalMs: 80 },
+		previewLines: 12,
 	}, "test");
 	assert.deepEqual(merged.tools, ["read", "grep"]);
 	assert.equal(merged.auto_compact.read, false);
 	assert.equal(merged.auto_compact.edit, false);
 	assert.equal(merged.spinner.intervalMs, 80);
+	assert.equal(merged.previewLines, 12);
+	assert.equal(mergeConfig(DEFAULT_CONFIG, { previewLines: 0 }, "test").previewLines, 10);
 	assert.equal(DEFAULT_CONFIG.auto_compact.read, true);
-	assert.equal(isFullscreenMode(["pi", "--tui-mode=fullscreen"]), true);
-	assert.equal(isFullscreenMode(["pi", "--tui-mode", "regular"]), false);
-});
-
-test("ignores Ctrl+O key releases while accepting press events", () => {
-	assert.equal(classifyToggleInput("\x0f"), "toggle");
-	assert.equal(classifyToggleInput("\x1b[111;5u"), "toggle");
-	assert.equal(classifyToggleInput("\x1b[111;5:3u"), "release");
-	assert.equal(classifyToggleInput("x"), undefined);
 });
 
 test("hard-wraps long ANSI paths into remaining columns instead of moving the path", () => {
@@ -140,21 +134,19 @@ test("reapplies ANSI styling to every logical line", () => {
 	assert.deepEqual(styled.split("\n"), ["\x1b[90mfirst\x1b[39m", "\x1b[90msecond\x1b[39m"]);
 });
 
-test("keeps result expansion binary and respects per-tool defaults", () => {
+test("uses hidden, preview, and expanded result states with Pi's host toggle", () => {
 	const runtime = new ToolRuntime();
-	runtime.configure(DEFAULT_CONFIG, false);
+	runtime.configure(DEFAULT_CONFIG);
 	const read: RowState = {};
 	const edit: RowState = {};
 	assert.equal(runtime.syncExpansion(read, false, "read"), false);
-	assert.equal(runtime.syncExpansion(edit, false, "edit"), true);
-	runtime.setResultAvailable(read, "read", true);
-	let invalidations = 0;
-	runtime.track({ toolCallId: "read-1", invalidate: () => invalidations++ } as RenderContext, "read", read);
-	assert.equal(runtime.toggleTrackedRows(), "expanded");
-	assert.equal(read.expanded, true);
-	assert.equal(runtime.toggleTrackedRows(), "collapsed");
-	assert.equal(read.expanded, false);
-	assert.equal(invalidations, 2);
+	assert.equal(read.preview, false);
+	assert.equal(runtime.syncExpansion(edit, false, "edit"), false);
+	assert.equal(edit.preview, true);
+	assert.equal(runtime.syncExpansion(edit, true, "edit"), true);
+	assert.equal(edit.preview, false);
+	assert.equal(runtime.syncExpansion(edit, false, "edit"), false);
+	assert.equal(edit.preview, false);
 	runtime.reset(true);
 });
 
@@ -163,6 +155,47 @@ test("classifies pending, running, completed, and failed calls", () => {
 	assert.equal(classifyCallStatus(false, true, false), "running");
 	assert.equal(classifyCallStatus(false, true, true), "success");
 	assert.equal(classifyCallStatus(true, true, true), "error");
+});
+
+test("limits previews without modifying the full result component", () => {
+	const source: Component = {
+		render: () => ["one", "two", "three", "four"],
+		invalidate() {},
+	};
+	const theme = { fg: (_color: string, text: string) => text } as Theme;
+	assert.deepEqual(limitComponentLines(source, 2, theme).render(80), ["one", "two", " │ … 2 more lines"]);
+	assert.deepEqual(source.render(80), ["one", "two", "three", "four"]);
+});
+
+test("formats concise progress labels for Pi's working row", () => {
+	assert.equal(formatToolProgress("read", { path: "src/index.ts" }), "read · src/index.ts");
+	assert.equal(formatToolProgress("bash", { command: "npm run check\nnext" }), "bash · npm run check next");
+});
+
+test("keeps one Pi working indicator across thinking and tool progress", () => {
+	const handlers = new Map<string, (event: any) => void>();
+	const pi = {
+		on: (name: string, handler: (event: any) => void) => handlers.set(name, handler),
+	} as unknown as ExtensionAPI;
+	const messages: Array<string | undefined> = [];
+	let indicator: { frames: string[]; intervalMs?: number } | undefined;
+	const theme = { fg: (_color: string, text: string) => text } as Theme;
+	const controller = new ProgressController(pi);
+	controller.bind({
+		ui: {
+			theme,
+			setWorkingVisible: () => {},
+			setWorkingMessage: (message?: string) => messages.push(message),
+			setWorkingIndicator: (value?: typeof indicator) => { indicator = value; },
+		},
+	} as unknown as ExtensionContext, DEFAULT_CONFIG);
+	assert.deepEqual(indicator?.frames, DEFAULT_CONFIG.spinner.frames);
+	handlers.get("agent_start")?.({});
+	handlers.get("tool_execution_start")?.({ toolCallId: "1", toolName: "read", args: { path: "a.ts" } });
+	handlers.get("tool_execution_end")?.({ toolCallId: "1" });
+	handlers.get("agent_end")?.({});
+	assert.deepEqual(messages, ["Thinking…", "read · a.ts", "Processing results…", undefined]);
+	controller.dispose();
 });
 
 test("caches expanded container lines by width", () => {
@@ -203,15 +236,6 @@ test("caches wrapped edit processing by width", () => {
 	assert.deepEqual(first, [" │ first", " │ second"]);
 	wrapped.render(79);
 	assert.equal(renders, 2);
-});
-
-test("limits the thinking sweep to active thinking provider events", () => {
-	assert.equal(isThinkingStreamEvent("thinking_start"), true);
-	assert.equal(isThinkingStreamEvent("thinking_delta"), true);
-	assert.equal(isThinkingStreamEvent("thinking_end"), false);
-	assert.equal(isThinkingStreamEvent("toolcall_start"), false);
-	assert.equal(isThinkingStreamEvent("toolcall_delta"), false);
-	assert.equal(isThinkingStreamEvent("done"), false);
 });
 
 test("cycles summary, detail, summary, and hidden in order", () => {

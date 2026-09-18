@@ -12,6 +12,7 @@ type JsonObject = Record<string, unknown>;
 
 export const DEFAULT_CONFIG: CompactToolsConfig = {
 	tools: ["read", "write", "edit", "bash"],
+	previewLines: 10,
 	auto_compact: {
 		read: true,
 		write: true,
@@ -113,7 +114,12 @@ export function mergeConfig(base: CompactToolsConfig, value: unknown, path: stri
 	const tools = value.tools === undefined ? base.tools : (parseTools(value.tools, path) ?? base.tools);
 	const auto_compact = parseAutoCompact(base.auto_compact, value.auto_compact, path);
 	const spinner = parseSpinner(base.spinner, value.spinner, path);
-	return { tools, auto_compact, spinner };
+	const previewLines = value.previewLines === undefined ? base.previewLines
+		: isIntegerInRange(value.previewLines, 1, 100) ? value.previewLines : base.previewLines;
+	if (value.previewLines !== undefined && !isIntegerInRange(value.previewLines, 1, 100)) {
+		warn(path, "previewLines must be 1–100; using previous value");
+	}
+	return { tools, auto_compact, spinner, previewLines };
 }
 
 function readJson(path: string): unknown {
@@ -132,14 +138,4 @@ export function loadConfig(cwd?: string, projectTrusted = false): CompactToolsCo
 	if (!cwd || !projectTrusted) return globalConfig;
 	const projectPath = join(cwd, CONFIG_DIR_NAME, CONFIG_FILE);
 	return mergeConfig(globalConfig, readJson(projectPath), projectPath);
-}
-
-export function isFullscreenMode(argv = process.argv): boolean {
-	for (let index = 0; index < argv.length; index++) {
-		const argument = argv[index];
-		if (argument === "--tui-mode") return argv[index + 1] === "fullscreen";
-		if (argument?.startsWith("--tui-mode=")) return argument.slice("--tui-mode=".length) === "fullscreen";
-	}
-	const settings = readJson(join(getAgentDir(), "settings.json"));
-	return isObject(settings) && settings.tuiMode === "fullscreen";
 }
