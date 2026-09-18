@@ -173,7 +173,7 @@ test("formats concise progress labels for Pi's working row", () => {
 test("sweeps a glow across the working label", () => {
 	const theme = { fg: (color: string, text: string) => `<${color}>${text}</${color}>` } as Theme;
 	const rendered = glowProgressMessage("Glow", 0, theme);
-	assert.match(rendered, /^<text>G<\/text><thinkingXhigh>l<\/thinkingXhigh>/);
+	assert.match(rendered, /^<mdHeading>G<\/mdHeading><text>l<\/text><thinkingMax>o<\/thinkingMax>/);
 });
 
 test("keeps one glyph-free Pi working row across thinking and tool progress", () => {

@@ -27,9 +27,8 @@ export function glowProgressMessage(message: string, frame: number, theme: Theme
 	const center = frame % Math.max(1, characters.length + GLOW_TAIL);
 	return characters.map((character, index) => {
 		const distance = Math.abs(index - center);
-		const color = distance === 0 ? "text"
-			: distance === 1 ? "thinkingXhigh"
-			: distance === 2 ? "thinkingHigh"
+		const color = distance === 0 ? "mdHeading"
+			: distance === 1 ? "text"
 			: "thinkingMax";
 		return theme.fg(color, character);
 	}).join("");
