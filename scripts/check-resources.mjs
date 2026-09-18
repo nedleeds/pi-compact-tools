@@ -21,7 +21,7 @@ if (theme.name !== "github-dark-pro" || !theme.colors || typeof theme.colors !==
   throw new Error("themes/github-dark-pro.json is not a valid pi theme document");
 }
 if (!theme.colors.border || !theme.colors.dim || !theme.colors.muted) {
-  throw new Error("github-dark-pro must define spinner and separator colors");
+  throw new Error("github-dark-pro must define separator colors");
 }
 if (!theme.vars?.thinkingText || !theme.colors.thinkingMax) {
   throw new Error("github-dark-pro must define thinking text and summary colors");
@@ -33,12 +33,6 @@ if (!theme.colors.mdQuote || !theme.colors.mdCodeBlockBorder) {
 const example = JSON.parse(
   await readFile(new URL("../examples/compact-tools.json", import.meta.url), "utf8"),
 );
-if (!Array.isArray(example.spinner?.frames) || example.spinner.frames.length === 0) {
-  throw new Error("example spinner.frames must be a non-empty array");
-}
-if (!Number.isInteger(example.spinner.intervalMs)) {
-  throw new Error("example spinner.intervalMs must be an integer");
-}
 if (!example.auto_compact || example.auto_compact.edit !== false) {
   throw new Error("example auto_compact policy must keep edit diffs visible by default");
 }
@@ -48,15 +42,15 @@ if (Object.values(example.auto_compact).some((enabled) => typeof enabled !== "bo
 if (!Number.isInteger(example.previewLines) || example.previewLines < 1 || example.previewLines > 100) {
   throw new Error("example previewLines must be an integer from 1 to 100");
 }
-const blinkExample = JSON.parse(
+const alternateExample = JSON.parse(
   await readFile(new URL("../examples/compact-tools-2.json", import.meta.url), "utf8"),
 );
-if (JSON.stringify(blinkExample.spinner?.frames) !== JSON.stringify(["●", "●", " ", "●", "●"])) {
-  throw new Error("compact-tools-2 spinner must fade through repeated circles and a blank frame");
-}
-for (const [name, config] of [["compact-tools", example], ["compact-tools-2", blinkExample]]) {
+for (const [name, config] of [["compact-tools", example], ["compact-tools-2", alternateExample]]) {
   if ("durationIndicators" in config) {
     throw new Error(`${name} must not contain the removed durationIndicators setting`);
+  }
+  if ("spinner" in config) {
+    throw new Error(`${name} must not contain the removed spinner setting`);
   }
 }
 
@@ -65,6 +59,9 @@ const schema = JSON.parse(
 );
 if (schema.properties?.durationIndicators) {
   throw new Error("schema must not expose the removed durationIndicators setting");
+}
+if (schema.properties?.spinner) {
+  throw new Error("schema must not expose the removed spinner setting");
 }
 if (!schema.properties?.auto_compact?.properties?.edit) {
   throw new Error("schema must describe per-tool auto_compact policies");

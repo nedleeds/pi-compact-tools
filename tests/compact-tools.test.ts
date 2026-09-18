@@ -22,7 +22,7 @@ import {
 	styleMultiline,
 	wrapEditResult,
 } from "../extensions/compact-tools-layout.ts";
-import { formatToolProgress, ProgressController } from "../extensions/compact-tools-progress.ts";
+import { formatToolProgress, glowProgressMessage, ProgressController } from "../extensions/compact-tools-progress.ts";
 import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
 import {
 	classifyThinkingToggleInput,
@@ -48,13 +48,11 @@ test("merges configuration without mutating defaults", () => {
 	const merged = mergeConfig(DEFAULT_CONFIG, {
 		tools: ["read", "grep"],
 		auto_compact: { read: false },
-		spinner: { intervalMs: 80 },
 		previewLines: 12,
 	}, "test");
 	assert.deepEqual(merged.tools, ["read", "grep"]);
 	assert.equal(merged.auto_compact.read, false);
 	assert.equal(merged.auto_compact.edit, false);
-	assert.equal(merged.spinner.intervalMs, 80);
 	assert.equal(merged.previewLines, 12);
 	assert.equal(mergeConfig(DEFAULT_CONFIG, { previewLines: 0 }, "test").previewLines, 10);
 	assert.equal(DEFAULT_CONFIG.auto_compact.read, true);
@@ -172,7 +170,13 @@ test("formats concise progress labels for Pi's working row", () => {
 	assert.equal(formatToolProgress("bash", { command: "npm run check\nnext" }), "bash · npm run check next");
 });
 
-test("keeps one Pi working indicator across thinking and tool progress", () => {
+test("sweeps a glow across the working label", () => {
+	const theme = { fg: (color: string, text: string) => `<${color}>${text}</${color}>` } as Theme;
+	const rendered = glowProgressMessage("Glow", 0, theme);
+	assert.match(rendered, /^<text>G<\/text><thinkingXhigh>l<\/thinkingXhigh>/);
+});
+
+test("keeps one glyph-free Pi working row across thinking and tool progress", () => {
 	const handlers = new Map<string, (event: any) => void>();
 	const pi = {
 		on: (name: string, handler: (event: any) => void) => handlers.set(name, handler),
@@ -188,8 +192,8 @@ test("keeps one Pi working indicator across thinking and tool progress", () => {
 			setWorkingMessage: (message?: string) => messages.push(message),
 			setWorkingIndicator: (value?: typeof indicator) => { indicator = value; },
 		},
-	} as unknown as ExtensionContext, DEFAULT_CONFIG);
-	assert.deepEqual(indicator?.frames, DEFAULT_CONFIG.spinner.frames);
+	} as unknown as ExtensionContext);
+	assert.deepEqual(indicator?.frames, []);
 	handlers.get("agent_start")?.({});
 	handlers.get("tool_execution_start")?.({ toolCallId: "1", toolName: "read", args: { path: "a.ts" } });
 	handlers.get("tool_execution_end")?.({ toolCallId: "1" });

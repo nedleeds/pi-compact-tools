@@ -23,10 +23,6 @@ export const DEFAULT_CONFIG: CompactToolsConfig = {
 		find: true,
 		ls: true,
 	},
-	spinner: {
-		frames: ["◐", "◓", "◑", "◒"],
-		intervalMs: 120,
-	},
 };
 
 function isObject(value: unknown): value is JsonObject {
@@ -39,10 +35,6 @@ function warn(path: string, message: string): void {
 
 function isIntegerInRange(value: unknown, minimum: number, maximum: number): value is number {
 	return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= maximum;
-}
-
-function isNonEmptyStringArray(value: unknown): value is string[] {
-	return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item.length > 0);
 }
 
 function parseTools(value: unknown, path: string): CompactToolName[] | undefined {
@@ -83,28 +75,6 @@ function parseAutoCompact(
 	return result;
 }
 
-function parseSpinner(
-	base: CompactToolsConfig["spinner"],
-	value: unknown,
-	path: string,
-): CompactToolsConfig["spinner"] {
-	if (value === undefined) return base;
-	if (!isObject(value)) {
-		warn(path, "spinner must be an object; using previous values");
-		return base;
-	}
-	const frames = value.frames;
-	const intervalMs = value.intervalMs;
-	const validFrames = isNonEmptyStringArray(frames);
-	const validInterval = isIntegerInRange(intervalMs, 40, 5_000);
-	if (frames !== undefined && !validFrames) warn(path, "spinner.frames must be a non-empty string array");
-	if (intervalMs !== undefined && !validInterval) warn(path, "spinner.intervalMs must be 40–5000");
-	return {
-		frames: validFrames ? frames : base.frames,
-		intervalMs: validInterval ? intervalMs : base.intervalMs,
-	};
-}
-
 export function mergeConfig(base: CompactToolsConfig, value: unknown, path: string): CompactToolsConfig {
 	if (value === undefined) return base;
 	if (!isObject(value)) {
@@ -113,13 +83,12 @@ export function mergeConfig(base: CompactToolsConfig, value: unknown, path: stri
 	}
 	const tools = value.tools === undefined ? base.tools : (parseTools(value.tools, path) ?? base.tools);
 	const auto_compact = parseAutoCompact(base.auto_compact, value.auto_compact, path);
-	const spinner = parseSpinner(base.spinner, value.spinner, path);
 	const previewLines = value.previewLines === undefined ? base.previewLines
 		: isIntegerInRange(value.previewLines, 1, 100) ? value.previewLines : base.previewLines;
 	if (value.previewLines !== undefined && !isIntegerInRange(value.previewLines, 1, 100)) {
 		warn(path, "previewLines must be 1–100; using previous value");
 	}
-	return { tools, auto_compact, spinner, previewLines };
+	return { tools, auto_compact, previewLines };
 }
 
 function readJson(path: string): unknown {

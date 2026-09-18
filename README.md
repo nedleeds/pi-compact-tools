@@ -6,7 +6,7 @@ Compact, expandable rendering for Pi's built-in tools, with a polished GitHub Da
 
 ## Demo
 
-The recordings below use the optional [Nerd Font](#nerd-font-spinner-preset) spinner preset. **The default configuration does not require a Nerd Font**.
+The UI uses portable Unicode symbols and does not require a Nerd Font.
 
 ### Compact tool workflow
 
@@ -14,9 +14,9 @@ Active, successful, and failed tool calls stay compact while preserving useful s
 
 ![Compact tool workflow with Nerd Font](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/nerd-font-workflow-optimized.gif)
 
-### Spinner and duration display
+### Progress and duration display
 
-The spinner animates during execution, then returns to a green success circle or red failure circle. Elapsed time remains visible in the neutral control color.
+The working label above the prompt carries a soft light sweep. Tool rows use a hollow pending circle, then return to a green success circle or red failure circle. Elapsed time remains visible in the neutral control color.
 
 ![Spinner and elapsed-time display](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/spinner-duration-optimized.gif)
 
@@ -29,7 +29,7 @@ Completed `edit` rows show a concise preview by default. The per-tool `auto_comp
 ## Features
 
 - Compact rendering for `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`
-- One continuously animated working indicator above the input prompt across thinking and tool execution
+- One continuously glowing working label above the input prompt across thinking and tool execution
 - Four-step `Ctrl+T` thinking cycle when provider detail is available: summary, detail, summary, then hidden
 - Millisecond-precision duration and completed output line counts with neutral status text
 - Per-tool hidden or bounded-preview initial state with `auto_compact: true` or `false`
@@ -89,17 +89,11 @@ Default configuration:
     "write": true,
     "edit": false,
     "bash": true
-  },
-  "spinner": {
-    "frames": ["◐", "◓", "◑", "◒"],
-    "intervalMs": 120
   }
 }
 ```
 
-Successful call titles use a green `●`, while failed call titles use a red `●`. `Done`, `Failed`, and elapsed time use the same neutral control color. A single Pi working indicator animates independently of token arrival and reports `Thinking…`, `Responding…`, or the active tool and target above the prompt. Tool rows do not run independent render timers.
-
-For a minimal blinking spinner, copy [`examples/compact-tools-2.json`](examples/compact-tools-2.json). Its frames use `● ● (blank) ● ●` at 120 ms intervals. The renderer's built-in frame dimming turns this into a fade-out/fade-in animation. Rename it to `compact-tools.json` or copy its contents to the active configuration path.
+Running call titles use a hollow `○`, successful titles use a green `●`, and failed titles use a red `●`. `Done`, `Failed`, and elapsed time use the same neutral control color. A single Pi working label animates independently of token arrival and reports `Thinking…`, `Responding…`, or the active tool and target above the prompt. No spinner glyph is shown above the prompt or animated inside tool rows.
 
 `auto_compact` controls each tool's initial result state:
 
@@ -119,23 +113,6 @@ To enable all Unix-compatible tools:
 
 Add `"powershell"` on Windows if desired.
 
-## Nerd Font spinner preset
-
-If your terminal uses a [Nerd Font](https://www.nerdfonts.com/), this preset enables all eight tools and the spinner shown in the demos:
-
-```json
-{
-  "$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/schemas/compact-tools.schema.json",
-  "tools": ["read", "write", "edit", "bash", "powershell", "grep", "find", "ls"],
-  "spinner": {
-    "frames": ["✽", "✻", "✲", "✢", "✲", "✻"],
-    "intervalMs": 80
-  }
-}
-```
-
-Remove `"powershell"` on systems where it is unavailable.
-
 ## Controls
 
 `Ctrl+T` cycles every thinking block through:
@@ -144,7 +121,7 @@ Remove `"powershell"` on systems where it is unavailable.
 one-line summary → summary + │-indented detail → one-line summary → Thinking...
 ```
 
-Standalone bold lines and Markdown headings split one provider thinking run into logical sections. Each section gets its own summary and optional `│`-indented detail. The control row appears only on sections for which the provider returned expandable detail; when no thinking detail exists, no toggle hint is shown and `Ctrl+T` falls back to Pi's normal visible/hidden toggle instead of showing a duplicate detail phase. While thinking streams, Pi's working row animates at a steady configured interval rather than depending on token updates. The transcript summary remains visually stable. The transformation is display-only; complete thinking remains unchanged in the session and model context.
+Standalone bold lines and Markdown headings split one provider thinking run into logical sections. Each section gets its own summary and optional `│`-indented detail. The control row appears only on sections for which the provider returned expandable detail; when no thinking detail exists, no toggle hint is shown and `Ctrl+T` falls back to Pi's normal visible/hidden toggle instead of showing a duplicate detail phase. While thinking streams, a soft highlight sweeps across Pi's sky-blue working label at a steady interval rather than depending on token updates. The transcript summary remains visually stable. The transformation is display-only; complete thinking remains unchanged in the session and model context.
 
 Primary invocation targets stay visible, including paths, patterns, and shell commands. After every supported tool completes, the status reports the expanded result size as `Done in …s (N lines)` instead of repeating options such as context and limit. Counts use the returned text for reads, searches, listings, and shell commands, written content for `write`, and the rendered diff for `edit`. The count is computed once after completion and cached with the row, so streaming and repeated expansion do not add ongoing work. Large payloads represented as results, such as write content and edit diffs, follow the result toggle.
 

@@ -13,10 +13,6 @@ export interface CompactToolsConfig {
 	tools: CompactToolName[];
 	auto_compact: Record<CompactToolName, boolean>;
 	previewLines: number;
-	spinner: {
-		frames: string[];
-		intervalMs: number;
-	};
 }
 
 export interface RowState {

@@ -1,7 +1,10 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, truncateToWidth } from "@earendil-works/pi-tui";
 import { getCallDetails } from "./compact-tools-invocation.ts";
-import type { CompactToolsConfig, ToolArgs } from "./compact-tools-types.ts";
+import type { ToolArgs } from "./compact-tools-types.ts";
+
+const GLOW_INTERVAL_MS = 80;
+const GLOW_TAIL = 5;
 
 function progressTarget(toolName: string, args: ToolArgs): string | undefined {
 	const fallback = typeof args.command === "string" ? args.command
@@ -18,19 +21,27 @@ export function formatToolProgress(toolName: string, args: ToolArgs): string {
 	return target ? `${toolName} · ${target}` : toolName;
 }
 
-function indicatorFrames(config: CompactToolsConfig, theme: Theme): string[] {
-	return config.spinner.frames.map((frame, index, frames) => {
-		const position = frames.length < 3 ? 0.5 : index / (frames.length - 1);
-		const distance = Math.abs(position - 0.5) * 2;
-		const tone = distance < 0.34 ? "accent" : distance < 0.75 ? "dim" : "muted";
-		return theme.fg(tone, frame);
-	});
+/** Render a sky-blue label with a soft white highlight sweeping left to right. */
+export function glowProgressMessage(message: string, frame: number, theme: Theme): string {
+	const characters = [...message];
+	const center = frame % Math.max(1, characters.length + GLOW_TAIL);
+	return characters.map((character, index) => {
+		const distance = Math.abs(index - center);
+		const color = distance === 0 ? "text"
+			: distance === 1 ? "thinkingXhigh"
+			: distance === 2 ? "thinkingHigh"
+			: "thinkingMax";
+		return theme.fg(color, character);
+	}).join("");
 }
 
 /** Owns Pi's single working row so animation remains continuous across thinking and tool execution. */
 export class ProgressController {
 	private context: ExtensionContext | undefined;
 	private readonly activeTools = new Map<string, string>();
+	private message: string | undefined;
+	private frame = 0;
+	private timer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(pi: ExtensionAPI) {
 		pi.on("agent_start", () => this.setMessage("Thinking…"));
@@ -52,28 +63,57 @@ export class ProgressController {
 		});
 		pi.on("agent_end", () => {
 			this.activeTools.clear();
-			this.context?.ui.setWorkingMessage();
+			this.clearMessage();
 		});
 	}
 
-	bind(ctx: ExtensionContext, config: CompactToolsConfig): void {
+	bind(ctx: ExtensionContext): void {
+		this.stopAnimation();
 		this.context = ctx;
 		this.activeTools.clear();
+		this.message = undefined;
+		this.frame = 0;
 		ctx.ui.setWorkingVisible(true);
-		ctx.ui.setWorkingIndicator({
-			frames: indicatorFrames(config, ctx.ui.theme),
-			intervalMs: config.spinner.intervalMs,
-		});
+		ctx.ui.setWorkingIndicator({ frames: [] });
 	}
 
 	dispose(): void {
+		this.stopAnimation();
 		this.activeTools.clear();
 		this.context?.ui.setWorkingMessage();
 		this.context?.ui.setWorkingIndicator();
+		this.message = undefined;
 		this.context = undefined;
 	}
 
 	private setMessage(message: string): void {
-		this.context?.ui.setWorkingMessage(message);
+		if (this.message !== message) {
+			this.message = message;
+			this.frame = 0;
+		}
+		this.renderMessage();
+		if (this.timer) return;
+		this.timer = setInterval(() => {
+			this.frame++;
+			this.renderMessage();
+		}, GLOW_INTERVAL_MS);
+		this.timer.unref?.();
+	}
+
+	private renderMessage(): void {
+		if (!this.message || !this.context) return;
+		this.context.ui.setWorkingMessage(glowProgressMessage(this.message, this.frame, this.context.ui.theme));
+	}
+
+	private clearMessage(): void {
+		this.stopAnimation();
+		this.message = undefined;
+		this.frame = 0;
+		this.context?.ui.setWorkingMessage();
+	}
+
+	private stopAnimation(): void {
+		if (this.timer) clearInterval(this.timer);
+		this.timer = undefined;
 	}
 }

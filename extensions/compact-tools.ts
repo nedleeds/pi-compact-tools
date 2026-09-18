@@ -64,7 +64,7 @@ function callStatus(ctx: RenderContext, state: RowState): RowStatus {
 function renderIndicator(theme: Theme, _state: RowState, status: RowStatus): string {
 	if (status === "error") return theme.fg("error", "●");
 	if (status === "success") return theme.fg("success", "●");
-	return theme.fg("accent", runtime.config.spinner.frames[0] ?? "◐");
+	return theme.fg("accent", "○");
 }
 
 function formatDuration(state: RowState): string | undefined {
@@ -289,12 +289,12 @@ export default function compactTools(pi: ExtensionAPI): void {
 	pi.on("session_start", (event, ctx) => {
 		if (event.reason !== "reload") runtime.clearTimings();
 		configure(pi, ctx.cwd, ctx.isProjectTrusted());
-		progress.bind(ctx, runtime.config);
+		progress.bind(ctx);
 		thinkingCycle.bind(ctx);
 	});
 	pi.on("resources_discover", (_event, ctx) => {
 		configure(pi, ctx.cwd, ctx.isProjectTrusted());
-		progress.bind(ctx, runtime.config);
+		progress.bind(ctx);
 	});
 	pi.on("session_shutdown", (event) => {
 		thinkingCycle.dispose();

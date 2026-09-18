@@ -7,9 +7,5 @@
     "write": true,
     "edit": false,
     "bash": true
-  },
-  "spinner": {
-    "frames": ["●", "●", " ", "●", "●"],
-    "intervalMs": 120
   }
 }
