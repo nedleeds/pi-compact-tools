@@ -33,9 +33,12 @@ import {
 	formatResultLineSummary,
 	getArgumentDetails,
 	getCallDetails,
-	getEditChanges,
+	getEditDiff,
+	getEditPatch,
 	getFileOutput,
 	getTextResult,
+	isReadTextResult,
+	splitReadFooter,
 	summarizeShellCommand,
 } from "./compact-tools-invocation.ts";
 import {
@@ -43,7 +46,8 @@ import {
 	limitComponentLines,
 	prefixedText,
 	renderArguments,
-	renderEditChanges,
+	renderCodeDiff,
+	renderCodeView,
 	renderOutput,
 	renderToolCall,
 	styleMultiline,
@@ -59,6 +63,9 @@ import type {
 	ShellToolName,
 	ToolArgs,
 } from "./compact-tools-types.ts";
+
+/** Context lines kept around each change while an edit result is collapsed. */
+const PREVIEW_DIFF_CONTEXT_LINES = 1;
 
 const runtime = new ToolRuntime();
 const registeredTools = new Set<CompactToolName>();
@@ -161,19 +168,45 @@ function renderFileCall(
 	return container;
 }
 
+function renderFileBody(
+	name: CompactToolName,
+	args: ToolArgs,
+	result: AgentToolResult<unknown>,
+	output: string,
+	expanded: boolean,
+	theme: Theme,
+	isError: boolean,
+): Component | undefined {
+	if (isError) return renderOutput(output, theme, isError);
+	const path = typeof args.path === "string" ? args.path : typeof args.file_path === "string" ? args.file_path : "";
+	if (name === "edit") {
+		const diff = getEditDiff(result);
+		const component = diff
+			? renderCodeDiff(getEditPatch(result), diff, path, theme, expanded ? {} : { contextLines: PREVIEW_DIFF_CONTEXT_LINES })
+			: undefined;
+		return component ?? renderOutput(output, theme, isError);
+	}
+	if (name === "read" && isReadTextResult(result)) {
+		const { body, footer } = splitReadFooter(output);
+		const startLine = typeof args.offset === "number" ? args.offset : 1;
+		return renderCodeView(body, path, theme, { startLine, footer }) ?? renderOutput(output, theme, isError);
+	}
+	if (name === "write") return renderCodeView(output, path, theme) ?? renderOutput(output, theme, isError);
+	return renderOutput(output, theme, isError);
+}
+
 function appendFileResult(
 	container: Container,
-	definition: BuiltInDefinition,
+	name: CompactToolName,
 	state: RowState,
+	args: ToolArgs,
+	result: AgentToolResult<unknown>,
 	output: string,
-	editChanges: string,
 	theme: Theme,
 	isError: boolean,
 ): void {
 	if (!state.expanded && !state.preview) return;
-	const component = definition.name === "edit" && editChanges
-		? renderEditChanges(editChanges, theme)
-		: renderOutput(output, theme, isError);
+	const component = renderFileBody(name, args, result, output, state.expanded === true, theme, isError);
 	if (!component) return;
 	container.addChild(state.expanded ? component : limitComponentLines(component, runtime.config.previewLines, theme));
 }
@@ -190,10 +223,10 @@ function renderFileResult(
 	runtime.syncExpansion(state, ctx.expanded, name);
 	if (canReuseResult(state, result, options, ctx)) return ctx.lastComponent;
 	const output = getFileOutput(name, ctx.args, result, ctx.isError);
-	const editChanges = name === "edit" ? getEditChanges(result) : "";
-	runtime.setResultAvailable(state, name, editChanges.length > 0 || output.length > 0);
+	const hasEditDiff = name === "edit" && getEditDiff(result).length > 0;
+	runtime.setResultAvailable(state, name, hasEditDiff || output.length > 0);
 	const container = new CachedContainer();
-	appendFileResult(container, definition, state, output, editChanges, theme, ctx.isError);
+	appendFileResult(container, name, state, ctx.args, result, output, theme, ctx.isError);
 	if (!options.isPartial && !state.resultLineSummaryComputed) {
 		state.resultLineSummary = formatResultLineSummary(name, ctx.args, result, output);
 		state.resultLineSummaryComputed = true;

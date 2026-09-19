@@ -321,6 +321,7 @@ export function getTextResult(result: AgentToolResult<unknown>): string {
 
 type ResultDetails = {
 	diff?: unknown;
+	patch?: unknown;
 	truncation?: {
 		firstLineExceedsLimit?: boolean;
 		outputLines?: number;
@@ -341,21 +342,42 @@ function countTextLines(text: string): number {
 	return count;
 }
 
+export function getEditDiff(result: AgentToolResult<unknown>): string {
+	const diff = (result.details as ResultDetails | undefined)?.diff;
+	return typeof diff === "string" ? normalizeLineEndings(diff).trimEnd() : "";
+}
+
+export function getEditPatch(result: AgentToolResult<unknown>): string {
+	const patch = (result.details as ResultDetails | undefined)?.patch;
+	return typeof patch === "string" ? normalizeLineEndings(patch).trimEnd() : "";
+}
+
 /** Keep only the lines that the edit actually removed or added; discard context and ellipses. */
 export function getEditChanges(result: AgentToolResult<unknown>): string {
-	const diff = (result.details as ResultDetails | undefined)?.diff;
-	if (typeof diff !== "string") return "";
-	return normalizeLineEndings(diff)
+	return getEditDiff(result)
 		.split("\n")
 		.filter((line) => line.startsWith("-") || line.startsWith("+"))
 		.join("\n")
 		.trimEnd();
 }
 
+const READ_FOOTER = /\n\n(\[(?:Showing lines |\d+ more lines in file\.)[^\n]*\])$/u;
+
+/** Separate a read's file contents from the continuation notice Pi appends to them. */
+export function splitReadFooter(text: string): { body: string; footer?: string } {
+	const match = text.match(READ_FOOTER);
+	return match ? { body: text.slice(0, match.index), footer: match[1] } : { body: text };
+}
+
+/** Whether a read result is plain file text that can be shown as numbered code. */
+export function isReadTextResult(result: AgentToolResult<unknown>): boolean {
+	const details = result.details as ResultDetails | undefined;
+	return !details?.truncation?.firstLineExceedsLimit
+		&& !result.content.some((item) => item.type === "image");
+}
+
 function stripGeneratedFooter(name: string, text: string, details: ResultDetails | undefined): string {
-	if (name === "read") {
-		return text.replace(/\n\n\[(?:Showing lines |\d+ more lines in file\.)[^\n]*\]$/u, "");
-	}
+	if (name === "read") return splitReadFooter(text).body;
 	const hasGeneratedFooter = details?.truncation?.outputLines !== undefined
 		|| details?.matchLimitReached !== undefined
 		|| details?.resultLimitReached !== undefined

@@ -21,16 +21,21 @@ import {
 	getArgumentDetails,
 	getCallDetails,
 	getEditChanges,
+	splitReadFooter,
 	summarizeShellCommand,
 } from "../extensions/compact-tools-invocation.ts";
 import {
 	CachedContainer,
 	hardWrapTextWithAnsi,
 	limitComponentLines,
+	parseCodeDiff,
 	prefixedText,
-	renderEditChanges,
+	renderCodeDiff,
+	renderCodeView,
 	styleMultiline,
+	trimDiffContext,
 } from "../extensions/compact-tools-layout.ts";
+import { highlightMarkdown } from "../extensions/compact-tools-markdown.ts";
 import { formatToolProgress, glowProgressMessage, ProgressController } from "../extensions/compact-tools-progress.ts";
 import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
 import {
@@ -160,19 +165,157 @@ test("summarizes collapsed shell calls and shows text-search patterns", () => {
 	assert.equal(summarizeShellCommand("bash", ""), "Prepare shell command");
 });
 
-test("keeps only changed edit lines and colors additions and deletions", () => {
+const DIFF_ANSI: Record<string, string> = {
+	text: "\x1b[38;2;201;209;217m",
+	toolDiffAdded: "\x1b[38;2;87;166;74m",
+	toolDiffRemoved: "\x1b[38;2;229;83;75m",
+};
+
+const diffTheme = {
+	fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+	getFgAnsi: (color: string) => DIFF_ANSI[color] ?? "",
+	getColorMode: () => "truecolor",
+} as unknown as Theme;
+
+test("keeps only changed edit lines for the result line summary", () => {
 	const result = {
 		content: [{ type: "text" as const, text: "Successfully replaced 1 block" }],
 		details: { diff: "     ...\r\n  8 unchanged\r\n- 9 old\r\n+ 9 new\r\n 10 unchanged\r\n     ..." },
 	};
-	const changes = getEditChanges(result);
-	assert.equal(changes, "- 9 old\n+ 9 new");
-	const theme = { fg: (color: string, text: string) => `<${color}>${text}</${color}>` } as Theme;
-	const rendered = renderEditChanges(changes, theme)?.render(80).map(stripTerminalSequences);
+	assert.equal(getEditChanges(result), "- 9 old\n+ 9 new");
+});
+
+test("renders an edit as a diff with a line-number gutter and tinted change rows", () => {
+	const patch = [
+		"--- file.ts",
+		"+++ file.ts",
+		"@@ -8,3 +8,3 @@",
+		" const before = 1;",
+		"-const value = old();",
+		"+const value = next();",
+		" return value;",
+	].join("\n");
+	const rendered = renderCodeDiff(patch, "", "file.ts", diffTheme)?.render(60)
+		.map((line) => stripTerminalSequences(line).trimEnd());
 	assert.deepEqual(rendered, [
-		"<border> │ </border><error>- 9 old</error>",
-		"<border> │ </border><success>+ 9 new</success>",
+		"<border> │ </border><toolDiffContext> 8   </toolDiffContext>const before = 1;",
+		"<border> │ </border><toolDiffRemoved> 9 - </toolDiffRemoved>const value = old();",
+		"<border> │ </border><toolDiffAdded> 9 + </toolDiffAdded>const value = next();",
+		"<border> │ </border><toolDiffContext>10   </toolDiffContext>return value;",
 	]);
+});
+
+test("renders file contents with offset line numbers and a dim continuation notice", () => {
+	const rendered = renderCodeView("const a = 1;\n\treturn a;\n", "file.ts", diffTheme, {
+		startLine: 99,
+		footer: "[Showing lines 99-100 of 300. Use offset=101 to continue.]",
+	})?.render(80).map((line) => stripTerminalSequences(line).trimEnd());
+	assert.deepEqual(rendered, [
+		"<border> │ </border><toolDiffContext> 99  </toolDiffContext>const a = 1;",
+		"<border> │ </border><toolDiffContext>100  </toolDiffContext>   return a;",
+		"<border> │ </border><dim>[Showing lines 99-100 of 300. Use offset=101 to continue.]</dim>",
+	]);
+});
+
+test("plain-text files keep the output color instead of guessing a language", () => {
+	const rendered = renderCodeView("hello", "NOTES", diffTheme)?.render(120).map(stripTerminalSequences);
+	assert.deepEqual(rendered, ["<border> │ </border><toolDiffContext>1  </toolDiffContext><toolOutput>hello</toolOutput>"]);
+});
+
+test("highlights Markdown prose and fenced code while keeping every source character", () => {
+	const theme = {
+		fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+		bold: (text: string) => `<b>${text}</b>`,
+		italic: (text: string) => `<i>${text}</i>`,
+	} as unknown as Theme;
+	const source = [
+		"# Title",
+		"See `x` and [docs](https://x.dev) with **bold**.",
+		"- item",
+		"> quote",
+		"```",
+		"# not a heading",
+		"```",
+	];
+	const rendered = highlightMarkdown(source, theme);
+	assert.deepEqual(rendered, [
+		"<b><mdHeading># Title</mdHeading></b>",
+		"<toolOutput>See </toolOutput><dim>`</dim><mdCode>x</mdCode><dim>`</dim><toolOutput> and </toolOutput>"
+			+ "<dim>[</dim><mdLink>docs</mdLink><dim>](</dim><mdLinkUrl>https://x.dev</mdLinkUrl><dim>)</dim>"
+			+ "<toolOutput> with </toolOutput><dim>**</dim><b><toolOutput>bold</toolOutput></b><dim>**</dim><toolOutput>.</toolOutput>",
+		"<mdListBullet>- </mdListBullet><toolOutput>item</toolOutput>",
+		"<mdQuoteBorder>> </mdQuoteBorder><i><mdQuote>quote</mdQuote></i>",
+		"<mdCodeBlockBorder>```</mdCodeBlockBorder>",
+		"<mdCodeBlock># not a heading</mdCodeBlock>",
+		"<mdCodeBlockBorder>```</mdCodeBlockBorder>",
+	]);
+	assert.deepEqual(rendered.map((line) => line.replace(/<\/?[\w]+>/gu, "")), source);
+});
+
+test("highlights a fenced block with its declared language and survives an unclosed fence", () => {
+	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text, italic: (text: string) => text } as unknown as Theme;
+	const rendered = highlightMarkdown(["```ts", "const a = 1;"], theme).map(stripTerminalSequences);
+	assert.deepEqual(rendered, ["```ts", "const a = 1;"]);
+});
+
+test("separates a read's continuation notice from the file contents", () => {
+	assert.deepEqual(splitReadFooter("a\nb\n\n[3 more lines in file. Use offset=3 to continue.]"), {
+		body: "a\nb",
+		footer: "[3 more lines in file. Use offset=3 to continue.]",
+	});
+	assert.deepEqual(splitReadFooter("a\n\n[not a footer]"), { body: "a\n\n[not a footer]" });
+});
+
+test("drops distant context so a collapsed edit preview still reaches the change", () => {
+	const patch = [
+		"--- file.ts",
+		"+++ file.ts",
+		"@@ -1,7 +1,7 @@",
+		" one",
+		" two",
+		" three",
+		"-four",
+		"+FOUR",
+		" five",
+		" six",
+		" seven",
+	].join("\n");
+	assert.deepEqual(
+		trimDiffContext(parseCodeDiff(patch), 1).map(({ kind, content }) => ({ kind, content })),
+		[
+			{ kind: "context", content: "three" },
+			{ kind: "remove", content: "four" },
+			{ kind: "add", content: "FOUR" },
+			{ kind: "context", content: "five" },
+		],
+	);
+});
+
+test("parses unified edit patches into numbered code-diff rows", () => {
+	const patch = [
+		"--- file.ts",
+		"+++ file.ts",
+		"@@ -8,3 +8,3 @@",
+		" keep",
+		"-old",
+		"+new",
+		" tail",
+		"@@ -20 +20 @@",
+		"-before",
+		"+after",
+	].join("\n");
+	assert.deepEqual(
+		parseCodeDiff(patch).map(({ kind, lineNumber, content }) => ({ kind, lineNumber, content })),
+		[
+			{ kind: "context", lineNumber: 8, content: "keep" },
+			{ kind: "remove", lineNumber: 9, content: "old" },
+			{ kind: "add", lineNumber: 9, content: "new" },
+			{ kind: "context", lineNumber: 10, content: "tail" },
+			{ kind: "separator", lineNumber: undefined, content: "⋮" },
+			{ kind: "remove", lineNumber: 20, content: "before" },
+			{ kind: "add", lineNumber: 20, content: "after" },
+		],
+	);
 });
 
 test("reapplies ANSI styling to every logical line", () => {
@@ -305,6 +448,7 @@ test("animates every built-in, restores reload renderers, and reuses unchanged l
 
 	const renderTheme = {
 		fg: (_color: string, text: string) => text,
+		bg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 		italic: (text: string) => text,
 		getFgAnsi: (color: string) => color === "borderAccent"

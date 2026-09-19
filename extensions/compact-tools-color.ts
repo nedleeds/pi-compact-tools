@@ -63,3 +63,27 @@ export function colorizeRgb(theme: Theme, color: Rgb, text: string): string {
 	}
 	return `\x1b[38;2;${color.r};${color.g};${color.b}m${text}\x1b[39m`;
 }
+
+function isDarkTheme(theme: Theme): boolean {
+	const text = themeColorRgb(theme, "text");
+	if (!text) return true;
+	return text.r * 0.299 + text.g * 0.587 + text.b * 0.114 > 128;
+}
+
+/**
+ * Diff rows need a tint that reads on the terminal background without hijacking `toolSuccessBg`
+ * and `toolErrorBg`, which Pi paints across the whole tool row.
+ */
+export function diffTintRgb(theme: Theme, color: ThemeForeground, amount = 0.16): Rgb | undefined {
+	const rgb = themeColorRgb(theme, color);
+	if (!rgb) return undefined;
+	const base: Rgb = isDarkTheme(theme) ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 };
+	return interpolateRgb(base, rgb, amount);
+}
+
+export function fillRgb(theme: Theme, color: Rgb, text: string): string {
+	if (typeof theme.getColorMode === "function" && theme.getColorMode() === "256color") {
+		return `\x1b[48;5;${rgbToAnsi256(color)}m${text}\x1b[49m`;
+	}
+	return `\x1b[48;2;${color.r};${color.g};${color.b}m${text}\x1b[49m`;
+}
