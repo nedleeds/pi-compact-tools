@@ -159,7 +159,9 @@ function renderThinkingSections(
 				truncateToWidth(summary, Math.max(1, availableWidth), "…"),
 			);
 			const title = options.styleSummary?.(fittedSummary, sectionIndex) ?? fittedSummary;
-			const sectionControls = typeof controls === "function" ? controls(detail.length > 0) : controls;
+			const sectionControls = view === "detail"
+				? typeof controls === "function" ? controls(detail.length > 0) : controls
+				: undefined;
 			const controlLines = sectionControls
 				? wrapTextWithAnsi(sectionControls, Math.max(1, availableWidth - 3)).map(
 						(line, index) => `${index === 0 ? styleControlPrefix("└─ ") : "   "}${line}`,

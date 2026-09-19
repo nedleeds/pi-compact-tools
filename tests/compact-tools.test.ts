@@ -528,10 +528,7 @@ test("detects whether provider thinking includes expandable detail", () => {
 
 test("renders each thinking view without changing source content", () => {
 	const thinking = "## **Check the implementation**\n\nInspect the renderer.\nKeep the cache.";
-	assert.equal(
-		renderThinkingView(thinking, "summary", 80),
-		"Check the implementation  \n└─ ctrl+t toggle • click to hide",
-	);
+	assert.equal(renderThinkingView(thinking, "summary", 80), "Check the implementation");
 	assert.equal(
 		renderThinkingView(thinking, "detail", 80),
 		"Check the implementation  \n│  \n│ Inspect the renderer.  \n│ Keep the cache.  \n└─ ctrl+t toggle • click to hide",
