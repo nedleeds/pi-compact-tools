@@ -65,7 +65,11 @@ const registeredTools = new Set<CompactToolName>();
 let registeredConfiguration: string | undefined;
 
 function callStatus(ctx: RenderContext, state: RowState): RowStatus {
-	return classifyCallStatus(ctx.isError, ctx.executionStarted, state.endedAt !== undefined);
+	// write/edit arguments can stream for much longer than their eventual filesystem
+	// operation. Treat that active tool-call phase as running so every built-in row
+	// animates consistently instead of waiting for execute() to begin.
+	const active = ctx.executionStarted || !ctx.argsComplete;
+	return classifyCallStatus(ctx.isError, active, state.endedAt !== undefined);
 }
 
 function renderIndicator(theme: Theme, ctx: RenderContext, status: RowStatus): string {

@@ -42,7 +42,7 @@ import {
 	ThinkingCycleController,
 	type ThinkingPhase,
 } from "../extensions/compact-tools-thinking.ts";
-import type { RowState } from "../extensions/compact-tools-types.ts";
+import { SUPPORTED_TOOLS, type RowState } from "../extensions/compact-tools-types.ts";
 
 test("normalizes CRLF, LF, and CR line endings", () => {
 	assert.equal(normalizeLineEndings("a\r\nb\rc\nd"), "a\nb\nc\nd");
@@ -267,11 +267,14 @@ test("limits previews without modifying the full result component", () => {
 	assert.deepEqual(source.render(80), ["one", "two", "three", "four"]);
 });
 
-test("avoids duplicate registration, restores reload renderers, and reuses unchanged large results", async () => {
-	// Isolate from any real ~/.pi/agent/compact-tools.json so package defaults apply.
+test("animates every built-in, restores reload renderers, and reuses unchanged large results", async () => {
 	const agentDirVariable = "PI_CODING_AGENT_DIR";
 	const previousAgentDir = process.env[agentDirVariable];
 	process.env[agentDirVariable] = mkdtempSync(join(tmpdir(), "compact-tools-test-"));
+	writeFileSync(
+		join(process.env[agentDirVariable]!, "compact-tools.json"),
+		JSON.stringify({ tools: SUPPORTED_TOOLS }),
+	);
 	const compactTools = (await import("../extensions/compact-tools.ts")).default;
 	const registered: Array<{ name: string; renderCall?: unknown; renderResult?: unknown }> = [];
 	const handlers = new Map<string, (event: any, ctx: any) => void>();
@@ -288,8 +291,65 @@ test("avoids duplicate registration, restores reload renderers, and reuses uncha
 	} as unknown as ExtensionContext;
 
 	compactTools(pi);
-	assert.deepEqual(registered.map(({ name }) => name), ["read", "write", "edit", "bash"]);
+	assert.deepEqual(registered.map(({ name }) => name), [...SUPPORTED_TOOLS]);
 	assert.ok(registered.every(({ renderCall, renderResult }) => renderCall && renderResult));
+
+	const renderTheme = {
+		fg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+		italic: (text: string) => text,
+		getFgAnsi: (color: string) => color === "borderAccent"
+			? "\x1b[38;2;90;100;110m"
+			: "\x1b[38;2;20;30;40m",
+		getColorMode: () => "truecolor",
+	} as unknown as Theme;
+	const callArguments: Record<string, Record<string, unknown>> = {
+		read: { path: "file.ts" },
+		write: { path: "file.ts", content: "streaming content" },
+		edit: { path: "file.ts", edits: [{ oldText: "old", newText: "new" }] },
+		bash: { command: "sleep 10" },
+		powershell: { command: "Start-Sleep -Seconds 10" },
+		grep: { path: "src", pattern: "TODO" },
+		find: { path: "src", pattern: "*.ts" },
+		ls: { path: "src" },
+	};
+	for (const definition of registered) {
+		const args = callArguments[definition.name]!;
+		const renderBuiltInCall = definition.renderCall as (
+			args: Record<string, unknown>,
+			theme: Theme,
+			ctx: any,
+		) => Component;
+		for (const phase of [
+			{ name: "streaming", argsComplete: false, executionStarted: false },
+			{ name: "executing", argsComplete: true, executionStarted: true },
+		]) {
+			const lines = renderBuiltInCall(args, renderTheme, {
+				args,
+				argsComplete: phase.argsComplete,
+				cwd: process.cwd(),
+				executionStarted: phase.executionStarted,
+				expanded: false,
+				invalidate: () => {},
+				isError: false,
+				isPartial: true,
+				lastComponent: undefined,
+				showImages: false,
+				state: {},
+				toolCallId: `${phase.name}-${definition.name}`,
+			}).render(80);
+			assert.match(
+				lines[0]!,
+				/\x1b\[38;2;\d+;\d+;\d+m⦁\x1b\[39m/u,
+				`${phase.name} ${definition.name}`,
+			);
+			assert.match(
+				stripTerminalSequences(lines[0]!),
+				new RegExp(`⦁ ${definition.name}\\b`, "u"),
+				`${phase.name} ${definition.name}`,
+			);
+		}
+	}
 
 	const readDefinition = registered.find(({ name }) => name === "read");
 	const renderCall = readDefinition?.renderCall as (args: { path: string }, theme: Theme, ctx: any) => Component;
@@ -303,15 +363,6 @@ test("avoids duplicate registration, restores reload renderers, and reuses uncha
 		type: "text" as const,
 		text: Array.from({ length: 2_000 }, (_, index) => `line ${index}`).join("\n"),
 	}];
-	const renderTheme = {
-		fg: (_color: string, text: string) => text,
-		bold: (text: string) => text,
-		italic: (text: string) => text,
-		getFgAnsi: (color: string) => color === "borderAccent"
-			? "\x1b[38;2;90;100;110m"
-			: "\x1b[38;2;20;30;40m",
-		getColorMode: () => "truecolor",
-	} as unknown as Theme;
 	const rowState: RowState = {};
 	const resultContext = {
 		args: { path: "file.ts" },
@@ -355,13 +406,16 @@ test("avoids duplicate registration, restores reload renderers, and reuses uncha
 
 	handlers.get("session_shutdown")?.({ reason: "reload" }, ctx);
 	handlers.get("session_start")?.({ reason: "reload" }, ctx);
-	assert.deepEqual(registered.map(({ name }) => name), ["read", "write", "edit", "bash"]);
+	assert.deepEqual(registered.map(({ name }) => name), [...SUPPORTED_TOOLS]);
 	assert.ok(registered.every(({ renderCall, renderResult }) => renderCall && renderResult));
 
 	registered.length = 0;
 	writeFileSync(join(process.env[agentDirVariable]!, "compact-tools.json"), JSON.stringify({ tools: ["read"] }));
 	handlers.get("session_start")?.({ reason: "startup" }, ctx);
-	assert.deepEqual(registered.map(({ name }) => name), ["write", "edit", "bash", "read"]);
+	assert.deepEqual(
+		registered.map(({ name }) => name),
+		["write", "edit", "bash", "powershell", "grep", "find", "ls", "read"],
+	);
 
 	registered.length = 0;
 	writeFileSync(join(process.env[agentDirVariable]!, "compact-tools.json"), JSON.stringify({ tools: ["read", "edit"] }));
