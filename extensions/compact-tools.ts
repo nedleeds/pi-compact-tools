@@ -118,7 +118,6 @@ function rememberResult<TDetails, TArgs>(
 }
 
 function renderControls(
-	name: CompactToolName,
 	theme: Theme,
 	state: RowState,
 	running: boolean,
@@ -131,15 +130,6 @@ function renderControls(
 		: `${isError ? "Failed" : "Done"}${duration ? ` in ${duration}` : ""}`;
 	let details = theme.fg("borderAccent", status);
 	if (lineSummary && !running) details += theme.fg("borderAccent", ` (${lineSummary})`);
-	if (state.hasResult) {
-		const clickAction = state.expanded
-			? runtime.config.auto_compact[name] ? "to hide" : "to collapse"
-			: state.preview ? "to expand" : "for result";
-		details += theme.fg(
-			"borderAccent",
-			`, ${theme.italic("ctrl+o")} toggle all • ${theme.italic("click")} ${clickAction}`,
-		);
-	}
 	return prefixedText(details, theme.fg("border", " └─ "), "    ");
 }
 
@@ -204,7 +194,7 @@ function renderFileResult(
 		state.resultLineSummary = formatResultLineSummary(name, ctx.args, result, output);
 		state.resultLineSummaryComputed = true;
 	}
-	container.addChild(renderControls(name, theme, state, options.isPartial, ctx.isError, state.resultLineSummary));
+	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary));
 	rememberResult(state, result, options, ctx);
 	return container;
 }
@@ -241,7 +231,7 @@ function renderShellResult(
 		state.resultLineSummaryComputed = true;
 	}
 	if (!state.expanded && !state.preview) {
-		const controls = renderControls(name, theme, state, options.isPartial, ctx.isError, state.resultLineSummary);
+		const controls = renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary);
 		rememberResult(state, result, options, ctx);
 		return controls;
 	}
@@ -250,7 +240,7 @@ function renderShellResult(
 	if (component) {
 		container.addChild(state.expanded ? component : limitComponentLines(component, runtime.config.previewLines, theme));
 	}
-	container.addChild(renderControls(name, theme, state, options.isPartial, ctx.isError, state.resultLineSummary));
+	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary));
 	rememberResult(state, result, options, ctx);
 	return container;
 }

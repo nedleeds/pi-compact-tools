@@ -95,7 +95,7 @@ Default configuration:
 }
 ```
 
-Every tool call title uses `⦁`. Pending calls use dark gray; running calls smoothly pulse through ten interpolated gray levels at an 80 ms interval without disappearing. Successful titles use green, and failed titles use red. `Done`, `Failed`, and elapsed time use the same neutral control color. A single Pi working label animates independently of token arrival and reports `Thinking…`, `Responding…`, semantic built-in states such as `Reading file…`, or cleaned custom states such as `Using jira search…`. Invocation arguments remain in the tool row instead of being duplicated above the prompt. No separate spinner glyph is shown above the prompt.
+Every tool call title uses `⦁`. Pending calls use dark gray; running calls smoothly pulse through ten interpolated gray levels at an 80 ms interval without disappearing. Successful titles use green, and failed titles use red. `Done`, `Failed`, elapsed time, and line counts use the same neutral control color without printing inline click or keyboard hints. A single Pi working label animates independently of token arrival and reports `Thinking…`, `Responding…`, semantic built-in states such as `Reading file…`, or cleaned custom states such as `Using jira search…`. Invocation arguments remain in the tool row instead of being duplicated above the prompt. No separate spinner glyph is shown above the prompt.
 
 `auto_compact` controls each tool's initial result state:
 

@@ -325,6 +325,8 @@ test("avoids duplicate registration, restores reload renderers, and reuses uncha
 	assert.doesNotMatch(stripTerminalSequences(callLines[0]!), /⦁ {2}read/u);
 
 	const firstResult = renderResult({ content }, { expanded: true, isPartial: true }, renderTheme, resultContext);
+	const firstResultText = firstResult.render(80).map(stripTerminalSequences).join("\n");
+	assert.doesNotMatch(firstResultText, /ctrl\+o|toggle all|click/iu);
 	const reusedResult = renderResult(
 		{ content },
 		{ expanded: true, isPartial: true },
