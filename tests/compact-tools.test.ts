@@ -142,11 +142,20 @@ test("keeps invocation targets visible while separating large result payloads", 
 	assert.deepEqual(getArgumentDetails("write", { path: "file.ts", content: "large payload" }), {});
 });
 
-test("summarizes collapsed shell calls without exposing command arguments", () => {
+test("summarizes collapsed shell calls and shows text-search patterns", () => {
 	assert.equal(summarizeShellCommand("bash", "npm run check"), "Run check task");
 	assert.equal(summarizeShellCommand("bash", "cd release && git status --short && git log -1"), "Check repository status + 1 more step");
-	assert.equal(summarizeShellCommand("bash", "rg very-secret-query src"), "Search text");
-	assert.equal(summarizeShellCommand("powershell", "Get-ChildItem C:\\private"), "List files");
+	assert.equal(summarizeShellCommand("bash", "rg very-secret-query src"), 'Search text "very-secret-query"');
+	assert.equal(summarizeShellCommand("bash", "rg -n '\\d+ items' src"), 'Search text "\\\\d+ items"');
+	assert.equal(summarizeShellCommand("bash", "grep -R --include='*.ts' 'foo bar' ."), 'Search text "foo bar"');
+	assert.equal(summarizeShellCommand("bash", "rg --type ts -e 'TODO|FIXME' src"), 'Search text "TODO|FIXME"');
+	assert.equal(summarizeShellCommand("powershell", "Select-String -Pattern 'fatal error' -Path *.log"), 'Search text "fatal error"');
+	assert.equal(summarizeShellCommand("bash", "find src -name '*.test.ts'"), 'Find files "*.test.ts" in "src"');
+	assert.equal(summarizeShellCommand("bash", "fd -e ts controller src tests"), 'Find files "controller" in "src", "tests"');
+	assert.equal(summarizeShellCommand("bash", "ls -la src"), 'List files "src"');
+	assert.equal(summarizeShellCommand("powershell", "Get-ChildItem -Path C:\\private"), 'List files "C:\\\\private"');
+	assert.equal(summarizeShellCommand("bash", "rm -rf build cache"), 'Run rm "build", "cache"');
+	assert.equal(summarizeShellCommand("bash", "cp -r src backup/src"), 'Copy "src" to "backup/src"');
 	assert.equal(summarizeShellCommand("bash", "custom-tool --token secret"), "Run custom tool");
 	assert.equal(summarizeShellCommand("bash", ""), "Prepare shell command");
 });

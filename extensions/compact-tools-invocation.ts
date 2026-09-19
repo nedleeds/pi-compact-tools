@@ -77,18 +77,192 @@ function shellSegments(command: string): string[] {
 	return segments;
 }
 
-function unquote(value: string): string {
-	return value.replace(/^["']|["']$/gu, "");
+function shellWords(command: string, powershell = false): string[] {
+	const words: string[] = [];
+	let current = "";
+	let quote: "'" | '"' | undefined;
+	const input = command.trim();
+	for (let index = 0; index < input.length; index++) {
+		const character = input[index]!;
+		if (powershell && character === "`" && quote !== "'") {
+			const next = input[index + 1];
+			if (next !== undefined) {
+				current += next;
+				index++;
+			}
+			continue;
+		}
+		if (!powershell && character === "\\" && quote !== "'") {
+			const next = input[index + 1];
+			if (next === undefined) {
+				current += "\\";
+				continue;
+			}
+			// In double quotes, Bash preserves backslashes before ordinary characters.
+			if (quote === '"' && !['$', '`', '"', "\\", "\n"].includes(next)) {
+				current += "\\";
+				continue;
+			}
+			current += next;
+			index++;
+			continue;
+		}
+		if (quote) {
+			if (character === quote) quote = undefined;
+			else current += character;
+			continue;
+		}
+		if (character === "'" || character === '"') {
+			quote = character;
+			continue;
+		}
+		if (/\s/u.test(character)) {
+			if (current) words.push(current);
+			current = "";
+			continue;
+		}
+		current += character;
+	}
+	if (current) words.push(current);
+	return words;
 }
 
-/** A calm collapsed label that describes intent without exposing command arguments. */
+const SEARCH_OPTIONS_WITH_VALUES = new Set([
+	"-a", "--after-context", "-b", "--before-context", "-c", "--context", "--context-separator",
+	"-d", "--max-depth", "--dfa-size-limit", "-f", "--file", "-g", "--glob", "--iglob",
+	"-m", "--max-count", "--max-columns", "--path-separator", "--pre", "--pre-glob",
+	"--regex-size-limit", "--replace", "--sort", "--sortr", "-t", "--type", "--type-not",
+	"--encoding", "--engine", "--field-context-separator", "--field-match-separator", "--hostname-bin",
+	"--binary-files", "--exclude", "--exclude-from", "--exclude-dir", "--include", "--label",
+]);
+
+function searchPattern(executable: string, words: string[]): string | undefined {
+	const args = words.slice(1);
+	for (let index = 0; index < args.length; index++) {
+		const argument = args[index] ?? "";
+		const lower = argument.toLowerCase();
+		if (executable === "select-string") {
+			if (lower === "-pattern") return args[index + 1];
+			if (lower.startsWith("-pattern:")) return argument.slice(argument.indexOf(":") + 1);
+			if (!argument.startsWith("-")) return argument;
+			continue;
+		}
+		if (lower === "-e" || lower === "--regexp") return args[index + 1];
+		if (lower.startsWith("--regexp=")) return argument.slice(argument.indexOf("=") + 1);
+		if (/^-e.+/u.test(argument)) return argument.slice(2);
+		if (argument === "--") return args[index + 1];
+		const optionName = lower.split("=", 1)[0] ?? lower;
+		if (SEARCH_OPTIONS_WITH_VALUES.has(optionName) && !argument.includes("=")) {
+			index++;
+			continue;
+		}
+		if (argument.startsWith("-")) continue;
+		return argument;
+	}
+	return undefined;
+}
+
+function summarizeTextSearch(executable: string, words: string[]): string {
+	const pattern = searchPattern(executable, words);
+	return pattern === undefined ? "Search text" : `Search text ${JSON.stringify(pattern)}`;
+}
+
+function formatTargets(targets: string[]): string {
+	const visible = targets.slice(0, 2).map((target) => JSON.stringify(target)).join(", ");
+	const remaining = targets.length - 2;
+	return remaining > 0 ? `${visible} + ${remaining} more` : visible;
+}
+
+function plainOperands(words: string[]): string[] {
+	const separator = words.indexOf("--");
+	if (separator >= 0) return words.slice(separator + 1);
+	return words.slice(1).filter((word) => !word.startsWith("-"));
+}
+
+function optionValue(words: string[], names: string[]): string | undefined {
+	for (let index = 1; index < words.length; index++) {
+		const word = words[index] ?? "";
+		const lower = word.toLowerCase();
+		if (names.includes(lower)) return words[index + 1];
+		const prefix = names.find((name) => lower.startsWith(`${name}=`) || lower.startsWith(`${name}:`));
+		if (prefix) return word.slice(prefix.length + 1);
+	}
+	return undefined;
+}
+
+const FD_OPTIONS_WITH_VALUES = new Set([
+	"-d", "--max-depth", "-e", "--extension", "-E", "--exclude", "-t", "--type",
+	"-x", "--exec", "-X", "--exec-batch", "-j", "--threads", "--base-directory",
+	"--changed-before", "--changed-within", "--format", "--glob", "--path-separator",
+	"--search-path", "--size", "--strip-cwd-prefix",
+].map((option) => option.toLowerCase()));
+
+function fdOperands(words: string[]): string[] {
+	const operands: string[] = [];
+	for (let index = 1; index < words.length; index++) {
+		const word = words[index] ?? "";
+		if (word === "--") return [...operands, ...words.slice(index + 1)];
+		const optionName = word.toLowerCase().split("=", 1)[0] ?? word.toLowerCase();
+		if (FD_OPTIONS_WITH_VALUES.has(optionName) && !word.includes("=")) {
+			index++;
+			continue;
+		}
+		if (!word.startsWith("-")) operands.push(word);
+	}
+	return operands;
+}
+
+function summarizeFileDiscovery(executable: string, words: string[]): string {
+	if (executable === "find") {
+		const paths: string[] = [];
+		for (let index = 1; index < words.length; index++) {
+			const word = words[index] ?? "";
+			if (word.startsWith("-") || word === "!" || word === "(") break;
+			paths.push(word);
+		}
+		const pattern = optionValue(words, ["-name", "-iname", "-path", "-ipath", "-regex"]);
+		const location = formatTargets(paths.length > 0 ? paths : ["."]);
+		return pattern ? `Find files ${JSON.stringify(pattern)} in ${location}` : `Find files in ${location}`;
+	}
+	if (executable === "fd") {
+		const operands = fdOperands(words);
+		const pattern = operands[0];
+		const locations = operands.slice(1);
+		if (!pattern) return "Find files";
+		return locations.length > 0
+			? `Find files ${JSON.stringify(pattern)} in ${formatTargets(locations)}`
+			: `Find files ${JSON.stringify(pattern)}`;
+	}
+	const explicitPath = optionValue(words, ["-path", "-literalpath"]);
+	const targets = explicitPath ? [explicitPath] : plainOperands(words);
+	return targets.length > 0 ? `List files ${formatTargets(targets)}` : "List files";
+}
+
+function summarizeFileOperation(executable: string, words: string[]): string | undefined {
+	const targets = plainOperands(words);
+	if (targets.length === 0) return undefined;
+	if (["rm", "del", "erase", "remove-item"].includes(executable)) return `Run ${executable} ${formatTargets(targets)}`;
+	if (["cat", "type", "get-content"].includes(executable)) return `Read file ${formatTargets(targets)}`;
+	if (["mkdir", "md", "new-item"].includes(executable)) return `Create ${formatTargets(targets)}`;
+	if (["rmdir", "rd"].includes(executable)) return `Remove directory ${formatTargets(targets)}`;
+	if (["touch"].includes(executable)) return `Touch ${formatTargets(targets)}`;
+	if (["cp", "copy", "copy-item"].includes(executable) && targets.length >= 2) {
+		return `Copy ${JSON.stringify(targets[0])} to ${JSON.stringify(targets.at(-1))}`;
+	}
+	if (["mv", "move", "move-item", "ren", "rename-item"].includes(executable) && targets.length >= 2) {
+		return `Move ${JSON.stringify(targets[0])} to ${JSON.stringify(targets.at(-1))}`;
+	}
+	return undefined;
+}
+
+/** A calm collapsed label that describes intent while retaining primary command targets. */
 export function summarizeShellCommand(name: string, command: string): string {
 	const allSegments = shellSegments(normalizeLineEndings(command));
 	const segments = allSegments.filter((segment) => !/^\s*(?:cd|pushd|popd)\b/iu.test(segment));
 	const primary = segments[0] ?? allSegments[0] ?? "";
 	if (!primary) return name === "powershell" ? "Prepare PowerShell command" : "Prepare shell command";
 
-	const words = primary.trim().split(/\s+/u).map(unquote);
+	const words = shellWords(primary, name === "powershell");
 	while (words.length > 0) {
 		if (/^[A-Za-z_][A-Za-z\d_]*=.*/u.test(words[0] ?? "")
 			|| ["command", "env", "sudo", "time"].includes((words[0] ?? "").toLowerCase())) {
@@ -117,11 +291,11 @@ export function summarizeShellCommand(name: string, command: string): string {
 	} else if (executable === "git" && ["fetch", "pull", "push", "clone"].includes(action)) {
 		summary = `${action[0]!.toUpperCase()}${action.slice(1)} repository`;
 	} else if (["rg", "grep", "select-string"].includes(executable)) {
-		summary = "Search text";
+		summary = summarizeTextSearch(executable, words);
 	} else if (["find", "fd", "get-childitem", "ls", "dir"].includes(executable)) {
-		summary = executable === "ls" || executable === "dir" || executable === "get-childitem" ? "List files" : "Find files";
-	} else if (["cat", "type", "get-content"].includes(executable)) {
-		summary = "Read file content";
+		summary = summarizeFileDiscovery(executable, words);
+	} else if (summarizeFileOperation(executable, words)) {
+		summary = summarizeFileOperation(executable, words)!;
 	} else if (["tsc", "mypy", "pyright"].includes(executable)) {
 		summary = "Check types";
 	} else if (["jest", "vitest", "pytest", "invoke-pester"].includes(executable)) {

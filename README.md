@@ -30,11 +30,11 @@ Completed `edit` rows show only the lines actually removed (`-`) or added (`+`),
 
 - Compact rendering for `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`
 - One continuously glowing working label above the input prompt across thinking and tool execution
-- Semantic built-in progress labels and automatically cleaned custom/MCP tool names without exposing invocation arguments
+- Semantic built-in progress labels and automatically cleaned custom/MCP tool names; collapsed text-search rows include the searched pattern
 - Four-step `Ctrl+T` thinking cycle when provider detail is available: summary, detail, summary, then hidden
 - Millisecond-precision duration and completed output line counts with neutral status text
 - Per-tool hidden or persistent bounded-preview collapsed state with `auto_compact: true` or `false`
-- Primary invocation targets such as paths and patterns stay visible; collapsed shell calls show concise intent summaries
+- Primary invocation targets such as paths and patterns stay visible, including common collapsed shell file operations
 - Click and `Ctrl+O` follow Pi's built-in expansion state while preview rows collapse back to their preview
 - Edit patches display only removed (`-`) and added (`+`) lines, omitting unchanged context
 - Configurable `previewLines` prevents large diffs, HTML, and shell output from flooding the transcript
@@ -125,7 +125,7 @@ one-line summary → summary + │-indented detail → one-line summary → Thin
 
 Standalone bold lines and Markdown headings split one provider thinking run into logical sections. Each section gets its own summary and optional `│`-indented detail. Summary-only views stay uncluttered with no control hint; the control row appears only while provider-supplied detail is visible. When no thinking detail exists, `Ctrl+T` falls back to Pi's normal visible/hidden toggle instead of showing a duplicate detail phase. While thinking streams, a slightly faster highlight sweeps from the Thinking summary color to white across Pi's working label at a steady interval rather than depending on token updates. The transcript summary remains visually stable. The transformation is display-only; complete thinking remains unchanged in the session and model context.
 
-Primary file and search targets stay visible. Collapsed `bash` and `powershell` rows describe intent—such as `Run tests`, `Check repository status`, or `Search text`—without printing arguments; expanding the row reveals the exact command. After every supported tool completes, the status reports the expanded result size as `Done in …s (N lines)` instead of repeating options such as context and limit. Counts use the returned text for reads, searches, listings, and shell commands, written content for `write`, and only the displayed `-`/`+` lines for `edit`. The count is computed once after completion and cached with the row, so streaming and repeated expansion do not add ongoing work. Large payloads represented as results follow the result toggle.
+Primary file and search targets stay visible. Collapsed `bash` and `powershell` rows describe intent—such as `Run tests` or `Check repository status`. Text searches retain their primary pattern (for example, `Search text "TODO|FIXME"`), and common file commands retain their operands (for example, `Run rm "build"` or `Find files "*.test.ts" in "src"`). Expanding the row reveals the exact command. After every supported tool completes, the status reports the expanded result size as `Done in …s (N lines)` instead of repeating options such as context and limit. Counts use the returned text for reads, searches, listings, and shell commands, written content for `write`, and only the displayed `-`/`+` lines for `edit`. The count is computed once after completion and cached with the row, so streaming and repeated expansion do not add ongoing work. Large payloads represented as results follow the result toggle.
 
 A mouse click toggles one row using Pi's native result state. `Ctrl+O` remains owned by Pi and expands or collapses all tool rows consistently, including tools not rendered by this extension. A row with `auto_compact: false` cycles predictably between its bounded preview and the complete result, so repeated clicks never remove the row and fall through to a neighboring Thinking block. The extension does not intercept the global keybinding.
 
