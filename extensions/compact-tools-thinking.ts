@@ -135,13 +135,16 @@ function hardBreak(lines: string[]): string {
 	return lines.map((line, index) => (index < lines.length - 1 ? `${line}  ` : line)).join("\n");
 }
 
-export function hasThinkingDetail(markdown: string): boolean {
-	return splitThinkingSections(markdown).some(({ detail }) => detail.length > 0);
+function sectionsHaveDetail(sections: readonly ThinkingSection[]): boolean {
+	return sections.some(({ detail }) => detail.length > 0);
 }
 
-/** Display-only transformation; the original thinking remains unchanged in session/model context. */
-export function renderThinkingView(
-	markdown: string,
+export function hasThinkingDetail(markdown: string): boolean {
+	return sectionsHaveDetail(splitThinkingSections(markdown));
+}
+
+function renderThinkingSections(
+	sections: readonly ThinkingSection[],
 	view: ThinkingView,
 	availableWidth: number,
 	options: ThinkingRenderOptions = {},
@@ -150,7 +153,7 @@ export function renderThinkingView(
 	const controls = options.controls ?? ((hasDetail: boolean) =>
 		hasDetail ? "ctrl+t toggle • click to hide" : undefined);
 	const styleControlPrefix = options.styleControlPrefix ?? ((prefix: string) => prefix);
-	return splitThinkingSections(markdown)
+	return sections
 		.map(({ summary, detail }, sectionIndex) => {
 			const fittedSummary = stripTerminalSequences(
 				truncateToWidth(summary, Math.max(1, availableWidth), "…"),
@@ -171,6 +174,16 @@ export function renderThinkingView(
 			return hardBreak([title, ...controlLines]);
 		})
 		.join("\n\n");
+}
+
+/** Display-only transformation; the original thinking remains unchanged in session/model context. */
+export function renderThinkingView(
+	markdown: string,
+	view: ThinkingView,
+	availableWidth: number,
+	options: ThinkingRenderOptions = {},
+): string {
+	return renderThinkingSections(splitThinkingSections(markdown), view, availableWidth, options);
 }
 
 function getInitialThinkingPhase(): ThinkingPhase {
@@ -194,10 +207,11 @@ export class ThinkingCycleController {
 	constructor(pi: ExtensionAPI) {
 		pi.registerMarkdownTransformer((markdown, context) => {
 			if (context.messageType !== "assistant-thinking") return markdown;
-			this.hasToggleableThinking ||= hasThinkingDetail(markdown);
+			const sections = splitThinkingSections(markdown);
+			this.hasToggleableThinking ||= sectionsHaveDetail(sections);
 			const theme = this.theme;
 			const detailTextPrefix = theme?.getFgAnsi("thinkingText");
-			return renderThinkingView(markdown, thinkingViewForPhase(this.phase), context.availableWidth, {
+			return renderThinkingSections(sections, thinkingViewForPhase(this.phase), context.availableWidth, {
 				styleSummary: theme ? (summary) => theme.fg("thinkingMax", theme.bold(summary)) : undefined,
 				// border styling resets the foreground; resume detail gray immediately.
 				styleDetailPrefix: theme && detailTextPrefix

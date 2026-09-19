@@ -117,28 +117,6 @@ export function renderToolCall(title: string, details: string | undefined, theme
 	});
 }
 
-export function wrapEditResult(component: Component, theme: Theme): Component {
-	return new CachedComponent((width) => {
-		const lines = component.render(Math.max(1, width - 3));
-		const first = lines.findIndex((line) => visibleWidth(line.trim()) > 0);
-		if (first < 0) return [];
-		const contentLines = lines.slice(first);
-		let commonIndent = Number.POSITIVE_INFINITY;
-		for (const line of contentLines) {
-			const plain = stripTerminalSequences(line);
-			if (plain.trim().length === 0) continue;
-			commonIndent = Math.min(commonIndent, plain.match(/^ */)?.[0].length ?? 0);
-			if (commonIndent === 0) break;
-		}
-		if (!Number.isFinite(commonIndent)) commonIndent = 0;
-		const prefix = theme.fg("border", " │ ");
-		return contentLines.map((line) => {
-			const content = sliceByColumn(line, commonIndent, Math.max(0, visibleWidth(line) - commonIndent), true);
-			return `${prefix}${content}`;
-		});
-	}, () => component.invalidate?.());
-}
-
 export function styleMultiline(text: string, style: (line: string) => string): string {
 	return normalizeLineEndings(text).split("\n").map(style).join("\n");
 }
@@ -148,6 +126,16 @@ export function renderOutput(output: string, theme: Theme, isError: boolean): Co
 	if (!normalized) return undefined;
 	const color = isError ? "error" : "toolOutput";
 	const styled = normalized.split("\n").map((line) => theme.fg(color, line)).join("\n");
+	return prefixedText(styled, theme.fg("border", " │ "));
+}
+
+/** Render an edit's changed lines without unchanged context, hunk metadata, or result prose. */
+export function renderEditChanges(changes: string, theme: Theme): Component | undefined {
+	const normalized = normalizeLineEndings(changes).trimEnd();
+	if (!normalized) return undefined;
+	const styled = normalized.split("\n").map((line) =>
+		theme.fg(line.startsWith("+") ? "success" : "error", line)
+	).join("\n");
 	return prefixedText(styled, theme.fg("border", " │ "));
 }
 

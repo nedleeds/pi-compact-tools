@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
@@ -6,21 +9,25 @@ import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	classifyCallStatus,
 	formatDurationMs,
+	indicatorGlyph,
+	indicatorTone,
 	normalizeLineEndings,
 } from "../extensions/compact-tools-core.ts";
-import { DEFAULT_CONFIG, mergeConfig } from "../extensions/compact-tools-config.ts";
+import { DEFAULT_CONFIG, loadConfig, mergeConfig } from "../extensions/compact-tools-config.ts";
 import {
 	formatResultLineSummary,
 	getArgumentDetails,
 	getCallDetails,
+	getEditChanges,
+	summarizeShellCommand,
 } from "../extensions/compact-tools-invocation.ts";
 import {
 	CachedContainer,
 	hardWrapTextWithAnsi,
 	limitComponentLines,
 	prefixedText,
+	renderEditChanges,
 	styleMultiline,
-	wrapEditResult,
 } from "../extensions/compact-tools-layout.ts";
 import { formatToolProgress, glowProgressMessage, ProgressController } from "../extensions/compact-tools-progress.ts";
 import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
@@ -86,25 +93,31 @@ test("reports completed output lines instead of invocation limits", () => {
 	assert.equal(getCallDetails("read", readArgs), "file.ts");
 	assert.equal(formatResultLineSummary("read", readArgs, {
 		content: [{ type: "text", text: "one\ntwo\nthree" }],
+		details: undefined,
 	}), "3 lines");
 	assert.equal(formatResultLineSummary("read", readArgs, {
 		content: [{ type: "text", text: "one" }],
+		details: undefined,
 	}), "1 line");
 	assert.equal(formatResultLineSummary("read", readArgs, {
 		content: [{ type: "text", text: "one\ntwo\n\n[8 more lines in file. Use offset=3 to continue.]" }],
+		details: undefined,
 	}), "2 lines");
 	assert.equal(formatResultLineSummary("grep", { context: 3, limit: 5 }, {
 		content: [{ type: "text", text: "match\ncontext\ncontext" }],
+		details: undefined,
 	}), "3 lines");
 	assert.equal(formatResultLineSummary("bash", {}, {
 		content: [{ type: "text", text: "" }],
+		details: undefined,
 	}), "0 lines");
 	assert.equal(formatResultLineSummary("write", { content: "one\r\ntwo\r\n" }, {
 		content: [{ type: "text", text: "ok" }],
+		details: undefined,
 	}), "2 lines");
 	assert.equal(formatResultLineSummary("edit", {}, {
 		content: [{ type: "text", text: "ok" }],
-		details: { diff: "-old\n+new" },
+		details: { diff: "     ...\n  8 unchanged\n- 9 old\n+ 9 new\n 10 unchanged\n     ..." },
 	}), "2 lines");
 	assert.equal(formatResultLineSummary("grep", {}, {
 		content: [{ type: "text", text: "visible\nfooter" }],
@@ -127,6 +140,30 @@ test("keeps invocation targets visible while separating large result payloads", 
 	assert.deepEqual(getArgumentDetails("write", { path: "file.ts", content: "large payload" }), {});
 });
 
+test("summarizes collapsed shell calls without exposing command arguments", () => {
+	assert.equal(summarizeShellCommand("bash", "npm run check"), "Run check task");
+	assert.equal(summarizeShellCommand("bash", "cd release && git status --short && git log -1"), "Check repository status + 1 more step");
+	assert.equal(summarizeShellCommand("bash", "rg very-secret-query src"), "Search text");
+	assert.equal(summarizeShellCommand("powershell", "Get-ChildItem C:\\private"), "List files");
+	assert.equal(summarizeShellCommand("bash", "custom-tool --token secret"), "Run custom tool");
+	assert.equal(summarizeShellCommand("bash", ""), "Prepare shell command");
+});
+
+test("keeps only changed edit lines and colors additions and deletions", () => {
+	const result = {
+		content: [{ type: "text" as const, text: "Successfully replaced 1 block" }],
+		details: { diff: "     ...\r\n  8 unchanged\r\n- 9 old\r\n+ 9 new\r\n 10 unchanged\r\n     ..." },
+	};
+	const changes = getEditChanges(result);
+	assert.equal(changes, "- 9 old\n+ 9 new");
+	const theme = { fg: (color: string, text: string) => `<${color}>${text}</${color}>` } as Theme;
+	const rendered = renderEditChanges(changes, theme)?.render(80).map(stripTerminalSequences);
+	assert.deepEqual(rendered, [
+		"<border> │ </border><error>- 9 old</error>",
+		"<border> │ </border><success>+ 9 new</success>",
+	]);
+});
+
 test("reapplies ANSI styling to every logical line", () => {
 	const styled = styleMultiline("first\nsecond", (line) => `\x1b[90m${line}\x1b[39m`);
 	assert.deepEqual(styled.split("\n"), ["\x1b[90mfirst\x1b[39m", "\x1b[90msecond\x1b[39m"]);
@@ -144,15 +181,68 @@ test("uses hidden, preview, and expanded result states with Pi's host toggle", (
 	assert.equal(runtime.syncExpansion(edit, true, "edit"), true);
 	assert.equal(edit.preview, false);
 	assert.equal(runtime.syncExpansion(edit, false, "edit"), false);
+	assert.equal(edit.preview, true);
+	assert.equal(runtime.syncExpansion(edit, true, "edit"), true);
 	assert.equal(edit.preview, false);
+	assert.equal(runtime.syncExpansion(read, true, "read"), true);
+	assert.equal(runtime.syncExpansion(read, false, "read"), false);
+	assert.equal(read.preview, false);
 	runtime.reset(true);
 });
 
-test("classifies pending, running, completed, and failed calls", () => {
+test("merges trusted project configuration over the global configuration", () => {
+	const agentDirVariable = "PI_CODING_AGENT_DIR";
+	const previousAgentDir = process.env[agentDirVariable];
+	const agentDir = mkdtempSync(join(tmpdir(), "compact-tools-agent-"));
+	const projectDir = mkdtempSync(join(tmpdir(), "compact-tools-project-"));
+	process.env[agentDirVariable] = agentDir;
+	writeFileSync(join(agentDir, "compact-tools.json"), JSON.stringify({ tools: ["read"], previewLines: 5 }));
+	mkdirSync(join(projectDir, ".pi"), { recursive: true });
+	writeFileSync(join(projectDir, ".pi", "compact-tools.json"), JSON.stringify({ tools: ["edit"], previewLines: 7 }));
+	assert.deepEqual(loadConfig(projectDir, false).tools, ["read"]);
+	assert.equal(loadConfig(projectDir, false).previewLines, 5);
+	assert.deepEqual(loadConfig(projectDir, true).tools, ["edit"]);
+	assert.equal(loadConfig(projectDir, true).previewLines, 7);
+	if (previousAgentDir === undefined) delete process.env[agentDirVariable];
+	else process.env[agentDirVariable] = previousAgentDir;
+});
+
+test("stops the shared indicator timer and keeps parallel tools independent", async () => {
+	const runtime = new ToolRuntime();
+	let firstInvalidations = 0;
+	let secondInvalidations = 0;
+	runtime.syncIndicator("first", true, () => firstInvalidations++);
+	runtime.syncIndicator("second", true, () => secondInvalidations++);
+	await new Promise((resolve) => setTimeout(resolve, 270));
+	assert.ok(firstInvalidations > 0);
+	assert.ok(secondInvalidations > 0);
+
+	runtime.syncIndicator("first", false, () => {});
+	const firstAtCompletion = firstInvalidations;
+	const secondBeforeNextFrame = secondInvalidations;
+	await new Promise((resolve) => setTimeout(resolve, 270));
+	assert.equal(firstInvalidations, firstAtCompletion);
+	assert.ok(secondInvalidations > secondBeforeNextFrame);
+
+	runtime.reset(true);
+	const secondAtShutdown = secondInvalidations;
+	await new Promise((resolve) => setTimeout(resolve, 270));
+	assert.equal(secondInvalidations, secondAtShutdown);
+});
+
+test("classifies calls and fades one shared tool indicator glyph", () => {
 	assert.equal(classifyCallStatus(false, false, false), "pending");
 	assert.equal(classifyCallStatus(false, true, false), "running");
 	assert.equal(classifyCallStatus(false, true, true), "success");
 	assert.equal(classifyCallStatus(true, true, true), "error");
+	assert.equal(indicatorGlyph("pending"), "⦁");
+	assert.deepEqual(
+		[0, 1, 2, 3, 4, 5].map((frame) => indicatorTone("running", frame)),
+		["borderAccent", "border", "borderMuted", undefined, "borderMuted", "border"],
+	);
+	assert.deepEqual([0, 1, 2, 3].map((frame) => indicatorGlyph("running", frame)), ["⦁", "⦁", "⦁", " "]);
+	assert.equal(indicatorGlyph("success"), "⦁");
+	assert.equal(indicatorGlyph("error"), "⦁");
 });
 
 test("limits previews without modifying the full result component", () => {
@@ -165,15 +255,149 @@ test("limits previews without modifying the full result component", () => {
 	assert.deepEqual(source.render(80), ["one", "two", "three", "four"]);
 });
 
-test("formats concise progress labels for Pi's working row", () => {
-	assert.equal(formatToolProgress("read", { path: "src/index.ts" }), "read · src/index.ts");
-	assert.equal(formatToolProgress("bash", { command: "npm run check\nnext" }), "bash · npm run check next");
+test("avoids duplicate registration, restores reload renderers, and reuses unchanged large results", async () => {
+	// Isolate from any real ~/.pi/agent/compact-tools.json so package defaults apply.
+	const agentDirVariable = "PI_CODING_AGENT_DIR";
+	const previousAgentDir = process.env[agentDirVariable];
+	process.env[agentDirVariable] = mkdtempSync(join(tmpdir(), "compact-tools-test-"));
+	const compactTools = (await import("../extensions/compact-tools.ts")).default;
+	const registered: Array<{ name: string; renderCall?: unknown; renderResult?: unknown }> = [];
+	const handlers = new Map<string, (event: any, ctx: any) => void>();
+	const pi = {
+		on: (name: string, handler: (event: any, ctx: any) => void) => handlers.set(name, handler),
+		registerTool: (definition: { name: string; renderCall?: unknown; renderResult?: unknown }) =>
+			registered.push(definition),
+		registerMarkdownTransformer: () => {},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		cwd: process.cwd(),
+		mode: "print",
+		isProjectTrusted: () => false,
+	} as unknown as ExtensionContext;
+
+	compactTools(pi);
+	assert.deepEqual(registered.map(({ name }) => name), ["read", "write", "edit", "bash"]);
+	assert.ok(registered.every(({ renderCall, renderResult }) => renderCall && renderResult));
+
+	const readDefinition = registered.find(({ name }) => name === "read");
+	const renderResult = readDefinition?.renderResult as (
+		result: { content: Array<{ type: "text"; text: string }>; details?: unknown },
+		options: { expanded: boolean; isPartial: boolean },
+		theme: Theme,
+		ctx: any,
+	) => Component;
+	const content = [{
+		type: "text" as const,
+		text: Array.from({ length: 2_000 }, (_, index) => `line ${index}`).join("\n"),
+	}];
+	const renderTheme = {
+		fg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+		italic: (text: string) => text,
+	} as Theme;
+	const rowState: RowState = {};
+	const resultContext = {
+		args: { path: "file.ts" },
+		argsComplete: true,
+		cwd: process.cwd(),
+		executionStarted: true,
+		expanded: true,
+		invalidate: () => {},
+		isError: false,
+		isPartial: true,
+		lastComponent: undefined,
+		showImages: false,
+		state: rowState,
+		toolCallId: "cached-result",
+	};
+	const firstResult = renderResult({ content }, { expanded: true, isPartial: true }, renderTheme, resultContext);
+	const reusedResult = renderResult(
+		{ content },
+		{ expanded: true, isPartial: true },
+		renderTheme,
+		{ ...resultContext, lastComponent: firstResult },
+	);
+	assert.equal(reusedResult, firstResult);
+	const changedResult = renderResult(
+		{ content: [...content] },
+		{ expanded: true, isPartial: true },
+		renderTheme,
+		{ ...resultContext, lastComponent: firstResult },
+	);
+	assert.notEqual(changedResult, firstResult);
+
+	registered.length = 0;
+	handlers.get("session_start")?.({ reason: "startup" }, ctx);
+	assert.deepEqual(registered, []);
+
+	handlers.get("session_shutdown")?.({ reason: "reload" }, ctx);
+	handlers.get("session_start")?.({ reason: "reload" }, ctx);
+	assert.deepEqual(registered.map(({ name }) => name), ["read", "write", "edit", "bash"]);
+	assert.ok(registered.every(({ renderCall, renderResult }) => renderCall && renderResult));
+
+	registered.length = 0;
+	writeFileSync(join(process.env[agentDirVariable]!, "compact-tools.json"), JSON.stringify({ tools: ["read"] }));
+	handlers.get("session_start")?.({ reason: "startup" }, ctx);
+	assert.deepEqual(registered.map(({ name }) => name), ["write", "edit", "bash", "read"]);
+
+	registered.length = 0;
+	writeFileSync(join(process.env[agentDirVariable]!, "compact-tools.json"), JSON.stringify({ tools: ["read", "edit"] }));
+	handlers.get("session_start")?.({ reason: "startup" }, ctx);
+	assert.deepEqual(registered.map(({ name }) => name), ["read", "edit"]);
+
+	handlers.get("session_shutdown")?.({ reason: "quit" }, ctx);
+	if (previousAgentDir === undefined) delete process.env[agentDirVariable];
+	else process.env[agentDirVariable] = previousAgentDir;
 });
 
-test("sweeps a glow across the working label", () => {
-	const theme = { fg: (color: string, text: string) => `<${color}>${text}</${color}>` } as Theme;
-	const rendered = glowProgressMessage("Glow", 0, theme);
-	assert.match(rendered, /^<mdHeading>G<\/mdHeading><text>l<\/text><thinkingMax>o<\/thinkingMax>/);
+test("uses semantic progress labels without exposing invocation details", () => {
+	assert.equal(formatToolProgress("read", { path: "src/index.ts" }), "Reading file…");
+	assert.equal(formatToolProgress("bash", { command: "npm run check\nnext" }), "Running command…");
+	assert.equal(formatToolProgress("hrbook_search", { query: "secret" }), "Using hrbook search…");
+	assert.equal(formatToolProgress("getUserById", {}), "Using get User By Id…");
+	assert.equal(
+		formatToolProgress("mcp__jira_rca_mcp", { tool: "jira_search", args: { query: "secret" } }),
+		"Using jira search…",
+	);
+	assert.equal(formatToolProgress("mcp", { tool: "hrbook_verify", args: { source: "secret" } }), "Using hrbook verify…");
+	assert.equal(formatToolProgress("custom_tool", { tool: "do_not_expose" }), "Using custom tool…");
+	assert.equal(formatToolProgress("mcp", { tool: "bad\u001b[31m_name" }), "Using bad name…");
+	assert.equal(formatToolProgress("", {}), "Running tool…");
+});
+
+test("uses indexed ANSI colors for the glow in 256-color mode", () => {
+	const theme = {
+		fg: (_color: string, text: string) => text,
+		getFgAnsi: () => "\x1b[38;5;110m",
+		getColorMode: () => "256color",
+	} as unknown as Theme;
+	const rendered = glowProgressMessage("Glow", 2, theme);
+	assert.match(rendered, /\x1b\[38;5;\d+mG\x1b\[39m/u);
+	assert.doesNotMatch(rendered, /\x1b\[38;2;/u);
+});
+
+test("scales a thinking-summary-to-white glow to the working label length", () => {
+	const requestedColors: string[] = [];
+	const theme = {
+		fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+		getFgAnsi: (color: string) => {
+			requestedColors.push(color);
+			return "\x1b[38;2;100;110;120m";
+		},
+	} as unknown as Theme;
+	const short = glowProgressMessage("Glow", 2, theme);
+	const long = glowProgressMessage("0123456789abcdef", 8, theme);
+	assert.deepEqual(requestedColors, ["thinkingMax", "thinkingMax"]);
+	assert.match(short, /^\x1b\[38;2;255;255;255mG\x1b\[39m\x1b\[38;2;178;183;188ml/);
+	assert.match(short, /\x1b\[38;2;100;110;120mo\x1b\[39m/);
+	const colors = [...long.matchAll(/38;2;(\d+);(\d+);(\d+)m/gu)]
+		.map((match) => match.slice(1).map(Number));
+	assert.equal(colors.length, 16);
+	assert.ok(colors.every((color) =>
+		color[0]! >= 100 && color[0]! <= 255
+		&& color[1]! >= 110 && color[1]! <= 255
+		&& color[2]! >= 120 && color[2]! <= 255));
+	assert.ok(colors.some((color) => color[0] === 255 && color[1] === 255 && color[2] === 255));
 });
 
 test("keeps one glyph-free Pi working row across thinking and tool progress", () => {
@@ -195,10 +419,12 @@ test("keeps one glyph-free Pi working row across thinking and tool progress", ()
 	} as unknown as ExtensionContext);
 	assert.deepEqual(indicator?.frames, []);
 	handlers.get("agent_start")?.({});
+	handlers.get("message_update")?.({ assistantMessageEvent: { type: "thinking_delta" } });
+	handlers.get("message_update")?.({ assistantMessageEvent: { type: "thinking_delta" } });
 	handlers.get("tool_execution_start")?.({ toolCallId: "1", toolName: "read", args: { path: "a.ts" } });
 	handlers.get("tool_execution_end")?.({ toolCallId: "1" });
 	handlers.get("agent_end")?.({});
-	assert.deepEqual(messages, ["Thinking…", "read · a.ts", "Processing results…", undefined]);
+	assert.deepEqual(messages, ["Thinking…", "Reading file…", "Processing results…", undefined]);
 	controller.dispose();
 });
 
@@ -221,25 +447,6 @@ test("caches expanded container lines by width", () => {
 	container.invalidate();
 	container.render(79);
 	assert.equal(renders, 3);
-});
-
-test("caches wrapped edit processing by width", () => {
-	let renders = 0;
-	const source: Component = {
-		render: () => {
-			renders++;
-			return ["", "  first", "  second"];
-		},
-		invalidate() {},
-	};
-	const theme = { fg: (_color: string, text: string) => text } as Theme;
-	const wrapped = wrapEditResult(source, theme);
-	const first = wrapped.render(80);
-	assert.equal(wrapped.render(80), first);
-	assert.equal(renders, 1);
-	assert.deepEqual(first, [" │ first", " │ second"]);
-	wrapped.render(79);
-	assert.equal(renders, 2);
 });
 
 test("cycles summary, detail, summary, and hidden in order", () => {
@@ -274,7 +481,7 @@ test("leaves Ctrl+T to Pi's visibility toggle when thinking has no detail", () =
 		bold: (text: string) => text,
 		italic: (text: string) => text,
 		getFgAnsi: () => "",
-	} as Theme;
+	} as unknown as Theme;
 	const controller = new ThinkingCycleController(pi);
 	controller.bind({
 		ui: {

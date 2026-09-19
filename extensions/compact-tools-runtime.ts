@@ -9,6 +9,7 @@ import type {
 } from "./compact-tools-types.ts";
 
 const MAX_TRACKED_ROWS = 2_000;
+const INDICATOR_INTERVAL_MS = 120;
 const EXECUTION_TIMINGS_KEY = Symbol.for("pi.compact-tools.execution-timings");
 
 type ExecutionTiming = { startedAt: number; endedAt?: number };
@@ -21,6 +22,9 @@ export class ToolRuntime {
 	private configValue = DEFAULT_CONFIG;
 	private configRevision: object = {};
 	private readonly executionTimings: Map<string, ExecutionTiming>;
+	private readonly indicatorInvalidators = new Map<string, () => void>();
+	private indicatorFrame = 0;
+	private indicatorTimer: ReturnType<typeof setInterval> | undefined;
 
 	constructor() {
 		const shared = globalThis as SharedState;
@@ -42,7 +46,24 @@ export class ToolRuntime {
 	}
 
 	reset(clearTimings: boolean): void {
+		this.stopIndicators();
 		if (clearTimings) this.clearTimings();
+	}
+
+	syncIndicator(toolCallId: string, running: boolean, invalidate: () => void): number {
+		if (!running) {
+			this.removeIndicator(toolCallId);
+			return 0;
+		}
+		this.indicatorInvalidators.set(toolCallId, invalidate);
+		if (!this.indicatorTimer) {
+			this.indicatorTimer = setInterval(() => {
+				this.indicatorFrame++;
+				for (const requestRender of this.indicatorInvalidators.values()) requestRender();
+			}, INDICATOR_INTERVAL_MS);
+			this.indicatorTimer.unref?.();
+		}
+		return this.indicatorFrame;
 	}
 
 	syncExpansion(state: RowState, hostExpanded: boolean, name: CompactToolName): boolean {
@@ -50,7 +71,10 @@ export class ToolRuntime {
 		if (!initialized && state.lastHostExpanded !== hostExpanded) {
 			state.lastHostExpanded = hostExpanded;
 			state.expanded = hostExpanded;
-			state.preview = false;
+			// A non-auto-compacted row collapses back to its bounded preview. Hiding it
+			// here removes the clicked row from under the pointer, so the next click can
+			// accidentally hit the Thinking block that moved into the same coordinates.
+			state.preview = !hostExpanded && !this.configValue.auto_compact[name];
 		}
 		return state.expanded ?? false;
 	}
@@ -70,6 +94,7 @@ export class ToolRuntime {
 		const started = !ctx.argsComplete || ctx.executionStarted || running;
 		if (started && state.startedAt === undefined) state.startedAt = Date.now();
 		if (finished && state.startedAt !== undefined && state.endedAt === undefined) state.endedAt = Date.now();
+		if (finished) this.removeIndicator(ctx.toolCallId);
 		this.persistTiming(state, ctx.toolCallId);
 		return state;
 	}
@@ -89,6 +114,21 @@ export class ToolRuntime {
 				if (timing) timing.endedAt = Date.now();
 			}
 		};
+	}
+
+	private removeIndicator(toolCallId: string): void {
+		this.indicatorInvalidators.delete(toolCallId);
+		if (this.indicatorInvalidators.size > 0 || !this.indicatorTimer) return;
+		clearInterval(this.indicatorTimer);
+		this.indicatorTimer = undefined;
+		this.indicatorFrame = 0;
+	}
+
+	private stopIndicators(): void {
+		if (this.indicatorTimer) clearInterval(this.indicatorTimer);
+		this.indicatorTimer = undefined;
+		this.indicatorInvalidators.clear();
+		this.indicatorFrame = 0;
 	}
 
 	private initializeExpansion(state: RowState, name: CompactToolName, hostExpanded = false): boolean {

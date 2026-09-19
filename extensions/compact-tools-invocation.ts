@@ -37,6 +37,106 @@ export function getArgumentDetails(name: string, args: ToolArgs): ToolArgs {
 	return collectArgumentDetails(name, args);
 }
 
+function shellSegments(command: string): string[] {
+	const segments: string[] = [];
+	let current = "";
+	let quote: "'" | '"' | "`" | undefined;
+	let escaped = false;
+	for (let index = 0; index < command.length; index++) {
+		const character = command[index]!;
+		if (escaped) {
+			current += character;
+			escaped = false;
+			continue;
+		}
+		if (character === "\\" && quote !== "'") {
+			current += character;
+			escaped = true;
+			continue;
+		}
+		if (quote) {
+			current += character;
+			if (character === quote) quote = undefined;
+			continue;
+		}
+		if (character === "'" || character === '"' || character === "`") {
+			quote = character;
+			current += character;
+			continue;
+		}
+		const pair = command.slice(index, index + 2);
+		if (character === "\n" || character === ";" || pair === "&&" || pair === "||") {
+			if (current.trim()) segments.push(current.trim());
+			current = "";
+			if (pair === "&&" || pair === "||") index++;
+			continue;
+		}
+		current += character;
+	}
+	if (current.trim()) segments.push(current.trim());
+	return segments;
+}
+
+function unquote(value: string): string {
+	return value.replace(/^["']|["']$/gu, "");
+}
+
+/** A calm collapsed label that describes intent without exposing command arguments. */
+export function summarizeShellCommand(name: string, command: string): string {
+	const allSegments = shellSegments(normalizeLineEndings(command));
+	const segments = allSegments.filter((segment) => !/^\s*(?:cd|pushd|popd)\b/iu.test(segment));
+	const primary = segments[0] ?? allSegments[0] ?? "";
+	if (!primary) return name === "powershell" ? "Prepare PowerShell command" : "Prepare shell command";
+
+	const words = primary.trim().split(/\s+/u).map(unquote);
+	while (words.length > 0) {
+		if (/^[A-Za-z_][A-Za-z\d_]*=.*/u.test(words[0] ?? "")
+			|| ["command", "env", "sudo", "time"].includes((words[0] ?? "").toLowerCase())) {
+			words.shift();
+			continue;
+		}
+		break;
+	}
+	const executable = (words[0] ?? "").replace(/^.*[\\/]/u, "").replace(/\.(?:cmd|exe|ps1)$/iu, "").toLowerCase();
+	const action = (words[1] ?? "").toLowerCase();
+	const subject = words[2] ?? "";
+
+	let summary: string;
+	if (["npm", "pnpm", "yarn", "bun"].includes(executable) && action === "run" && subject) {
+		summary = `Run ${subject} task`;
+	} else if (["npm", "pnpm", "yarn", "bun"].includes(executable) && ["test", "check"].includes(action)) {
+		summary = action === "test" ? "Run tests" : "Run project checks";
+	} else if (["npm", "pnpm", "yarn", "bun"].includes(executable) && ["install", "i", "ci"].includes(action)) {
+		summary = "Install dependencies";
+	} else if (executable === "git" && action === "status") {
+		summary = "Check repository status";
+	} else if (executable === "git" && action === "diff") {
+		summary = "Review repository changes";
+	} else if (executable === "git" && action === "log") {
+		summary = "Review commit history";
+	} else if (executable === "git" && ["fetch", "pull", "push", "clone"].includes(action)) {
+		summary = `${action[0]!.toUpperCase()}${action.slice(1)} repository`;
+	} else if (["rg", "grep", "select-string"].includes(executable)) {
+		summary = "Search text";
+	} else if (["find", "fd", "get-childitem", "ls", "dir"].includes(executable)) {
+		summary = executable === "ls" || executable === "dir" || executable === "get-childitem" ? "List files" : "Find files";
+	} else if (["cat", "type", "get-content"].includes(executable)) {
+		summary = "Read file content";
+	} else if (["tsc", "mypy", "pyright"].includes(executable)) {
+		summary = "Check types";
+	} else if (["jest", "vitest", "pytest", "invoke-pester"].includes(executable)) {
+		summary = "Run tests";
+	} else if (executable) {
+		const display = executable.replace(/[-_]+/gu, " ");
+		summary = `Run ${display}`;
+	} else {
+		summary = name === "powershell" ? "Run PowerShell command" : "Run shell command";
+	}
+
+	const remainingSteps = Math.max(0, segments.length - 1);
+	return remainingSteps > 0 ? `${summary} + ${remainingSteps} more ${remainingSteps === 1 ? "step" : "steps"}` : summary;
+}
+
 export function getTextResult(result: AgentToolResult<unknown>): string {
 	const parts: string[] = [];
 	for (const item of result.content) {
@@ -67,6 +167,17 @@ function countTextLines(text: string): number {
 	return count;
 }
 
+/** Keep only the lines that the edit actually removed or added; discard context and ellipses. */
+export function getEditChanges(result: AgentToolResult<unknown>): string {
+	const diff = (result.details as ResultDetails | undefined)?.diff;
+	if (typeof diff !== "string") return "";
+	return normalizeLineEndings(diff)
+		.split("\n")
+		.filter((line) => line.startsWith("-") || line.startsWith("+"))
+		.join("\n")
+		.trimEnd();
+}
+
 function stripGeneratedFooter(name: string, text: string, details: ResultDetails | undefined): string {
 	if (name === "read") {
 		return text.replace(/\n\n\[(?:Showing lines |\d+ more lines in file\.)[^\n]*\]$/u, "");
@@ -86,8 +197,8 @@ export function formatResultLineSummary(
 	output?: string,
 ): string | undefined {
 	const details = result.details as ResultDetails | undefined;
-	const text = name === "edit" && typeof details?.diff === "string"
-		? details.diff
+	const text = name === "edit"
+		? getEditChanges(result)
 		: output ?? (name === "write"
 			? String(args.content ?? "")
 			: result.content.some((item) => item.type === "text")
