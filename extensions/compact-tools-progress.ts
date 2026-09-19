@@ -1,16 +1,10 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, truncateToWidth } from "@earendil-works/pi-tui";
+import { colorizeRgb, interpolateRgb, themeColorRgb, type Rgb } from "./compact-tools-color.ts";
 import type { ToolArgs } from "./compact-tools-types.ts";
 
 const GLOW_INTERVAL_MS = 80;
-type Rgb = { r: number; g: number; b: number };
-
-const ANSI_BASIC_RGB: readonly Rgb[] = [
-	{ r: 0, g: 0, b: 0 }, { r: 128, g: 0, b: 0 }, { r: 0, g: 128, b: 0 }, { r: 128, g: 128, b: 0 },
-	{ r: 0, g: 0, b: 128 }, { r: 128, g: 0, b: 128 }, { r: 0, g: 128, b: 128 }, { r: 192, g: 192, b: 192 },
-	{ r: 128, g: 128, b: 128 }, { r: 255, g: 0, b: 0 }, { r: 0, g: 255, b: 0 }, { r: 255, g: 255, b: 0 },
-	{ r: 0, g: 0, b: 255 }, { r: 255, g: 0, b: 255 }, { r: 0, g: 255, b: 255 }, { r: 255, g: 255, b: 255 },
-];
+const WHITE: Rgb = { r: 255, g: 255, b: 255 };
 
 const TOOL_PROGRESS_MESSAGES: Readonly<Record<string, string>> = {
 	read: "Reading file…",
@@ -47,57 +41,8 @@ export function formatToolProgress(toolName: string, args: ToolArgs): string {
 	return displayName ? `Using ${displayName}…` : "Running tool…";
 }
 
-function ansi256ToRgb(index: number): Rgb {
-	if (index < 16) return ANSI_BASIC_RGB[index] ?? { r: 192, g: 192, b: 192 };
-	if (index < 232) {
-		const value = index - 16;
-		const channel = (part: number) => part === 0 ? 0 : 55 + part * 40;
-		return {
-			r: channel(Math.floor(value / 36)),
-			g: channel(Math.floor((value % 36) / 6)),
-			b: channel(value % 6),
-		};
-	}
-	const gray = 8 + Math.min(23, index - 232) * 10;
-	return { r: gray, g: gray, b: gray };
-}
-
-function themeColorRgb(theme: Theme, color: "thinkingMax"): Rgb | undefined {
-	if (typeof theme.getFgAnsi !== "function") return undefined;
-	const ansi = theme.getFgAnsi(color);
-	const trueColor = ansi.match(/\[38;2;(\d+);(\d+);(\d+)m/u);
-	if (trueColor) return { r: Number(trueColor[1]), g: Number(trueColor[2]), b: Number(trueColor[3]) };
-	const indexed = ansi.match(/\[38;5;(\d+)m/u);
-	return indexed ? ansi256ToRgb(Number(indexed[1])) : undefined;
-}
-
-function interpolateToWhite(base: Rgb, strength: number): Rgb {
-	const channel = (value: number) => Math.round(value + (255 - value) * strength);
-	return { r: channel(base.r), g: channel(base.g), b: channel(base.b) };
-}
-
-function rgbToAnsi256(rgb: Rgb): number {
-	let bestIndex = 0;
-	let bestDistance = Number.POSITIVE_INFINITY;
-	for (let index = 0; index < 256; index++) {
-		const candidate = ansi256ToRgb(index);
-		const distance = (rgb.r - candidate.r) ** 2 + (rgb.g - candidate.g) ** 2 + (rgb.b - candidate.b) ** 2;
-		if (distance >= bestDistance) continue;
-		bestIndex = index;
-		bestDistance = distance;
-	}
-	return bestIndex;
-}
-
 function glowRadius(length: number): number {
 	return Math.max(2, Math.min(8, Math.ceil(length / 4)));
-}
-
-function colorizeRgb(theme: Theme, color: Rgb, character: string): string {
-	if (typeof theme.getColorMode === "function" && theme.getColorMode() === "256color") {
-		return `\x1b[38;5;${rgbToAnsi256(color)}m${character}\x1b[39m`;
-	}
-	return `\x1b[38;2;${color.r};${color.g};${color.b}m${character}\x1b[39m`;
 }
 
 /** Render a thinking-summary-colored label with a proportional white highlight sweeping left to right. */
@@ -114,7 +59,7 @@ export function glowProgressMessage(message: string, frame: number, theme: Theme
 	return characters.map((character, index) => {
 		const distance = Math.abs(index - center);
 		const strength = Math.max(0, 1 - distance / radius);
-		return colorizeRgb(theme, interpolateToWhite(base, strength), character);
+		return colorizeRgb(theme, interpolateRgb(base, WHITE, strength), character);
 	}).join("");
 }
 

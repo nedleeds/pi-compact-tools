@@ -22,10 +22,12 @@ import {
 	classifyCallStatus,
 	formatDurationMs,
 	indicatorGlyph,
+	indicatorStrength,
 	indicatorTone,
 	normalizeLineEndings,
 	type RowStatus,
 } from "./compact-tools-core.ts";
+import { colorizeRgb, interpolateRgb, themeColorRgb } from "./compact-tools-color.ts";
 import { loadConfig } from "./compact-tools-config.ts";
 import {
 	formatResultLineSummary,
@@ -68,8 +70,15 @@ function callStatus(ctx: RenderContext, state: RowState): RowStatus {
 
 function renderIndicator(theme: Theme, ctx: RenderContext, status: RowStatus): string {
 	const frame = runtime.syncIndicator(ctx.toolCallId, status === "running", () => ctx.invalidate());
-	const tone = indicatorTone(status, frame);
-	return tone ? theme.fg(tone, indicatorGlyph(status, frame)) : " ";
+	const glyph = indicatorGlyph(status, frame);
+	if (status === "running") {
+		const bright = themeColorRgb(theme, "borderAccent");
+		const dim = themeColorRgb(theme, "borderMuted");
+		if (bright && dim) {
+			return colorizeRgb(theme, interpolateRgb(dim, bright, indicatorStrength(status, frame)), glyph);
+		}
+	}
+	return theme.fg(indicatorTone(status, frame), glyph);
 }
 
 function formatDuration(state: RowState): string | undefined {

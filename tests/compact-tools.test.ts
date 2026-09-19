@@ -10,6 +10,7 @@ import {
 	classifyCallStatus,
 	formatDurationMs,
 	indicatorGlyph,
+	indicatorStrength,
 	indicatorTone,
 	normalizeLineEndings,
 } from "../extensions/compact-tools-core.ts";
@@ -230,17 +231,21 @@ test("stops the shared indicator timer and keeps parallel tools independent", as
 	assert.equal(secondInvalidations, secondAtShutdown);
 });
 
-test("classifies calls and fades one shared tool indicator glyph", () => {
+test("classifies calls and smoothly fades one shared tool indicator glyph", () => {
 	assert.equal(classifyCallStatus(false, false, false), "pending");
 	assert.equal(classifyCallStatus(false, true, false), "running");
 	assert.equal(classifyCallStatus(false, true, true), "success");
 	assert.equal(classifyCallStatus(true, true, true), "error");
 	assert.equal(indicatorGlyph("pending"), "⦁");
 	assert.deepEqual(
-		[0, 1, 2, 3, 4, 5].map((frame) => indicatorTone("running", frame)),
-		["borderAccent", "border", "borderMuted", undefined, "borderMuted", "border"],
+		Array.from({ length: 10 }, (_, frame) => indicatorStrength("running", frame)),
+		[1, 0.82, 0.64, 0.46, 0.28, 0.1, 0.28, 0.46, 0.64, 0.82],
 	);
-	assert.deepEqual([0, 1, 2, 3].map((frame) => indicatorGlyph("running", frame)), ["⦁", "⦁", "⦁", " "]);
+	assert.deepEqual(
+		Array.from({ length: 10 }, (_, frame) => indicatorTone("running", frame)),
+		["borderAccent", "borderAccent", "border", "border", "borderMuted", "borderMuted", "borderMuted", "border", "border", "borderAccent"],
+	);
+	assert.ok(Array.from({ length: 10 }, (_, frame) => indicatorGlyph("running", frame)).every((glyph) => glyph === "⦁"));
 	assert.equal(indicatorGlyph("success"), "⦁");
 	assert.equal(indicatorGlyph("error"), "⦁");
 });
@@ -280,6 +285,7 @@ test("avoids duplicate registration, restores reload renderers, and reuses uncha
 	assert.ok(registered.every(({ renderCall, renderResult }) => renderCall && renderResult));
 
 	const readDefinition = registered.find(({ name }) => name === "read");
+	const renderCall = readDefinition?.renderCall as (args: { path: string }, theme: Theme, ctx: any) => Component;
 	const renderResult = readDefinition?.renderResult as (
 		result: { content: Array<{ type: "text"; text: string }>; details?: unknown },
 		options: { expanded: boolean; isPartial: boolean },
@@ -294,7 +300,11 @@ test("avoids duplicate registration, restores reload renderers, and reuses uncha
 		fg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 		italic: (text: string) => text,
-	} as Theme;
+		getFgAnsi: (color: string) => color === "borderAccent"
+			? "\x1b[38;2;90;100;110m"
+			: "\x1b[38;2;20;30;40m",
+		getColorMode: () => "truecolor",
+	} as unknown as Theme;
 	const rowState: RowState = {};
 	const resultContext = {
 		args: { path: "file.ts" },
@@ -310,6 +320,10 @@ test("avoids duplicate registration, restores reload renderers, and reuses uncha
 		state: rowState,
 		toolCallId: "cached-result",
 	};
+	const callLines = renderCall({ path: "file.ts" }, renderTheme, resultContext).render(80);
+	assert.match(callLines[0]!, /\x1b\[38;2;90;100;110m⦁\x1b\[39m read file\.ts/u);
+	assert.doesNotMatch(stripTerminalSequences(callLines[0]!), /⦁ {2}read/u);
+
 	const firstResult = renderResult({ content }, { expanded: true, isPartial: true }, renderTheme, resultContext);
 	const reusedResult = renderResult(
 		{ content },

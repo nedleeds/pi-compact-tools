@@ -16,7 +16,7 @@ Active, successful, and failed tool calls stay compact while preserving useful s
 
 ### Progress and duration display
 
-The working label above the prompt uses the Thinking summary color with a soft white light sweep. Every tool state uses the same `⦁` glyph; running tools fade from dark gray to invisible and back, then settle to green on success or red on failure. Elapsed time remains visible in the neutral control color.
+The working label above the prompt uses the Thinking summary color with a soft white light sweep. Every tool state uses the same `⦁` glyph; running tools use a ten-step RGB pulse between dim and bright gray, then settle to green on success or red on failure. Elapsed time remains visible in the neutral control color.
 
 ![Spinner and elapsed-time display](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/spinner-duration-optimized.gif)
 
@@ -95,7 +95,7 @@ Default configuration:
 }
 ```
 
-Every tool call title uses `⦁`. Pending calls use dark gray; running calls fade through progressively softer gray, disappear for one frame, and return to dark gray. Successful titles use green, and failed titles use red. `Done`, `Failed`, and elapsed time use the same neutral control color. A single Pi working label animates independently of token arrival and reports `Thinking…`, `Responding…`, semantic built-in states such as `Reading file…`, or cleaned custom states such as `Using jira search…`. Invocation arguments remain in the tool row instead of being duplicated above the prompt. No separate spinner glyph is shown above the prompt.
+Every tool call title uses `⦁`. Pending calls use dark gray; running calls smoothly pulse through ten interpolated gray levels at an 80 ms interval without disappearing. Successful titles use green, and failed titles use red. `Done`, `Failed`, and elapsed time use the same neutral control color. A single Pi working label animates independently of token arrival and reports `Thinking…`, `Responding…`, semantic built-in states such as `Reading file…`, or cleaned custom states such as `Using jira search…`. Invocation arguments remain in the tool row instead of being duplicated above the prompt. No separate spinner glyph is shown above the prompt.
 
 `auto_compact` controls each tool's initial result state:
 
