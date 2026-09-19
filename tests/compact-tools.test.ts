@@ -13,6 +13,7 @@ import {
 	indicatorStrength,
 	indicatorTone,
 	normalizeLineEndings,
+	RUNNING_INDICATOR_FRAME_COUNT,
 } from "../extensions/compact-tools-core.ts";
 import { DEFAULT_CONFIG, loadConfig, mergeConfig } from "../extensions/compact-tools-config.ts";
 import {
@@ -237,15 +238,21 @@ test("classifies calls and smoothly fades one shared tool indicator glyph", () =
 	assert.equal(classifyCallStatus(false, true, true), "success");
 	assert.equal(classifyCallStatus(true, true, true), "error");
 	assert.equal(indicatorGlyph("pending"), "⦁");
-	assert.deepEqual(
-		Array.from({ length: 10 }, (_, frame) => indicatorStrength("running", frame)),
-		[1, 0.82, 0.64, 0.46, 0.28, 0.1, 0.28, 0.46, 0.64, 0.82],
+	const strengths = Array.from(
+		{ length: RUNNING_INDICATOR_FRAME_COUNT },
+		(_, frame) => indicatorStrength("running", frame),
 	);
-	assert.deepEqual(
-		Array.from({ length: 10 }, (_, frame) => indicatorTone("running", frame)),
-		["borderAccent", "borderAccent", "border", "border", "borderMuted", "borderMuted", "borderMuted", "border", "border", "borderAccent"],
-	);
-	assert.ok(Array.from({ length: 10 }, (_, frame) => indicatorGlyph("running", frame)).every((glyph) => glyph === "⦁"));
+	assert.equal(strengths[0], 1);
+	assert.ok(Math.abs(strengths[7]! - 0.08) < 1e-12);
+	assert.ok(strengths.slice(0, 8).every((strength, index, values) => index === 0 || strength < values[index - 1]!));
+	assert.ok(strengths.slice(7).every((strength, index, values) => index === 0 || strength > values[index - 1]!));
+	assert.ok(Math.abs(strengths[1]! - strengths[13]!) < 1e-12);
+	assert.equal(indicatorTone("running", 0), "borderAccent");
+	assert.equal(indicatorTone("running", 7), "borderMuted");
+	assert.ok(Array.from(
+		{ length: RUNNING_INDICATOR_FRAME_COUNT },
+		(_, frame) => indicatorGlyph("running", frame),
+	).every((glyph) => glyph === "⦁"));
 	assert.equal(indicatorGlyph("success"), "⦁");
 	assert.equal(indicatorGlyph("error"), "⦁");
 });

@@ -9,7 +9,7 @@ import type {
 } from "./compact-tools-types.ts";
 
 const MAX_TRACKED_ROWS = 2_000;
-const INDICATOR_INTERVAL_MS = 80;
+const INDICATOR_INTERVAL_MS = 45;
 const EXECUTION_TIMINGS_KEY = Symbol.for("pi.compact-tools.execution-timings");
 
 type ExecutionTiming = { startedAt: number; endedAt?: number };

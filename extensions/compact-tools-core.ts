@@ -4,11 +4,15 @@ export type RowStatus = "pending" | "running" | "success" | "error";
 
 export type IndicatorTone = "borderAccent" | "border" | "borderMuted" | "success" | "error";
 
-const RUNNING_INDICATOR_STRENGTHS = [1, 0.82, 0.64, 0.46, 0.28, 0.1, 0.28, 0.46, 0.64, 0.82] as const;
+export const RUNNING_INDICATOR_FRAME_COUNT = 14;
+const RUNNING_INDICATOR_MIN_STRENGTH = 0.08;
 
 export function indicatorStrength(status: RowStatus, frame = 0): number {
 	if (status !== "running") return 1;
-	return RUNNING_INDICATOR_STRENGTHS[frame % RUNNING_INDICATOR_STRENGTHS.length] ?? 1;
+	const normalizedFrame = ((frame % RUNNING_INDICATOR_FRAME_COUNT) + RUNNING_INDICATOR_FRAME_COUNT)
+		% RUNNING_INDICATOR_FRAME_COUNT;
+	const wave = (Math.cos((normalizedFrame / RUNNING_INDICATOR_FRAME_COUNT) * Math.PI * 2) + 1) / 2;
+	return RUNNING_INDICATOR_MIN_STRENGTH + (1 - RUNNING_INDICATOR_MIN_STRENGTH) * wave;
 }
 
 /** Semantic fallback for themes whose foreground RGB values cannot be resolved. */
