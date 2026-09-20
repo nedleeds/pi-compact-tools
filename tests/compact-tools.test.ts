@@ -17,6 +17,7 @@ import {
 } from "../extensions/compact-tools-core.ts";
 import { colorizeRgb, fillRgb } from "../extensions/compact-tools-color.ts";
 import { DEFAULT_CONFIG, loadConfig, mergeConfig } from "../extensions/compact-tools-config.ts";
+import { languageFromPath, languageFromShebang, resolveLanguage } from "../extensions/compact-tools-language.ts";
 import {
 	formatResultLineSummary,
 	getArgumentDetails,
@@ -714,6 +715,65 @@ test("uses indexed ANSI colors for the glow in 256-color mode", () => {
 	const rendered = glowProgressMessage("Glow", 2, theme);
 	assert.match(rendered, /\x1b\[38;5;\d+mG\x1b\[39m/u);
 	assert.doesNotMatch(rendered, /\x1b\[38;2;/u);
+});
+
+test("resolves languages Pi's extension table misses, without guessing", () => {
+	// Pi's own mapping still wins where it applies.
+	assert.equal(languageFromPath("src/index.ts"), "typescript");
+	assert.equal(languageFromPath("a/b/notes.md"), "markdown");
+
+	// Named files that carry no extension.
+	assert.equal(languageFromPath("Dockerfile"), "dockerfile");
+	assert.equal(languageFromPath("deploy/Containerfile"), "dockerfile");
+	assert.equal(languageFromPath("Makefile"), "makefile");
+	assert.equal(languageFromPath("CMakeLists.txt"), "cmake");
+	assert.equal(languageFromPath("Gemfile"), "ruby");
+	assert.equal(languageFromPath("ci/Jenkinsfile"), "groovy");
+	assert.equal(languageFromPath("/home/me/.bashrc"), "bash");
+	assert.equal(languageFromPath(".editorconfig"), "ini");
+	assert.equal(languageFromPath(".env"), "ini");
+	assert.equal(languageFromPath(".env.production"), "ini");
+
+	// Extensions Pi does not list.
+	assert.equal(languageFromPath("build.mts"), "typescript");
+	assert.equal(languageFromPath("tsconfig.jsonc"), "json");
+	assert.equal(languageFromPath("run.bat"), "dos");
+	assert.equal(languageFromPath("fix.patch"), "diff");
+	assert.equal(languageFromPath("logo.svg"), "xml");
+	assert.equal(languageFromPath("build.gradle"), "groovy");
+
+	// Case and directory separators must not matter.
+	assert.equal(languageFromPath("infra\\DOCKERFILE"), "dockerfile");
+	assert.equal(languageFromPath("./Rakefile"), "ruby");
+
+	// Content types that auto-detection reliably gets wrong stay unhighlighted.
+	for (const path of ["notes.txt", "server.log", "rows.csv", "data.bin", "LICENSE", "README"]) {
+		assert.equal(languageFromPath(path), undefined, path);
+	}
+});
+
+test("reads the interpreter a shebang declares and ignores anything else", () => {
+	assert.equal(languageFromShebang("#!/bin/bash"), "bash");
+	assert.equal(languageFromShebang("#!/usr/bin/env python3"), "python");
+	assert.equal(languageFromShebang("#!/usr/bin/env -S node --enable-source-maps"), "javascript");
+	assert.equal(languageFromShebang("#!/usr/bin/ruby2.7"), "ruby");
+	assert.equal(languageFromShebang("#! /usr/bin/env  deno"), "typescript");
+	assert.equal(languageFromShebang("#!/usr/bin/env FOO=1 perl"), "perl");
+
+	assert.equal(languageFromShebang("#!/usr/bin/env unknown-thing"), undefined);
+	assert.equal(languageFromShebang("# not a shebang"), undefined);
+	assert.equal(languageFromShebang("const x = 1;"), undefined);
+	assert.equal(languageFromShebang(""), undefined);
+});
+
+test("prefers the path over a shebang and only consults a real first line", () => {
+	// An extension Pi already knows wins over the interpreter line.
+	assert.equal(resolveLanguage("script.py", "#!/bin/bash"), "python");
+	// Extensionless script: the shebang is the only declaration available.
+	assert.equal(resolveLanguage("bin/release", "#!/usr/bin/env bash"), "bash");
+	// No first line supplied (a diff hunk, or a read starting past line 1).
+	assert.equal(resolveLanguage("bin/release"), undefined);
+	assert.equal(resolveLanguage("bin/release", "  echo hello"), undefined);
 });
 
 test("memoized 256-color conversion matches an independent nearest-color search", () => {

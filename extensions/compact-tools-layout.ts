@@ -1,4 +1,4 @@
-import { getLanguageFromPath, highlightCode, type Theme } from "@earendil-works/pi-coding-agent";
+import { highlightCode, type Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import {
 	Container,
@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { diffTintRgb, fillRgb } from "./compact-tools-color.ts";
 import { normalizeLineEndings } from "./compact-tools-core.ts";
+import { resolveLanguage } from "./compact-tools-language.ts";
 import { highlightMarkdown } from "./compact-tools-markdown.ts";
 import type { ToolArgs } from "./compact-tools-types.ts";
 
@@ -304,7 +305,11 @@ type CodeRowsOptions = {
 
 /** Render numbered, syntax-highlighted code rows shared by edit diffs and read/write file views. */
 function renderCodeRows(lines: CodeDiffLine[], path: string, theme: Theme, options: CodeRowsOptions): Component {
-	const highlighted = highlightCodeLines(lines, getLanguageFromPath(path), theme);
+	// A shebang only speaks for the file when the first row really is line 1, so a
+	// read at an offset or a diff hunk never reads one out of a comment.
+	const first = lines[0];
+	const shebangLine = first?.lineNumber === 1 && first.kind !== "separator" ? first.content : undefined;
+	const highlighted = highlightCodeLines(lines, resolveLanguage(path, shebangLine), theme);
 	const numberWidth = Math.max(1, ...lines.map((line) => String(line.lineNumber ?? "").length));
 	const prefix = theme.fg("border", " \u2502 ");
 	const prefixWidth = visibleWidth(prefix);
