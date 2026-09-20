@@ -25,6 +25,10 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
 
+      # Trusted Publishing needs npm 11.5.1 or newer; the runner's bundled npm
+      # can lag behind that.
+      - run: npm install -g npm@latest
+
       - run: npm ci
 
       - name: Verify the tag matches package.json
