@@ -15,6 +15,7 @@ import {
 	normalizeLineEndings,
 	RUNNING_INDICATOR_FRAME_COUNT,
 } from "../extensions/compact-tools-core.ts";
+import { colorizeRgb, fillRgb } from "../extensions/compact-tools-color.ts";
 import { DEFAULT_CONFIG, loadConfig, mergeConfig } from "../extensions/compact-tools-config.ts";
 import {
 	formatResultLineSummary,
@@ -56,6 +57,15 @@ test("normalizes CRLF, LF, and CR line endings", () => {
 test("formats durations with millisecond precision", () => {
 	assert.equal(formatDurationMs(23), "0.023s");
 	assert.equal(formatDurationMs(1_039), "1.039s");
+	assert.equal(formatDurationMs(59_999), "59.999s");
+});
+
+test("groups durations of a minute or more like Pi's own shell renderers", () => {
+	assert.equal(formatDurationMs(60_000), "1m 0s");
+	assert.equal(formatDurationMs(312_481), "5m 12s");
+	assert.equal(formatDurationMs(3_599_999), "59m 59s");
+	assert.equal(formatDurationMs(3_600_000), "1h 0m 0s");
+	assert.equal(formatDurationMs(3_723_400), "1h 2m 3s");
 });
 
 test("merges configuration without mutating defaults", () => {
@@ -557,7 +567,11 @@ test("animates every built-in, restores reload renderers, and reuses unchanged l
 	handlers.get("session_start")?.({ reason: "startup" }, ctx);
 	assert.deepEqual(registered, []);
 
+	// /reload tears the session down and re-invokes the cached factory, exactly like
+	// the session replacements covered below. Firing the events alone would not
+	// reproduce that, so drive the factory the way Pi does.
 	handlers.get("session_shutdown")?.({ reason: "reload" }, ctx);
+	compactTools(pi);
 	handlers.get("session_start")?.({ reason: "reload" }, ctx);
 	assert.deepEqual(registered.map(({ name }) => name), [...SUPPORTED_TOOLS]);
 	assert.ok(registered.every(({ renderCall, renderResult }) => renderCall && renderResult));
@@ -578,6 +592,102 @@ test("animates every built-in, restores reload renderers, and reuses unchanged l
 	handlers.get("session_shutdown")?.({ reason: "quit" }, ctx);
 	if (previousAgentDir === undefined) delete process.env[agentDirVariable];
 	else process.env[agentDirVariable] = previousAgentDir;
+});
+
+test("registers renderers again after every session replacement", async () => {
+	const agentDirVariable = "PI_CODING_AGENT_DIR";
+	const previousAgentDir = process.env[agentDirVariable];
+	process.env[agentDirVariable] = mkdtempSync(join(tmpdir(), "compact-tools-replace-"));
+	writeFileSync(
+		join(process.env[agentDirVariable]!, "compact-tools.json"),
+		JSON.stringify({ tools: SUPPORTED_TOOLS }),
+	);
+	const compactTools = (await import("../extensions/compact-tools.ts")).default;
+	const ctx = {
+		cwd: process.cwd(),
+		mode: "print",
+		isProjectTrusted: () => false,
+	} as unknown as ExtensionContext;
+
+	// Pi caches the extension factory and re-invokes it with a fresh `pi` whose
+	// tool registry starts empty. Each host here stands in for one such invocation.
+	const createHost = () => {
+		const registered: string[] = [];
+		const handlers = new Map<string, (event: any, ctx: any) => void>();
+		const pi = {
+			on: (name: string, handler: (event: any, ctx: any) => void) => handlers.set(name, handler),
+			registerTool: (definition: { name: string }) => registered.push(definition.name),
+			registerMarkdownTransformer: () => {},
+		} as unknown as ExtensionAPI;
+		return { registered, handlers, pi };
+	};
+
+	let host = createHost();
+	compactTools(host.pi);
+	assert.deepEqual(host.registered, [...SUPPORTED_TOOLS], "startup must install the compact renderers");
+
+	// /resume, /new, and /fork all tear the session down and replace it. Each one
+	// must leave the replacement session rendering compactly without a manual /reload.
+	for (const reason of ["resume", "new", "fork", "reload"] as const) {
+		host.handlers.get("session_shutdown")?.({ reason }, ctx);
+		const replacement = createHost();
+		compactTools(replacement.pi);
+		assert.deepEqual(
+			replacement.registered,
+			[...SUPPORTED_TOOLS],
+			`renderers must be reinstalled after /${reason}`,
+		);
+
+		const afterFactory = replacement.registered.length;
+		replacement.handlers.get("session_start")?.({ reason }, ctx);
+		assert.equal(
+			replacement.registered.length,
+			afterFactory,
+			`session_start after /${reason} must not register the same tools twice`,
+		);
+		host = replacement;
+	}
+
+	host.handlers.get("session_shutdown")?.({ reason: "quit" }, ctx);
+	if (previousAgentDir === undefined) delete process.env[agentDirVariable];
+	else process.env[agentDirVariable] = previousAgentDir;
+});
+
+test("keeps the progress controller inert until it is bound to a TUI", () => {
+	const messages: Array<string | undefined> = [];
+	const handlers = new Map<string, (event: any) => void>();
+	const pi = {
+		on: (name: string, handler: (event: any) => void) => handlers.set(name, handler),
+	} as unknown as ExtensionAPI;
+	const controller = new ProgressController(pi);
+
+	// Never bound: every handler must be a no-op rather than relying on a
+	// downstream guard inside setMessage.
+	handlers.get("agent_start")?.({});
+	handlers.get("message_update")?.({ assistantMessageEvent: { type: "text_delta" } });
+	handlers.get("tool_execution_start")?.({ toolCallId: "1", toolName: "read", args: { path: "a.ts" } });
+	handlers.get("tool_execution_end")?.({ toolCallId: "1" });
+	handlers.get("agent_end")?.({});
+	assert.equal(messages.length, 0, "an unbound controller must not touch the working row");
+
+	const theme = { fg: (_color: string, text: string) => text, getColorMode: () => "truecolor" } as unknown as Theme;
+	controller.bind({
+		ui: {
+			theme,
+			setWorkingVisible: () => {},
+			setWorkingMessage: (message?: string) => messages.push(message),
+			setWorkingIndicator: () => {},
+		},
+	} as unknown as ExtensionContext);
+	handlers.get("agent_start")?.({});
+	assert.deepEqual(messages, ["Thinking…"]);
+
+	// Disposed again: later events must not reach the detached context.
+	controller.dispose();
+	messages.length = 0;
+	handlers.get("tool_execution_start")?.({ toolCallId: "2", toolName: "bash", args: { command: "ls" } });
+	handlers.get("agent_end")?.({});
+	assert.equal(messages.length, 0, "a disposed controller must not touch the working row");
 });
 
 test("uses semantic progress labels without exposing invocation details", () => {
@@ -604,6 +714,51 @@ test("uses indexed ANSI colors for the glow in 256-color mode", () => {
 	const rendered = glowProgressMessage("Glow", 2, theme);
 	assert.match(rendered, /\x1b\[38;5;\d+mG\x1b\[39m/u);
 	assert.doesNotMatch(rendered, /\x1b\[38;2;/u);
+});
+
+test("memoized 256-color conversion matches an independent nearest-color search", () => {
+	const theme = { getColorMode: () => "256color" } as unknown as Theme;
+	const channel = (part: number) => (part === 0 ? 0 : 55 + part * 40);
+	const basic = [
+		[0, 0, 0], [128, 0, 0], [0, 128, 0], [128, 128, 0], [0, 0, 128], [128, 0, 128], [0, 128, 128],
+		[192, 192, 192], [128, 128, 128], [255, 0, 0], [0, 255, 0], [255, 255, 0], [0, 0, 255],
+		[255, 0, 255], [0, 255, 255], [255, 255, 255],
+	];
+	const nearest = (r: number, g: number, b: number) => {
+		let best = 0;
+		let bestDistance = Number.POSITIVE_INFINITY;
+		for (let index = 0; index < 256; index++) {
+			let candidate: number[];
+			if (index < 16) candidate = basic[index]!;
+			else if (index < 232) {
+				const value = index - 16;
+				candidate = [channel(Math.floor(value / 36)), channel(Math.floor((value % 36) / 6)), channel(value % 6)];
+			} else {
+				const gray = 8 + Math.min(23, index - 232) * 10;
+				candidate = [gray, gray, gray];
+			}
+			const distance = (r - candidate[0]!) ** 2 + (g - candidate[1]!) ** 2 + (b - candidate[2]!) ** 2;
+			if (distance >= bestDistance) continue;
+			best = index;
+			bestDistance = distance;
+		}
+		return String(best);
+	};
+	const indexOf = (rendered: string) => rendered.match(/\d+;5;(\d+)m/u)?.[1];
+	for (let r = 0; r < 256; r += 37) {
+		for (let g = 0; g < 256; g += 41) {
+			for (let b = 0; b < 256; b += 43) {
+				const expected = nearest(r, g, b);
+				const rgb = { r, g, b };
+				assert.equal(indexOf(colorizeRgb(theme, rgb, "x")), expected, `fg rgb(${r},${g},${b})`);
+				// Second call must come from the memo and agree with the cold result.
+				assert.equal(indexOf(colorizeRgb(theme, rgb, "x")), expected, `memoized fg rgb(${r},${g},${b})`);
+				assert.equal(indexOf(fillRgb(theme, rgb, "x")), expected, `bg rgb(${r},${g},${b})`);
+			}
+		}
+	}
+	assert.match(colorizeRgb(theme, { r: 10, g: 20, b: 30 }, "x"), /^\x1b\[38;5;\d+mx\x1b\[39m$/u);
+	assert.match(fillRgb(theme, { r: 10, g: 20, b: 30 }, "x"), /^\x1b\[48;5;\d+mx\x1b\[49m$/u);
 });
 
 test("scales a thinking-summary-to-white glow to the working label length", () => {

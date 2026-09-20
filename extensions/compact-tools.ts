@@ -356,6 +356,14 @@ function configure(pi: ExtensionAPI, cwd?: string, projectTrusted = false): void
 }
 
 export default function compactTools(pi: ExtensionAPI): void {
+	// Pi caches this factory and re-invokes it with a fresh `pi` for every session
+	// replacement (/resume, /new, /fork) as well as /reload, each time starting from
+	// an empty tool registry. The module itself survives those invocations, so the
+	// memo below has to be dropped here or configure() mistakes the previous
+	// instance's registration for this one and never installs the renderers.
+	registeredConfiguration = undefined;
+	registeredTools.clear();
+
 	const thinkingCycle = new ThinkingCycleController(pi);
 	const progress = new ProgressController(pi);
 	// Register once while the extension runtime is being built. In particular, this
@@ -376,8 +384,5 @@ export default function compactTools(pi: ExtensionAPI): void {
 		thinkingCycle.dispose();
 		progress.dispose();
 		runtime.reset(event.reason !== "reload");
-		// Some Pi hosts rebuild the active tool registry during reload while keeping
-		// this module instance. Force the next session to restore our renderers.
-		if (event.reason === "reload") registeredConfiguration = undefined;
 	});
 }

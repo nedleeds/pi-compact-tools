@@ -25,16 +25,29 @@ function ansi256ToRgb(index: number): Rgb {
 	return { r: gray, g: gray, b: gray };
 }
 
+const ANSI_256_RGB: readonly Rgb[] = Array.from({ length: 256 }, (_, index) => ansi256ToRgb(index));
+
+/**
+ * The nearest-color search runs per character on 256-color terminals, so both the
+ * palette and the answers are kept. Callers interpolate between a handful of theme
+ * colors, so the memo holds tens of entries rather than growing with output size.
+ */
+const ansi256ByRgb = new Map<number, number>();
+
 function rgbToAnsi256(rgb: Rgb): number {
+	const key = (rgb.r << 16) | (rgb.g << 8) | rgb.b;
+	const memoized = ansi256ByRgb.get(key);
+	if (memoized !== undefined) return memoized;
 	let bestIndex = 0;
 	let bestDistance = Number.POSITIVE_INFINITY;
 	for (let index = 0; index < 256; index++) {
-		const candidate = ansi256ToRgb(index);
+		const candidate = ANSI_256_RGB[index]!;
 		const distance = (rgb.r - candidate.r) ** 2 + (rgb.g - candidate.g) ** 2 + (rgb.b - candidate.b) ** 2;
 		if (distance >= bestDistance) continue;
 		bestIndex = index;
 		bestDistance = distance;
 	}
+	ansi256ByRgb.set(key, bestIndex);
 	return bestIndex;
 }
 
@@ -57,11 +70,17 @@ export function interpolateRgb(from: Rgb, to: Rgb, amount: number): Rgb {
 	};
 }
 
-export function colorizeRgb(theme: Theme, color: Rgb, text: string): string {
+/** Shared by the foreground (38/39) and background (48/49) SGR pairs. */
+function paintRgb(theme: Theme, color: Rgb, text: string, set: 38 | 48): string {
+	const reset = set === 38 ? 39 : 49;
 	if (typeof theme.getColorMode === "function" && theme.getColorMode() === "256color") {
-		return `\x1b[38;5;${rgbToAnsi256(color)}m${text}\x1b[39m`;
+		return `\x1b[${set};5;${rgbToAnsi256(color)}m${text}\x1b[${reset}m`;
 	}
-	return `\x1b[38;2;${color.r};${color.g};${color.b}m${text}\x1b[39m`;
+	return `\x1b[${set};2;${color.r};${color.g};${color.b}m${text}\x1b[${reset}m`;
+}
+
+export function colorizeRgb(theme: Theme, color: Rgb, text: string): string {
+	return paintRgb(theme, color, text, 38);
 }
 
 function isDarkTheme(theme: Theme): boolean {
@@ -82,8 +101,5 @@ export function diffTintRgb(theme: Theme, color: ThemeForeground, amount = 0.16)
 }
 
 export function fillRgb(theme: Theme, color: Rgb, text: string): string {
-	if (typeof theme.getColorMode === "function" && theme.getColorMode() === "256color") {
-		return `\x1b[48;5;${rgbToAnsi256(color)}m${text}\x1b[49m`;
-	}
-	return `\x1b[48;2;${color.r};${color.g};${color.b}m${text}\x1b[49m`;
+	return paintRgb(theme, color, text, 48);
 }

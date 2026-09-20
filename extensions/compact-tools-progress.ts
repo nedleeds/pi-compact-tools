@@ -80,24 +80,34 @@ export class ProgressController {
 	private timer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(pi: ExtensionAPI) {
-		pi.on("agent_start", () => this.setMessage("Thinking…"));
+		// Every handler leaves early while unbound. Pi keeps dispatching to this
+		// extension in non-TUI modes, and guarding at the top keeps that work — and
+		// any future handler added here — out of the detached path.
+		pi.on("agent_start", () => {
+			if (!this.context) return;
+			this.setMessage("Thinking…");
+		});
 		pi.on("message_update", (event) => {
+			if (!this.context) return;
 			const type = event.assistantMessageEvent.type;
 			if (type === "thinking_start" || type === "thinking_delta") this.setMessage("Thinking…");
 			else if (type === "text_start" || type === "text_delta") this.setMessage("Responding…");
 			else if (type === "toolcall_start" || type === "toolcall_delta") this.setMessage("Preparing tools…");
 		});
 		pi.on("tool_execution_start", (event) => {
+			if (!this.context) return;
 			const message = formatToolProgress(event.toolName, event.args ?? {});
 			this.activeTools.set(event.toolCallId, message);
 			this.setMessage(message);
 		});
 		pi.on("tool_execution_end", (event) => {
+			if (!this.context) return;
 			this.activeTools.delete(event.toolCallId);
 			const remaining = [...this.activeTools.values()].at(-1);
 			this.setMessage(remaining ?? "Processing results…");
 		});
 		pi.on("agent_end", () => {
+			if (!this.context) return;
 			this.activeTools.clear();
 			this.clearMessage();
 		});
