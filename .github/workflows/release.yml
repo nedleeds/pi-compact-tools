@@ -9,7 +9,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # Write, because the last step opens the GitHub release for the tag.
+  contents: write
   # Required for npm Trusted Publishing: npm exchanges this short-lived OIDC token
   # for publish rights, so no long-lived NPM_TOKEN has to live in repo secrets.
   id-token: write
@@ -56,3 +57,17 @@ jobs:
           fi
 
       - run: npm publish --provenance --access public
+
+      # Last, so a registry failure never leaves a release announcing a version
+      # nobody can install. Re-running the workflow on a tag that already has a
+      # release leaves the existing notes alone rather than failing the job.
+      - name: Create the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists; leaving it as is"
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
