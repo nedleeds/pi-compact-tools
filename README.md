@@ -2,11 +2,11 @@
 
 Compact, expandable rendering for Pi's built-in tools, with a GitHub Dark theme.
 
-![Compact tool workflow](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/nerd-font-workflow-optimized.gif)
+![Compact rows for every built-in tool](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/compact-workflow.gif)
 
-![Spinner and elapsed-time display](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/spinner-duration-optimized.gif)
+![Syntax-highlighted edit diff](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/edit-diff.gif)
 
-![Edit diff](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/edit-diff.gif)
+![Numbered read code view](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/code-aware-results.gif)
 
 ## Features
 

@@ -1,0 +1,54 @@
+name: Release
+
+# Publishing is driven by the tag, so `git push origin vX.Y.Z` is the whole release
+# step. The tag must match the version in package.json or the job stops before npm
+# sees anything.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Required for npm Trusted Publishing: npm exchanges this short-lived OIDC token
+  # for publish rights, so no long-lived NPM_TOKEN has to live in repo secrets.
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify the tag matches package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p 'require("./package.json").version')"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $pkg"
+            exit 1
+          fi
+          echo "releasing $pkg"
+
+      # The same gate contributors run locally: tsc, the test suite, and the
+      # resource checks. prepublishOnly would run it too, but failing here keeps
+      # a broken build from reaching the registry at all.
+      - run: npm run check
+
+      - name: Check this version is not already published
+        run: |
+          pkg="$(node -p 'require("./package.json").version')"
+          name="$(node -p 'require("./package.json").name')"
+          if npm view "$name@$pkg" version >/dev/null 2>&1; then
+            echo "::error::$name@$pkg is already on the registry"
+            exit 1
+          fi
+
+      - run: npm publish --provenance --access public
