@@ -11,6 +11,7 @@ import { diffTintRgb, fillRgb } from "./compact-tools-color.ts";
 import { normalizeLineEndings } from "./compact-tools-core.ts";
 import { resolveLanguage } from "./compact-tools-language.ts";
 import { highlightMarkdown } from "./compact-tools-markdown.ts";
+import { paintChrome } from "./compact-tools-palette.ts";
 import type { ToolArgs } from "./compact-tools-types.ts";
 
 class CachedComponent implements Component {
@@ -112,7 +113,7 @@ export function hardWrapTextWithAnsi(text: string, width: number): string[] {
 export function renderToolCall(title: string, details: string | undefined, theme: Theme): Component {
 	const text = details ? `${title} ${details}` : title;
 	const firstPrefix = " ";
-	const continuationPrefix = theme.fg("border", " │ ");
+	const continuationPrefix = paintChrome(theme, " │ ");
 	const prefixWidth = visibleWidth(continuationPrefix);
 	return new CachedComponent((width) => {
 		const lines = hardWrapTextWithAnsi(text, width - prefixWidth);
@@ -129,7 +130,7 @@ export function renderOutput(output: string, theme: Theme, isError: boolean): Co
 	if (!normalized) return undefined;
 	const color = isError ? "error" : "toolOutput";
 	const styled = normalized.split("\n").map((line) => theme.fg(color, line)).join("\n");
-	return prefixedText(styled, theme.fg("border", " │ "));
+	return prefixedText(styled, paintChrome(theme, " │ "));
 }
 
 export type CodeDiffLineKind = "context" | "add" | "remove" | "separator";
@@ -311,7 +312,7 @@ function renderCodeRows(lines: CodeDiffLine[], path: string, theme: Theme, optio
 	const shebangLine = first?.lineNumber === 1 && first.kind !== "separator" ? first.content : undefined;
 	const highlighted = highlightCodeLines(lines, resolveLanguage(path, shebangLine), theme);
 	const numberWidth = Math.max(1, ...lines.map((line) => String(line.lineNumber ?? "").length));
-	const prefix = theme.fg("border", " \u2502 ");
+	const prefix = paintChrome(theme, " \u2502 ");
 	const prefixWidth = visibleWidth(prefix);
 	const gutterWidth = numberWidth + (options.signs ? 3 : 2);
 	const addedTint = options.signs ? diffTintRgb(theme, "toolDiffAdded") : undefined;
@@ -392,7 +393,8 @@ export function limitComponentLines(component: Component, maximumLines: number, 
 		const omitted = lines.length - maximumLines;
 		return [
 			...lines.slice(0, maximumLines),
-			theme.fg("border", " │ ") + theme.fg("borderAccent", `… ${omitted} more ${omitted === 1 ? "line" : "lines"}`),
+			paintChrome(theme, " │ ")
+				+ theme.fg("toolOutput", `… ${omitted} more ${omitted === 1 ? "line" : "lines"}`),
 		];
 	}, () => component.invalidate?.());
 }
@@ -400,5 +402,5 @@ export function limitComponentLines(component: Component, maximumLines: number, 
 export function renderArguments(args: ToolArgs, theme: Theme): Component {
 	const json = JSON.stringify(args, null, 2) ?? "{}";
 	const styled = styleMultiline(json, (line) => theme.fg("toolOutput", line));
-	return prefixedText(styled, theme.fg("border", " │ "));
+	return prefixedText(styled, paintChrome(theme, " │ "));
 }

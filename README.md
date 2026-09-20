@@ -12,7 +12,8 @@ Compact, expandable rendering for Pi's built-in tools, with a GitHub Dark theme.
 
 - Compact rows for `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`, with status, duration, and line count
 - Syntax-highlighted edit diffs and numbered `read`/`write` code views, including Markdown code fences
-- Animated working label above the prompt and a `Ctrl+T` thinking summary/detail cycle
+- Animated working label above the prompt, lit in the session's own thinking-level color, and a `Ctrl+T` thinking summary/detail cycle
+- Theme-agnostic chrome: rails, the tool indicator, and the working label are derived from the active theme and stay legible on light and dark backgrounds
 - No Nerd Font required
 
 ## Install

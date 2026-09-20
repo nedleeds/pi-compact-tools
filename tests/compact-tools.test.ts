@@ -32,12 +32,16 @@ import {
 	limitComponentLines,
 	parseCodeDiff,
 	prefixedText,
+	renderArguments,
 	renderCodeDiff,
 	renderCodeView,
+	renderOutput,
+	renderToolCall,
 	styleMultiline,
 	trimDiffContext,
 } from "../extensions/compact-tools-layout.ts";
 import { highlightMarkdown } from "../extensions/compact-tools-markdown.ts";
+import { paintChrome } from "../extensions/compact-tools-palette.ts";
 import { formatToolProgress, glowProgressMessage, ProgressController } from "../extensions/compact-tools-progress.ts";
 import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
 import {
@@ -176,6 +180,17 @@ test("summarizes collapsed shell calls and shows text-search patterns", () => {
 	assert.equal(summarizeShellCommand("bash", ""), "Prepare shell command");
 });
 
+/** A dark theme's neutral ramp plus an accent, so derived chrome colors have room to move. */
+const THEME_RAMP_ANSI: Record<string, string> = {
+	text: "\x1b[38;2;201;209;217m",
+	muted: "\x1b[38;2;139;148;158m",
+	dim: "\x1b[38;2;110;118;129m",
+	accent: "\x1b[38;2;149;167;255m",
+	toolOutput: "\x1b[38;2;152;161;172m",
+	thinkingLow: "\x1b[38;2;110;118;129m",
+	thinkingMax: "\x1b[38;2;159;207;248m",
+};
+
 const DIFF_ANSI: Record<string, string> = {
 	text: "\x1b[38;2;201;209;217m",
 	toolDiffAdded: "\x1b[38;2;87;166;74m",
@@ -209,10 +224,10 @@ test("renders an edit as a diff with a line-number gutter and tinted change rows
 	const rendered = renderCodeDiff(patch, "", "file.ts", diffTheme)?.render(60)
 		.map((line) => stripTerminalSequences(line).trimEnd());
 	assert.deepEqual(rendered, [
-		"<border> │ </border><toolDiffContext> 8   </toolDiffContext>const before = 1;",
-		"<border> │ </border><toolDiffRemoved> 9 - </toolDiffRemoved>const value = old();",
-		"<border> │ </border><toolDiffAdded> 9 + </toolDiffAdded>const value = next();",
-		"<border> │ </border><toolDiffContext>10   </toolDiffContext>return value;",
+		"<dim> │ </dim><toolDiffContext> 8   </toolDiffContext>const before = 1;",
+		"<dim> │ </dim><toolDiffRemoved> 9 - </toolDiffRemoved>const value = old();",
+		"<dim> │ </dim><toolDiffAdded> 9 + </toolDiffAdded>const value = next();",
+		"<dim> │ </dim><toolDiffContext>10   </toolDiffContext>return value;",
 	]);
 });
 
@@ -222,15 +237,15 @@ test("renders file contents with offset line numbers and a dim continuation noti
 		footer: "[Showing lines 99-100 of 300. Use offset=101 to continue.]",
 	})?.render(80).map((line) => stripTerminalSequences(line).trimEnd());
 	assert.deepEqual(rendered, [
-		"<border> │ </border><toolDiffContext> 99  </toolDiffContext>const a = 1;",
-		"<border> │ </border><toolDiffContext>100  </toolDiffContext>   return a;",
-		"<border> │ </border><dim>[Showing lines 99-100 of 300. Use offset=101 to continue.]</dim>",
+		"<dim> │ </dim><toolDiffContext> 99  </toolDiffContext>const a = 1;",
+		"<dim> │ </dim><toolDiffContext>100  </toolDiffContext>   return a;",
+		"<dim> │ </dim><dim>[Showing lines 99-100 of 300. Use offset=101 to continue.]</dim>",
 	]);
 });
 
 test("plain-text files keep the output color instead of guessing a language", () => {
 	const rendered = renderCodeView("hello", "NOTES", diffTheme)?.render(120).map(stripTerminalSequences);
-	assert.deepEqual(rendered, ["<border> │ </border><toolDiffContext>1  </toolDiffContext><toolOutput>hello</toolOutput>"]);
+	assert.deepEqual(rendered, ["<dim> │ </dim><toolDiffContext>1  </toolDiffContext><toolOutput>hello</toolOutput>"]);
 });
 
 test("highlights Markdown prose and fenced code while keeping every source character", () => {
@@ -410,7 +425,7 @@ test("classifies calls and smoothly fades one shared tool indicator glyph", () =
 	assert.ok(strengths.slice(0, 8).every((strength, index, values) => index === 0 || strength < values[index - 1]!));
 	assert.ok(strengths.slice(7).every((strength, index, values) => index === 0 || strength > values[index - 1]!));
 	assert.ok(Math.abs(strengths[1]! - strengths[13]!) < 1e-12);
-	assert.equal(indicatorTone("running", 0), "borderAccent");
+	assert.equal(indicatorTone("running", 0), "muted");
 	assert.equal(indicatorTone("running", 7), "borderMuted");
 	assert.ok(Array.from(
 		{ length: RUNNING_INDICATOR_FRAME_COUNT },
@@ -418,6 +433,44 @@ test("classifies calls and smoothly fades one shared tool indicator glyph", () =
 	).every((glyph) => glyph === "⦁"));
 	assert.equal(indicatorGlyph("success"), "⦁");
 	assert.equal(indicatorGlyph("error"), "⦁");
+});
+
+test("frames every rail in one chrome tone, quieter than the theme's own dim", () => {
+	const theme = {
+		fg: (color: string, text: string) => `${THEME_RAMP_ANSI[color] ?? ""}${text}\x1b[39m`,
+		getFgAnsi: (color: string) => THEME_RAMP_ANSI[color] ?? "",
+		getColorMode: () => "truecolor",
+	} as unknown as Theme;
+	const railColor = (line: string) => line.match(/38;2;\d+;\d+;\d+/u)?.[0];
+	const chrome = railColor(paintChrome(theme, " │ "));
+	const patch = ["@@ -1,2 +1,2 @@", "-const value = old();", "+const value = next();"].join("\n");
+	const overflowing: Component = { render: () => ["one", "two"], invalidate() {} };
+
+	// Every surface that draws the frame resolves to the same tone, so a row reads as one object.
+	assert.deepEqual([
+		railColor(renderToolCall("read", "a path long enough to wrap onto a second line", theme).render(24)[1]!),
+		railColor(renderOutput("hello", theme, false)!.render(80)[0]!),
+		railColor(renderCodeDiff(patch, "", "a.ts", theme)!.render(80)[0]!),
+		railColor(renderCodeView("const a = 1;", "a.ts", theme)!.render(80)[0]!),
+		railColor(renderArguments({ path: "a.ts" }, theme).render(80)[0]!),
+		railColor(limitComponentLines(overflowing, 1, theme).render(80)[1]!),
+	], Array.from({ length: 6 }, () => chrome));
+
+	// The truncation notice rides a chrome rail but reads at the weight of the tool's own
+	// arguments, so hidden output stays noticeable without the frame competing with it.
+	const truncated = limitComponentLines(overflowing, 1, theme).render(80)[1]!;
+	assert.match(stripTerminalSequences(truncated), /^ │ … 1 more line$/u);
+	assert.deepEqual([...new Set([...truncated.matchAll(/38;2;\d+;\d+;\d+/gu)].map((match) => match[0]))], [
+		chrome,
+		THEME_RAMP_ANSI.toolOutput!.match(/38;2;\d+;\d+;\d+/u)![0],
+	]);
+
+	// `dim` is the quietest name a theme offers, but it is still sized for body text.
+	const luminance = (ansi: string) => {
+		const [r, g, b] = ansi.match(/(\d+);(\d+);(\d+)m?$/u)!.slice(1).map(Number);
+		return r! * 0.299 + g! * 0.587 + b! * 0.114;
+	};
+	assert.ok(luminance(chrome!) < luminance(THEME_RAMP_ANSI.dim!));
 });
 
 test("limits previews without modifying the full result component", () => {
@@ -462,9 +515,7 @@ test("animates every built-in, restores reload renderers, and reuses unchanged l
 		bg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 		italic: (text: string) => text,
-		getFgAnsi: (color: string) => color === "borderAccent"
-			? "\x1b[38;2;90;100;110m"
-			: "\x1b[38;2;20;30;40m",
+		getFgAnsi: (color: string) => THEME_RAMP_ANSI[color] ?? "\x1b[38;2;20;30;40m",
 		getColorMode: () => "truecolor",
 	} as unknown as Theme;
 	const callArguments: Record<string, Record<string, unknown>> = {
@@ -543,7 +594,8 @@ test("animates every built-in, restores reload renderers, and reuses unchanged l
 		toolCallId: "cached-result",
 	};
 	const callLines = renderCall({ path: "file.ts" }, renderTheme, resultContext).render(80);
-	assert.match(callLines[0]!, /\x1b\[38;2;90;100;110m⦁\x1b\[39m read file\.ts/u);
+	// Fully lit frame: the indicator sits on the pulse's bright endpoint, derived from `muted`.
+	assert.match(callLines[0]!, /\x1b\[38;2;143;147;151m⦁\x1b\[39m read file\.ts/u);
 	assert.doesNotMatch(stripTerminalSequences(callLines[0]!), /⦁ {2}read/u);
 
 	const firstResult = renderResult({ content }, { expanded: true, isPartial: true }, renderTheme, resultContext);
@@ -563,6 +615,19 @@ test("animates every built-in, restores reload renderers, and reuses unchanged l
 		{ ...resultContext, lastComponent: firstResult },
 	);
 	assert.notEqual(changedResult, firstResult);
+
+	// The status line belongs to the frame, so it carries the chrome tone and nothing else.
+	const finished = renderResult(
+		{ content },
+		{ expanded: true, isPartial: false },
+		renderTheme,
+		{ ...resultContext, state: {}, toolCallId: "finished-result", lastComponent: undefined },
+	).render(80);
+	const controls = finished.at(-1)!;
+	assert.match(stripTerminalSequences(controls), /└─ Done/u);
+	assert.deepEqual([...new Set([...controls.matchAll(/38;2;\d+;\d+;\d+/gu)].map((match) => match[0]))], [
+		paintChrome(renderTheme, "x").match(/38;2;\d+;\d+;\d+/u)![0],
+	]);
 
 	registered.length = 0;
 	handlers.get("session_start")?.({ reason: "startup" }, ctx);
@@ -671,7 +736,11 @@ test("keeps the progress controller inert until it is bound to a TUI", () => {
 	handlers.get("agent_end")?.({});
 	assert.equal(messages.length, 0, "an unbound controller must not touch the working row");
 
-	const theme = { fg: (_color: string, text: string) => text, getColorMode: () => "truecolor" } as unknown as Theme;
+	const theme = {
+		fg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+		getColorMode: () => "truecolor",
+	} as unknown as Theme;
 	controller.bind({
 		ui: {
 			theme,
@@ -712,7 +781,7 @@ test("uses indexed ANSI colors for the glow in 256-color mode", () => {
 		getFgAnsi: () => "\x1b[38;5;110m",
 		getColorMode: () => "256color",
 	} as unknown as Theme;
-	const rendered = glowProgressMessage("Glow", 2, theme);
+	const rendered = glowProgressMessage("Glow", 2, theme, "high");
 	assert.match(rendered, /\x1b\[38;5;\d+mG\x1b\[39m/u);
 	assert.doesNotMatch(rendered, /\x1b\[38;2;/u);
 });
@@ -821,28 +890,120 @@ test("memoized 256-color conversion matches an independent nearest-color search"
 	assert.match(fillRgb(theme, { r: 10, g: 20, b: 30 }, "x"), /^\x1b\[48;5;\d+mx\x1b\[49m$/u);
 });
 
-test("scales a thinking-summary-to-white glow to the working label length", () => {
+test("scales the working-label glow to its length and follows the theme's background", () => {
 	const requestedColors: string[] = [];
-	const theme = {
+	const rampTheme = (ansi: Record<string, string>) => ({
 		fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
 		getFgAnsi: (color: string) => {
 			requestedColors.push(color);
-			return "\x1b[38;2;100;110;120m";
+			return ansi[color] ?? "";
 		},
+	}) as unknown as Theme;
+	const luminance = (color: number[]) => color[0]! * 0.299 + color[1]! * 0.587 + color[2]! * 0.114;
+	const glowColors = (rendered: string) =>
+		[...rendered.matchAll(/38;2;(\d+);(\d+);(\d+)m/gu)].map((match) => match.slice(1).map(Number));
+
+	const dark = rampTheme(THEME_RAMP_ANSI);
+	const short = glowProgressMessage("Glow", 2, dark, "max");
+	const long = glowProgressMessage("0123456789abcdef", 8, dark, "max");
+	// The sweep is built from the theme's color for the active thinking level, never a fixed white.
+	assert.deepEqual([...new Set(requestedColors)].sort(), ["text", "thinkingMax"]);
+	const shortColors = glowColors(short);
+	const longColors = glowColors(long);
+	assert.equal(shortColors.length, 4);
+	assert.equal(longColors.length, 16);
+	// The highlight is a single peak that rides the frame, and the radius grows with length.
+	const peak = (colors: number[][]) => colors.reduce(
+		(best, color, index) => luminance(color) > luminance(colors[best]!) ? index : best,
+		0,
+	);
+	assert.equal(peak(shortColors), 0);
+	assert.equal(peak(longColors), 4);
+	const lit = (colors: number[][]) => colors.filter((color) => luminance(color) > luminance(colors.at(-1)!)).length;
+	assert.ok(lit(longColors) > lit(shortColors));
+	// On a dark theme the highlight brightens, and it stays inside the derived endpoints.
+	assert.ok(longColors.every((color) => luminance(color) >= luminance(longColors.at(-1)!) - 1));
+	assert.ok(luminance(longColors[4]!) > luminance(longColors.at(-1)!));
+
+	requestedColors.length = 0;
+	const light = rampTheme({
+		text: "\x1b[38;2;31;35;40m",
+		muted: "\x1b[38;2;108;108;108m",
+		dim: "\x1b[38;2;118;118;118m",
+		thinkingMax: "\x1b[38;2;175;0;95m",
+	});
+	// A light background inverts the sweep: the highlight has to darken to stay readable.
+	const onLight = glowColors(glowProgressMessage("0123456789abcdef", 8, light, "max"));
+	assert.equal(onLight.length, 16);
+	assert.ok(luminance(onLight[4]!) < luminance(onLight.at(-1)!));
+	assert.ok(onLight.every((color) => luminance(color) <= luminance(onLight.at(-1)!) + 1));
+});
+
+test("survives a theme that paints a level black or does not know it at all", () => {
+	const theme = {
+		fg: (color: string, text: string) => {
+			// Pi throws from fg() too, so a fallback must never name the color that just failed.
+			if (!THEME_RAMP_ANSI[color] && color !== "text" && color !== "muted") {
+				throw new Error(`Unknown theme color: ${color}`);
+			}
+			return `<${color}>${text}</${color}>`;
+		},
+		getFgAnsi: (color: string) => {
+			if (color === "thinkingOff") return "\x1b[38;2;0;0;0m";
+			if (color === "thinkingMax") throw new Error("Unknown theme color: thinkingMax");
+			return THEME_RAMP_ANSI[color] ?? "";
+		},
+		getColorMode: () => "truecolor",
 	} as unknown as Theme;
-	const short = glowProgressMessage("Glow", 2, theme);
-	const long = glowProgressMessage("0123456789abcdef", 8, theme);
-	assert.deepEqual(requestedColors, ["thinkingMax", "thinkingMax"]);
-	assert.match(short, /^\x1b\[38;2;255;255;255mG\x1b\[39m\x1b\[38;2;178;183;188ml/);
-	assert.match(short, /\x1b\[38;2;100;110;120mo\x1b\[39m/);
-	const colors = [...long.matchAll(/38;2;(\d+);(\d+);(\d+)m/gu)]
-		.map((match) => match.slice(1).map(Number));
-	assert.equal(colors.length, 16);
-	assert.ok(colors.every((color) =>
-		color[0]! >= 100 && color[0]! <= 255
-		&& color[1]! >= 110 && color[1]! <= 255
-		&& color[2]! >= 120 && color[2]! <= 255));
-	assert.ok(colors.some((color) => color[0] === 255 && color[1] === 255 && color[2] === 255));
+
+	// Pure black carries no ratio to scale, so the floor has to produce it from the poles.
+	const channels = [...glowProgressMessage("Working", 0, theme, "off").matchAll(/38;2;(\d+);(\d+);(\d+)/gu)]
+		.flatMap((match) => match.slice(1).map(Number));
+	assert.ok(channels.length > 0);
+	assert.ok(channels.every((value) => Number.isFinite(value) && value >= 0 && value <= 255));
+	assert.ok(channels.some((value) => value > 60), "a level painted black must still be readable");
+
+	// An unresolvable color falls back to names every theme carries, without rethrowing.
+	assert.match(glowProgressMessage("Working", 0, theme, "max"), /<muted>|<text>/u);
+});
+
+test("repaints the working label in the session's thinking level", () => {
+	const handlers = new Map<string, (event: any) => void>();
+	const pi = {
+		on: (name: string, handler: (event: any) => void) => handlers.set(name, handler),
+		getThinkingLevel: () => "low",
+	} as unknown as ExtensionAPI;
+	const messages: Array<string | undefined> = [];
+	const theme = {
+		fg: (color: string, text: string) => `${THEME_RAMP_ANSI[color] ?? ""}${text}\x1b[39m`,
+		getFgAnsi: (color: string) => THEME_RAMP_ANSI[color] ?? "",
+		getColorMode: () => "truecolor",
+	} as unknown as Theme;
+	const controller = new ProgressController(pi);
+	controller.bind({
+		ui: {
+			theme,
+			setWorkingVisible: () => {},
+			setWorkingMessage: (message?: string) => messages.push(message),
+			setWorkingIndicator: () => {},
+		},
+	} as unknown as ExtensionContext);
+
+	const crest = (label: string) => label.match(/38;2;(\d+);(\d+);(\d+)/u)![0];
+	handlers.get("agent_start")?.({});
+	const atLow = crest(messages.at(-1)!);
+
+	// A level change recolors the label in place, without restarting the sweep.
+	handlers.get("thinking_level_select")?.({ level: "max", previousLevel: "low" });
+	const atMax = crest(messages.at(-1)!);
+	assert.notEqual(atMax, atLow);
+	assert.equal(stripTerminalSequences(messages.at(-1)!), "Thinking…");
+
+	// The same level again is not a change, so nothing is repainted.
+	const before = messages.length;
+	handlers.get("thinking_level_select")?.({ level: "max", previousLevel: "max" });
+	assert.equal(messages.length, before);
+	controller.dispose();
 });
 
 test("keeps one glyph-free Pi working row across thinking and tool progress", () => {
@@ -852,7 +1013,7 @@ test("keeps one glyph-free Pi working row across thinking and tool progress", ()
 	} as unknown as ExtensionAPI;
 	const messages: Array<string | undefined> = [];
 	let indicator: { frames: string[]; intervalMs?: number } | undefined;
-	const theme = { fg: (_color: string, text: string) => text } as Theme;
+	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
 	const controller = new ProgressController(pi);
 	controller.bind({
 		ui: {

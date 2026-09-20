@@ -1,10 +1,10 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, truncateToWidth } from "@earendil-works/pi-tui";
-import { colorizeRgb, interpolateRgb, themeColorRgb, type Rgb } from "./compact-tools-color.ts";
+import { colorizeRgb, interpolateRgb } from "./compact-tools-color.ts";
+import { progressGlow, type ColorRamp, type ThinkingLevel } from "./compact-tools-palette.ts";
 import type { ToolArgs } from "./compact-tools-types.ts";
 
 const GLOW_INTERVAL_MS = 80;
-const WHITE: Rgb = { r: 255, g: 255, b: 255 };
 
 const TOOL_PROGRESS_MESSAGES: Readonly<Record<string, string>> = {
 	read: "Reading file…",
@@ -45,29 +45,41 @@ function glowRadius(length: number): number {
 	return Math.max(2, Math.min(8, Math.ceil(length / 4)));
 }
 
-/** Render a thinking-summary-colored label with a proportional white highlight sweeping left to right. */
-export function glowProgressMessage(message: string, frame: number, theme: Theme): string {
+/** Render the working label with a proportional highlight sweeping left to right. */
+export function glowProgressMessage(
+	message: string,
+	frame: number,
+	theme: Theme,
+	level: ThinkingLevel,
+): string {
+	return paintGlowFrame(message, frame, theme, progressGlow(theme, level));
+}
+
+function paintGlowFrame(message: string, frame: number, theme: Theme, glow: ColorRamp | undefined): string {
 	const characters = [...message];
 	if (characters.length === 0) return "";
 	const radius = glowRadius(characters.length);
 	const center = frame % (characters.length + radius * 2) - radius;
-	const base = themeColorRgb(theme, "thinkingMax");
-	if (!base) {
+	// Reached only when the level's color did not resolve, so the sweep falls back to names
+	// every theme carries rather than to the one that just failed.
+	if (!glow) {
 		return characters.map((character, index) =>
-			theme.fg(Math.abs(index - center) < radius ? "mdHeading" : "thinkingMax", character)).join("");
+			theme.fg(Math.abs(index - center) < radius ? "text" : "muted", character)).join("");
 	}
 	return characters.map((character, index) => {
 		const distance = Math.abs(index - center);
 		const strength = Math.max(0, 1 - distance / radius);
-		return colorizeRgb(theme, interpolateRgb(base, WHITE, strength), character);
+		return colorizeRgb(theme, interpolateRgb(glow.from, glow.to, strength), character);
 	}).join("");
 }
 
-function createGlowFrames(message: string, theme: Theme): string[] {
+function createGlowFrames(message: string, theme: Theme, level: ThinkingLevel): string[] {
 	const length = [...message].length;
 	if (length === 0) return [""];
+	// One ramp for the whole cycle; only the sweep position changes between frames.
+	const glow = progressGlow(theme, level);
 	return Array.from({ length: length + glowRadius(length) * 2 }, (_, frame) =>
-		glowProgressMessage(message, frame, theme));
+		paintGlowFrame(message, frame, theme, glow));
 }
 
 /** Owns Pi's single working row so animation remains continuous across thinking and tool execution. */
@@ -78,8 +90,9 @@ export class ProgressController {
 	private frames: string[] = [];
 	private frame = 0;
 	private timer: ReturnType<typeof setInterval> | undefined;
+	private level: ThinkingLevel = "medium";
 
-	constructor(pi: ExtensionAPI) {
+	constructor(private readonly pi: ExtensionAPI) {
 		// Every handler leaves early while unbound. Pi keeps dispatching to this
 		// extension in non-TUI modes, and guarding at the top keeps that work — and
 		// any future handler added here — out of the detached path.
@@ -111,11 +124,24 @@ export class ProgressController {
 			this.activeTools.clear();
 			this.clearMessage();
 		});
+		pi.on("thinking_level_select", (event) => {
+			if (!this.context || event.level === this.level) return;
+			this.level = event.level;
+			// Recolor in place: the label and its animation phase are unchanged.
+			this.frames = createGlowFrames(this.message ?? "", this.context.ui.theme, this.level);
+			this.renderMessage();
+		});
+	}
+
+	/** Guarded, like the Theme accessors, so a host supplying a partial API cannot break binding. */
+	private readLevel(): void {
+		if (typeof this.pi.getThinkingLevel === "function") this.level = this.pi.getThinkingLevel();
 	}
 
 	bind(ctx: ExtensionContext): void {
 		this.stopAnimation();
 		this.context = ctx;
+		this.readLevel();
 		this.activeTools.clear();
 		this.message = undefined;
 		this.frames = [];
@@ -137,7 +163,7 @@ export class ProgressController {
 	private setMessage(message: string): void {
 		if (!this.context || (this.message === message && this.timer)) return;
 		this.message = message;
-		this.frames = createGlowFrames(message, this.context.ui.theme);
+		this.frames = createGlowFrames(message, this.context.ui.theme, this.level);
 		this.frame = 0;
 		this.renderMessage();
 		if (this.timer) return;

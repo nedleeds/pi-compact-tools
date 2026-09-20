@@ -10,6 +10,7 @@ import {
 	truncateToWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import { chromePainter } from "./compact-tools-palette.ts";
 
 export type ThinkingView = "summary" | "detail" | "hidden";
 export type ThinkingPhase = "summary" | "detail" | "summary-after-detail" | "hidden";
@@ -213,21 +214,27 @@ export class ThinkingCycleController {
 			this.hasToggleableThinking ||= sectionsHaveDetail(sections);
 			const theme = this.theme;
 			const detailTextPrefix = theme?.getFgAnsi("thinkingText");
+			// Derived once per transform: the rail is drawn for every wrapped line of detail.
+			const rail = theme ? chromePainter(theme) : undefined;
 			return renderThinkingSections(sections, thinkingViewForPhase(this.phase), context.availableWidth, {
-				styleSummary: theme ? (summary) => theme.fg("thinkingMax", theme.bold(summary)) : undefined,
-				// border styling resets the foreground; resume detail gray immediately.
-				styleDetailPrefix: theme && detailTextPrefix
-					? (prefix) => theme.fg("border", prefix) + detailTextPrefix
+				// Keep thinking chrome neutral across themes: effort-level and border colors can
+				// be intentionally vivid and are not content hierarchy colors.
+				styleSummary: theme ? (summary) => theme.fg("text", theme.bold(summary)) : undefined,
+				// Prefix styling resets the foreground; resume the host's thinking text color.
+				// The rail and connector are the same frame the tool rows draw, so they take
+				// the same chrome tone rather than a color name of their own.
+				styleDetailPrefix: rail && detailTextPrefix
+					? (prefix) => rail(prefix) + detailTextPrefix
 					: undefined,
 				controls: theme
 					? (hasDetail) => hasDetail
 						? theme.fg(
-								"borderAccent",
+								"dim",
 								`${theme.italic("ctrl+t")} toggle • ${theme.italic("click")} to hide`,
 							)
 						: undefined
 					: undefined,
-				styleControlPrefix: theme ? (prefix) => theme.fg("border", prefix) : undefined,
+				styleControlPrefix: rail,
 			});
 		});
 	}
@@ -238,10 +245,10 @@ export class ThinkingCycleController {
 		this.hasToggleableThinking = false;
 		// Match Pi's persisted host visibility after startup or /reload. When the
 		// host is hidden, Markdown transformers are not invoked at all. Pi wraps
-		// this label in thinkingText, so an inner thinkingMax span is required to
-		// keep it consistent with completed summary titles.
+		// this label in thinkingText, so an inner text span keeps it consistent with
+		// completed summary titles.
 		this.phase = getInitialThinkingPhase();
-		const hiddenLabel = this.theme.fg("thinkingMax", this.theme.bold("Thinking..."));
+		const hiddenLabel = this.theme.fg("text", this.theme.bold("Thinking..."));
 		// Pi does not currently expose transcript invalidation directly. Updating
 		// this label rebuilds assistant Markdown and requests a render without
 		// changing the message or its hidden/visible state.

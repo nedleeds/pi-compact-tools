@@ -27,7 +27,7 @@ import {
 	normalizeLineEndings,
 	type RowStatus,
 } from "./compact-tools-core.ts";
-import { colorizeRgb, interpolateRgb, themeColorRgb } from "./compact-tools-color.ts";
+import { colorizeRgb, interpolateRgb } from "./compact-tools-color.ts";
 import { loadConfig } from "./compact-tools-config.ts";
 import {
 	formatResultLineSummary,
@@ -52,6 +52,7 @@ import {
 	renderToolCall,
 	styleMultiline,
 } from "./compact-tools-layout.ts";
+import { chromePainter, indicatorPulse } from "./compact-tools-palette.ts";
 import { ProgressController } from "./compact-tools-progress.ts";
 import { ToolRuntime } from "./compact-tools-runtime.ts";
 import { ThinkingCycleController } from "./compact-tools-thinking.ts";
@@ -83,10 +84,9 @@ function renderIndicator(theme: Theme, ctx: RenderContext, status: RowStatus): s
 	const frame = runtime.syncIndicator(ctx.toolCallId, status === "running", () => ctx.invalidate());
 	const glyph = indicatorGlyph(status, frame);
 	if (status === "running") {
-		const bright = themeColorRgb(theme, "borderAccent");
-		const dim = themeColorRgb(theme, "borderMuted");
-		if (bright && dim) {
-			return colorizeRgb(theme, interpolateRgb(dim, bright, indicatorStrength(status, frame)), glyph);
+		const pulse = indicatorPulse(theme);
+		if (pulse) {
+			return colorizeRgb(theme, interpolateRgb(pulse.from, pulse.to, indicatorStrength(status, frame)), glyph);
 		}
 	}
 	return theme.fg(indicatorTone(status, frame), glyph);
@@ -139,9 +139,12 @@ function renderControls(
 	const status = running
 		? (duration ?? "Running")
 		: `${isError ? "Failed" : "Done"}${duration ? ` in ${duration}` : ""}`;
-	let details = theme.fg("borderAccent", status);
-	if (lineSummary && !running) details += theme.fg("borderAccent", ` (${lineSummary})`);
-	return prefixedText(details, theme.fg("border", " └─ "), "    ");
+	// A failed row already reads as an error through its output color and Pi's row
+	// background, so the status word stays chrome rather than repeating that signal.
+	const chrome = chromePainter(theme);
+	let details = chrome(status);
+	if (lineSummary && !running) details += chrome(` (${lineSummary})`);
+	return prefixedText(details, chrome(" └─ "), "    ");
 }
 
 function renderCallTitle(name: string, theme: Theme, ctx: RenderContext, state: RowState): string {
