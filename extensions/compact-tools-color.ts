@@ -155,7 +155,7 @@ export function withContrast(theme: Theme, rgb: Rgb, minimum: number, maximum: n
  * Diff rows need a tint that reads on the terminal background without hijacking `toolSuccessBg`
  * and `toolErrorBg`, which Pi paints across the whole tool row.
  */
-export function diffTintRgb(theme: Theme, color: ThemeForeground, amount = 0.16): Rgb | undefined {
+export function diffTintRgb(theme: Theme, color: ThemeForeground, amount = 0.20): Rgb | undefined {
 	const rgb = themeColorRgb(theme, color);
 	if (!rgb) return undefined;
 	const base = isDarkTheme(theme) ? BLACK : WHITE;

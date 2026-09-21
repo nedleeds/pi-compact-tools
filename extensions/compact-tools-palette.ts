@@ -47,7 +47,7 @@ const PULSE_HIGH: ContrastBand = { color: "muted", keepHue: 0.4, minimum: 0.4, m
  * already paints brightly moves least.
  */
 const GLOW_REST_LIFT = 0.3;
-const GLOW_CREST_LIFT = 0.35;
+const GLOW_CREST_LIFT = 0.72;
 /** Themes paint the lowest levels at rail weight; a floor keeps the label off the background. */
 const GLOW_FLOOR: ContrastRange = { minimum: 0.4, maximum: 1 };
 
