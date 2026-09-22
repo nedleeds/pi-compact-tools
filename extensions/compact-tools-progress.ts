@@ -119,7 +119,12 @@ export class ProgressController {
 			const remaining = [...this.activeTools.values()].at(-1);
 			this.setMessage(remaining ?? "Processing results…");
 		});
-		pi.on("agent_end", () => {
+		// agent_end closes one low-level run, after which Pi may still retry, compact,
+		// or continue from a settlement boundary. Pi hides its own working row at that
+		// point and rebuilds it at the next turn_start from the message last set here,
+		// so releasing the label at agent_end makes a retried turn reappear under Pi's
+		// default label. Release it at the final settlement instead.
+		pi.on("agent_settled", () => {
 			if (!this.context) return;
 			this.activeTools.clear();
 			this.clearMessage();

@@ -53,7 +53,7 @@ import {
 	ThinkingCycleController,
 	type ThinkingPhase,
 } from "../extensions/compact-tools-thinking.ts";
-import { SUPPORTED_TOOLS, type RowState } from "../extensions/compact-tools-types.ts";
+import { SUPPORTED_TOOLS, type BuiltInDefinition, type RowState } from "../extensions/compact-tools-types.ts";
 
 test("normalizes CRLF, LF, and CR line endings", () => {
 	assert.equal(normalizeLineEndings("a\r\nb\rc\nd"), "a\nb\nc\nd");
@@ -385,6 +385,29 @@ test("merges trusted project configuration over the global configuration", () =>
 	assert.equal(loadConfig(projectDir, true).previewLines, 7);
 	if (previousAgentDir === undefined) delete process.env[agentDirVariable];
 	else process.env[agentDirVariable] = previousAgentDir;
+});
+
+test("forwards Pi's complete execution context through the timing wrapper", async () => {
+	const runtime = new ToolRuntime();
+	const executionContext = {
+		model: { inputLimits: { images: { resize: { maxPixels: 1_000_000 } } } },
+	} as unknown as ExtensionContext;
+	let received: unknown[] | undefined;
+	const definition = {
+		async execute(...args: unknown[]) {
+			received = args;
+			return { content: [{ type: "text", text: "ok" }], details: undefined };
+		},
+	} as unknown as BuiltInDefinition;
+	const signal = new AbortController().signal;
+	const onUpdate = () => {};
+
+	await runtime.createTimedExecute(definition)("read-context", { path: "image.png" }, signal, onUpdate, executionContext);
+	assert.equal(received?.[0], "read-context");
+	assert.equal(received?.[2], signal);
+	assert.equal(received?.[3], onUpdate);
+	assert.equal(received?.[4], executionContext);
+	runtime.reset(true);
 });
 
 test("stops the shared indicator timer and keeps parallel tools independent", async () => {
@@ -733,7 +756,7 @@ test("keeps the progress controller inert until it is bound to a TUI", () => {
 	handlers.get("message_update")?.({ assistantMessageEvent: { type: "text_delta" } });
 	handlers.get("tool_execution_start")?.({ toolCallId: "1", toolName: "read", args: { path: "a.ts" } });
 	handlers.get("tool_execution_end")?.({ toolCallId: "1" });
-	handlers.get("agent_end")?.({});
+	handlers.get("agent_settled")?.({});
 	assert.equal(messages.length, 0, "an unbound controller must not touch the working row");
 
 	const theme = {
@@ -756,7 +779,7 @@ test("keeps the progress controller inert until it is bound to a TUI", () => {
 	controller.dispose();
 	messages.length = 0;
 	handlers.get("tool_execution_start")?.({ toolCallId: "2", toolName: "bash", args: { command: "ls" } });
-	handlers.get("agent_end")?.({});
+	handlers.get("agent_settled")?.({});
 	assert.equal(messages.length, 0, "a disposed controller must not touch the working row");
 });
 
@@ -1029,7 +1052,10 @@ test("keeps one glyph-free Pi working row across thinking and tool progress", ()
 	handlers.get("message_update")?.({ assistantMessageEvent: { type: "thinking_delta" } });
 	handlers.get("tool_execution_start")?.({ toolCallId: "1", toolName: "read", args: { path: "a.ts" } });
 	handlers.get("tool_execution_end")?.({ toolCallId: "1" });
+	const beforeAgentEnd = messages.length;
 	handlers.get("agent_end")?.({});
+	assert.equal(messages.length, beforeAgentEnd, "a low-level run may still retry or continue");
+	handlers.get("agent_settled")?.({});
 	assert.deepEqual(messages, ["Thinking…", "Reading file…", "Processing results…", undefined]);
 	controller.dispose();
 });
