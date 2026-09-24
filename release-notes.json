@@ -1,7 +1,10 @@
 {
-  "0.9.3": [
-    "Silent mode shows only prompts and final answers (/silent or Ctrl+')",
+  "0.10.0": [
+    "Silent mode shows only prompts and final answers (Ctrl+' or /silent)",
+    "Tools from other packages get the same compact rows as the built-ins",
+    "Edits show the lines they added and removed, in the diff colors",
+    "Thinking summaries are shown in full instead of cut off",
     "Fullscreen scrolling stays in place when expanding rows or cycling thinking",
-    "Failed tool rows show a short error reason while collapsed"
+    "Failed rows show a short reason while their output is hidden"
   ]
 }
