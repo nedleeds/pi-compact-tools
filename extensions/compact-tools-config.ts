@@ -2,15 +2,18 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
+	DISPLAY_MODES,
 	SUPPORTED_TOOL_SET,
 	type CompactToolName,
 	type CompactToolsConfig,
+	type DisplayMode,
 } from "./compact-tools-types.ts";
 
 const CONFIG_FILE = "compact-tools.json";
 type JsonObject = Record<string, unknown>;
 
 export const DEFAULT_CONFIG: CompactToolsConfig = {
+	mode: "normal",
 	tools: ["read", "write", "edit", "bash"],
 	previewLines: 10,
 	auto_compact: {
@@ -40,6 +43,12 @@ function warn(path: string, message: string): void {
 
 function isIntegerInRange(value: unknown, minimum: number, maximum: number): value is number {
 	return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= maximum;
+}
+
+function parseMode(value: unknown, path: string): DisplayMode | undefined {
+	if ((DISPLAY_MODES as readonly unknown[]).includes(value)) return value as DisplayMode;
+	warn(path, `mode must be one of ${DISPLAY_MODES.join(", ")}; using previous value`);
+	return undefined;
 }
 
 function parseTools(value: unknown, path: string): CompactToolName[] | undefined {
@@ -113,6 +122,7 @@ export function mergeConfig(base: CompactToolsConfig, value: unknown, path: stri
 		warn(path, "expected a JSON object; using previous values");
 		return base;
 	}
+	const mode = value.mode === undefined ? base.mode : (parseMode(value.mode, path) ?? base.mode);
 	const tools = value.tools === undefined ? base.tools : (parseTools(value.tools, path) ?? base.tools);
 	const auto_compact = parseAutoCompact(base.auto_compact, value.auto_compact, path);
 	const custom_tools = parseCustomTools(base.custom_tools, value.custom_tools, path);
@@ -121,7 +131,7 @@ export function mergeConfig(base: CompactToolsConfig, value: unknown, path: stri
 	if (value.previewLines !== undefined && !isIntegerInRange(value.previewLines, 1, 100)) {
 		warn(path, "previewLines must be 1–100; using previous value");
 	}
-	return { tools, auto_compact, custom_tools, previewLines };
+	return { mode, tools, auto_compact, custom_tools, previewLines };
 }
 
 function readJson(path: string): unknown {

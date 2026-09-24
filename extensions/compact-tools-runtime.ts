@@ -1,5 +1,6 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG } from "./compact-tools-config.ts";
+import { isSilent } from "./compact-tools-silent.ts";
 import {
 	SUPPORTED_TOOL_SET,
 	type BuiltInDefinition,
@@ -60,6 +61,8 @@ export class ToolRuntime {
 		if (!this.indicatorTimer) {
 			this.indicatorTimer = setInterval(() => {
 				this.indicatorFrame++;
+				// Silent mode hides tool rows; repainting the screen for them would be pure cost.
+				if (isSilent()) return;
 				for (const requestRender of this.indicatorInvalidators.values()) requestRender();
 			}, INDICATOR_INTERVAL_MS);
 			this.indicatorTimer.unref?.();

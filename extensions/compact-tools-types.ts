@@ -8,6 +8,9 @@ export type ShellToolName = "bash" | "powershell";
 export type ToolArgs = Record<string, unknown>;
 export type BuiltInDefinition = ToolDefinition<any, any, any>;
 
+export const DISPLAY_MODES = ["normal", "silent"] as const;
+export type DisplayMode = (typeof DISPLAY_MODES)[number];
+
 export interface CustomToolsConfig {
 	/** Render tools registered by other extensions compactly as well. */
 	enabled: boolean;
@@ -16,6 +19,7 @@ export interface CustomToolsConfig {
 }
 
 export interface CompactToolsConfig {
+	mode: DisplayMode;
 	tools: CompactToolName[];
 	auto_compact: Record<CompactToolName, boolean>;
 	custom_tools: CustomToolsConfig;

@@ -1,10 +1,10 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, truncateToWidth } from "@earendil-works/pi-tui";
+import { onTick } from "./compact-tools-clock.ts";
 import { colorizeRgb, interpolateRgb } from "./compact-tools-color.ts";
 import { progressGlow, type ColorRamp, type ThinkingLevel } from "./compact-tools-palette.ts";
 import type { ToolArgs } from "./compact-tools-types.ts";
 
-const GLOW_INTERVAL_MS = 80;
 
 const TOOL_PROGRESS_MESSAGES: Readonly<Record<string, string>> = {
 	read: "Reading file…",
@@ -89,7 +89,8 @@ export class ProgressController {
 	private message: string | undefined;
 	private frames: string[] = [];
 	private frame = 0;
-	private timer: ReturnType<typeof setInterval> | undefined;
+	/** Stops this label's share of the animation clock. */
+	private stopTicking: (() => void) | undefined;
 	private level: ThinkingLevel = "medium";
 
 	constructor(private readonly pi: ExtensionAPI) {
@@ -166,17 +167,16 @@ export class ProgressController {
 	}
 
 	private setMessage(message: string): void {
-		if (!this.context || (this.message === message && this.timer)) return;
+		if (!this.context || (this.message === message && this.stopTicking)) return;
 		this.message = message;
 		this.frames = createGlowFrames(message, this.context.ui.theme, this.level);
 		this.frame = 0;
 		this.renderMessage();
-		if (this.timer) return;
-		this.timer = setInterval(() => {
+		if (this.stopTicking) return;
+		this.stopTicking = onTick(() => {
 			this.frame++;
 			this.renderMessage();
-		}, GLOW_INTERVAL_MS);
-		this.timer.unref?.();
+		});
 	}
 
 	private renderMessage(): void {
@@ -193,7 +193,7 @@ export class ProgressController {
 	}
 
 	private stopAnimation(): void {
-		if (this.timer) clearInterval(this.timer);
-		this.timer = undefined;
+		this.stopTicking?.();
+		this.stopTicking = undefined;
 	}
 }

@@ -3,9 +3,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent, initTheme, type ExtensionAPI, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { MouseRegion, Spacer, stripTerminalSequences, Text, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	classifyCallStatus,
 	formatDurationMs,
@@ -20,6 +20,8 @@ import { DEFAULT_CONFIG, loadConfig, mergeConfig } from "../extensions/compact-t
 import { patchToolRows } from "../extensions/compact-tools-custom.ts";
 import { findAnchorTop, ViewportKeeper } from "../extensions/compact-tools-viewport.ts";
 import { hookMethod } from "../extensions/compact-tools-hook.ts";
+import { isIntermediateAssistant, parseSilentArgument, patchRender, renderAnswerOnly, renderWithoutNotices, SilentModeController } from "../extensions/compact-tools-silent.ts";
+import { attachActivityToUserMessage, bottomAlignTranscript, dotIntensities, frameChanges, renderActivityDots, SilentActivityAnimator } from "../extensions/compact-tools-activity.ts";
 import { languageFromPath, languageFromShebang, resolveLanguage } from "../extensions/compact-tools-language.ts";
 import {
 	formatResultLineSummary,
@@ -94,6 +96,292 @@ test("merges configuration without mutating defaults", () => {
 	assert.equal(merged.previewLines, 12);
 	assert.equal(mergeConfig(DEFAULT_CONFIG, { previewLines: 0 }, "test").previewLines, 10);
 	assert.equal(DEFAULT_CONFIG.auto_compact.read, true);
+});
+
+test("parses display mode and keeps the previous value when invalid", () => {
+	assert.equal(DEFAULT_CONFIG.mode, "normal");
+	assert.equal(mergeConfig(DEFAULT_CONFIG, { mode: "silent" }, "test").mode, "silent");
+	const silent = mergeConfig(DEFAULT_CONFIG, { mode: "silent" }, "test");
+	assert.equal(mergeConfig(silent, { mode: "quiet" }, "test").mode, "silent");
+	assert.equal(mergeConfig(silent, { previewLines: 4 }, "test").mode, "silent");
+});
+
+test("treats every tool-handoff assistant turn as intermediate, however it ended", () => {
+	assert.equal(isIntermediateAssistant({ hasToolCalls: true }), true);
+	assert.equal(isIntermediateAssistant({ hasToolCalls: false }), false);
+	assert.equal(isIntermediateAssistant({}), false);
+});
+
+test("parses /silent arguments as a toggle or an explicit state", () => {
+	assert.equal(parseSilentArgument("", false), true);
+	assert.equal(parseSilentArgument("  ", true), false);
+	assert.equal(parseSilentArgument("ON", false), true);
+	assert.equal(parseSilentArgument("off", true), false);
+	assert.equal(parseSilentArgument("maybe", true), undefined);
+});
+
+test("wraps a render prototype once and hides only while the predicate holds", () => {
+	class Row {
+		constructor(readonly label: string) {}
+		render(_width: number): string[] {
+			return [this.label];
+		}
+	}
+	let hidden = true;
+	const hideWhen = (predicate: (row: Row) => boolean) =>
+		(row: Row, width: number, render: (width: number) => string[]) => predicate(row) ? [] : render(width);
+	assert.equal(patchRender(Row.prototype, hideWhen((row) => hidden && row.label === "tool")), true);
+	// A second install (as after /reload) must not stack another wrapper.
+	assert.equal(patchRender(Row.prototype, () => []), true);
+	assert.deepEqual(new Row("tool").render(80), []);
+	assert.deepEqual(new Row("answer").render(80), ["answer"]);
+	hidden = false;
+	assert.deepEqual(new Row("tool").render(80), ["tool"]);
+	// A subclass inheriting render() gets its own wrapper without touching the base.
+	class Notice extends Row {}
+	assert.equal(patchRender(Notice.prototype, hideWhen(() => hidden)), true);
+	hidden = true;
+	assert.deepEqual(new Notice("notice").render(80), []);
+	assert.deepEqual(new Row("answer").render(80), ["answer"]);
+	assert.equal(patchRender(undefined, () => []), false);
+	assert.equal(patchRender({} as never, () => []), false);
+});
+
+test("renders only an assistant turn's answer and restores the children", () => {
+	const line = (text: string) => ({ render: () => [text], invalidate: () => {} });
+	const children: unknown[] = [
+		new Spacer(1),
+		new MouseRegion(line("THINKING"), () => undefined),
+		new Spacer(1),
+		line("ANSWER"),
+	];
+	const component = { contentContainer: { children } };
+	const render = () => (component.contentContainer.children as Array<{ render(width: number): string[] }>)
+		.flatMap((child) => child.render(20));
+	assert.deepEqual(renderAnswerOnly(component, 20, render).map((row: string) => row.trim()), ["", "ANSWER"]);
+	assert.equal(component.contentContainer.children, children, "the component keeps its own children");
+	assert.equal(children.length, 4);
+	// A turn with nothing but thinking renders nothing, not a stray blank line.
+	const onlyThinking = { contentContainer: { children: [new Spacer(1), new MouseRegion(line("T"), () => undefined)] } };
+	assert.deepEqual(renderAnswerOnly(onlyThinking, 20, () => ["unexpected"]), []);
+	// Error, abort, and truncation notices go with the spacer Pi puts before them.
+	const failed = {
+		contentContainer: {
+			children: [new Spacer(1), line("PARTIAL"), new Spacer(1), new Text("Error: 400 invalid_request_error", 1, 0)],
+		},
+	};
+	const renderFailed = () => (failed.contentContainer.children as Array<{ render(width: number): string[] }>)
+		.flatMap((child) => child.render(40));
+	assert.deepEqual(renderAnswerOnly(failed, 40, renderFailed).map((row: string) => row.trim()), ["", "PARTIAL"]);
+	const errorOnly = { contentContainer: { children: [new Spacer(1), new Text("Error: 400", 1, 0)] } };
+	assert.deepEqual(renderAnswerOnly(errorOnly, 40, () => ["unexpected"]), []);
+	// A plain answer is rendered unchanged.
+	assert.deepEqual(renderAnswerOnly({ contentContainer: { children: [line("A")] } }, 20, () => ["A"]), ["A"]);
+});
+
+test("restores hidden rows when silent mode is disposed and preserves the choice across reload", async () => {
+	// Pi paints stop notices with its global theme, so the real components need one.
+	initTheme(undefined, false);
+	let command: ((args: string, ctx: any) => Promise<void>) | undefined;
+	let shortcut: ((ctx: any) => Promise<void> | void) | undefined;
+	let shortcutKey: string | undefined;
+	const pi = {
+		on: () => {},
+		registerCommand: (_name: string, definition: { handler: typeof command }) => { command = definition.handler; },
+		registerShortcut: (key: string, definition: { handler: typeof shortcut }) => {
+			shortcutKey = key;
+			shortcut = definition.handler;
+		},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		ui: {
+			theme: { fg: (_color: string, text: string) => text },
+			setStatus: () => {},
+			setWidget: () => {},
+			notify: (message: string) => notifications.push(message),
+		},
+	} as unknown as ExtensionContext;
+	const notifications: string[] = [];
+	const failedAnswer = new AssistantMessageComponent({
+		content: [{ type: "text", text: "Partial answer" }],
+		stopReason: "error",
+		errorMessage: "400 invalid_request_error",
+	} as never);
+	const failedHandoff = new AssistantMessageComponent({
+		content: [{ type: "toolCall", id: "call-2", name: "web_search", arguments: {} }],
+		stopReason: "error",
+		errorMessage: "400 invalid_request_error",
+	} as never);
+	const visible = (component: { render(width: number): string[] }) =>
+		component.render(80).map((line) => stripTerminalSequences(line).trim()).filter(Boolean);
+	const assistant = new AssistantMessageComponent({
+		content: [{ type: "text", text: "Before call" }, { type: "toolCall", id: "call-1", name: "read", arguments: {} }],
+		stopReason: "toolUse",
+	} as never);
+	const notice = new CustomMessageComponent(
+		{ customType: "notice", content: "Content ready" } as never,
+		() => ({ render: () => ["Content ready"], invalidate() {} }),
+	);
+	let visibleCount = 0;
+	const controller = new SilentModeController(pi, () => { visibleCount++; });
+	controller.bind(ctx, "normal", false);
+	assert.ok(assistant.render(80).length > 0);
+	assert.ok(notice.render(80).length > 0);
+	assert.ok(visible(failedAnswer).some((line) => line.startsWith("Error: 400")));
+	await command!("on", ctx);
+	assert.deepEqual(notifications, [], "toggling must not write a notice into the transcript");
+	assert.deepEqual(assistant.render(80), []);
+	assert.deepEqual(notice.render(80), []);
+	assert.deepEqual(visible(failedAnswer), ["Partial answer"], "the answer stays, its error notice goes");
+	assert.deepEqual(failedHandoff.render(80), [], "a failed tool handoff is hidden like any other");
+	await command!("off", ctx);
+	assert.equal(visibleCount, 1, "turning silent off can show a deferred release notice");
+	assert.ok(visible(failedAnswer).some((line) => line.startsWith("Error: 400")), "off restores the notice");
+	await command!("on", ctx);
+	assert.deepEqual(notifications, []);
+	// Ctrl+' toggles the same state as /silent.
+	assert.equal(shortcutKey, "ctrl+'");
+	await shortcut!(ctx);
+	assert.ok(assistant.render(80).length > 0, "the shortcut turns silent mode off");
+	await shortcut!(ctx);
+	assert.deepEqual(assistant.render(80), [], "and on again");
+	assert.deepEqual(notifications, []);
+	controller.dispose();
+	assert.ok(assistant.render(80).length > 0);
+	assert.ok(notice.render(80).length > 0);
+	controller.bind(ctx, "normal", true);
+	assert.deepEqual(assistant.render(80), []);
+	assert.deepEqual(notice.render(80), []);
+	controller.dispose();
+	assert.ok(assistant.render(80).length > 0);
+	assert.ok(notice.render(80).length > 0);
+});
+
+test("runs a light along a line beneath the submitted prompt and removes it after the turn", async () => {
+	const theme = { fg: (_color: string, text: string) => text } as Theme;
+	const brightest = (frame: number) => {
+		const intensities = dotIntensities(frame);
+		return intensities.indexOf(Math.max(...intensities));
+	};
+	// The light runs along a nine-cell line to its end and back over one 26-frame breath.
+	assert.equal(dotIntensities(0).length, 9);
+	assert.deepEqual([0, 13, 26].map(brightest), [0, 8, 0]);
+	const outward = Array.from({ length: 14 }, (_, frame) => brightest(frame));
+	assert.ok(outward.every((dot, index) => index === 0 || dot >= outward[index - 1]!), "it moves one way, then back");
+	// Fast through the middle, slow at the ends.
+	const step = (frame: number) => Math.abs(brightest(frame + 1) - brightest(frame));
+	assert.ok(step(6) >= 1 && step(0) === 0, "it lingers at the start and speeds up in the middle");
+	// The head is the only full-brightness cell, nothing ahead of it is ever lit, and
+	// the tail behind it is unbroken even where the head crossed two cells in one frame.
+	// Frame 0 is the head arriving back at the start, so it was last moving left.
+	let direction = -1;
+	let previousHead = 0;
+	for (let frame = 0; frame < 52; frame++) {
+		const cells = dotIntensities(frame);
+		const head = cells.indexOf(1);
+		assert.ok(head >= 0, `frame ${frame} has a head`);
+		if (head !== previousHead) {
+			assert.ok(Math.abs(head - previousHead) <= 2, `frame ${frame} moves at most two cells`);
+			direction = head > previousHead ? 1 : -1;
+		}
+		previousHead = head;
+		assert.ok(cells.every((value, index) => (index - head) * direction <= 0 || value === 0), `frame ${frame}: dark ahead`);
+		const tail = cells.map((value, index) => ({ value, index })).filter(({ value }) => value > 0).map(({ index }) => index);
+		assert.equal(tail.length, Math.max(...tail) - Math.min(...tail) + 1, `frame ${frame}: the tail has no gaps`);
+	}
+	// A passed cell fades as an afterimage instead of going dark at once.
+	const trail = [3, 4, 5, 6].map((frame) => dotIntensities(frame)[0]!);
+	assert.ok(trail.every((value, index) => index === 0 || value < trail[index - 1]!), "the afterimage only fades");
+	assert.ok(trail.at(-1)! > 0.1, "and it lingers while the light moves on");
+	// The tail dims in steps, never dropping out, even when the light turns around.
+	for (let frame = 0; frame < 26; frame++) {
+		const now = dotIntensities(frame);
+		const next = dotIntensities(frame + 1);
+		assert.ok(now.every((value, index) => value - next[index]! <= 0.45), `frame ${frame}`);
+	}
+	// A frame identical to the last asks for no repaint; this run changes every frame.
+	assert.equal(frameChanges(0), true);
+	// One unbroken line from column 3, spanning the "Thinking…" label below it.
+	assert.equal(renderActivityDots(0, 80, theme)[0], "   ━━━━━━━━━");
+	assert.equal(renderActivityDots(0, 80, theme)[0]!.indexOf("━"), "── Thinking…".indexOf("T"));
+	assert.equal(renderActivityDots(0, 80, theme)[0]!.trim().length, "Thinking…".length);
+	for (let frame = 0; frame < 26; frame++) {
+		assert.equal(visibleWidth(renderActivityDots(frame, 80, theme)[0]!), 12, `frame ${frame} keeps its width`);
+	}
+	// Pi's padding row stays inside the prompt box; the dots go on the row after it.
+	assert.deepEqual(attachActivityToUserMessage(["prompt", "\x1b]133;B\x07\x1b]133;C\x07    "], "dots"),
+		["prompt", "\x1b]133;B\x07\x1b]133;C\x07    ", "dots"]);
+	assert.deepEqual(bottomAlignTranscript(["prompt", "sweep"], 5), ["", "", "", "prompt", "sweep"]);
+	assert.deepEqual(bottomAlignTranscript(["prompt", "sweep"], 2), ["prompt", "sweep"]);
+	for (const width of [1, 4, 12, 80]) {
+		const lines = renderActivityDots(2, width, theme);
+		assert.equal(lines.length, 1);
+		assert.ok(visibleWidth(lines[0]!) <= width);
+	}
+
+	const handlers = new Map<string, (event?: any) => void>();
+	const pi = { on: (name: string, handler: (event?: any) => void) => handlers.set(name, handler) } as unknown as ExtensionAPI;
+	let currentWidget: unknown;
+	let placement: string | undefined;
+	const context = {
+		isIdle: () => true,
+		ui: {
+			theme,
+			setWidget: (_key: string, content: unknown, options: { placement: string }) => {
+				currentWidget = content;
+				placement = options.placement;
+			},
+		},
+	} as unknown as ExtensionContext;
+	const activity = new SilentActivityAnimator(pi);
+	activity.bind(context);
+	activity.setEnabled(true);
+	assert.equal(currentWidget, undefined);
+	handlers.get("agent_start")?.();
+	assert.equal(placement, "belowEditor");
+	assert.equal(typeof currentWidget, "function");
+	const document = { render: (_width: number) => ["prompt", "sweep"] };
+	const scroll = { child: document, viewportHeight: 5 };
+	// Pi mounts transcript, pending, status, widgets above (a lone spacer), editor,
+	// widgets below, and footer, in that order, in regular and fullscreen mode alike.
+	const gap = { children: [new Spacer(1)] as unknown[], render(width: number) { return this.children.flatMap((child: any) => child.render(width)); } };
+	const tui = { requestRender() {}, getPrimaryScrollView: () => scroll, children: [{}, {}, {}, gap, {}, {}, {}] };
+	const component = (currentWidget as unknown as (tui: any, theme: Theme) => Component)(tui, theme);
+	assert.deepEqual(gap.render(80), [], "the dots replace the blank row above the editor while they animate");
+	gap.children.push({ render: () => ["widget"] });
+	assert.equal(gap.render(80).length, 2, "a real widget above the editor keeps its spacing");
+	gap.children.pop();
+	assert.equal(component.render(80).length, 0);
+	assert.deepEqual(document.render(80), ["", "", "", "prompt", "sweep"]);
+	initTheme("dark", false);
+	const earlier = new UserMessageComponent("earlier prompt");
+	const latest = new UserMessageComponent("latest prompt");
+	earlier.render(80);
+	const normalLatest = latest.render(80);
+	await Promise.resolve();
+	assert.notEqual(earlier.render(80).at(-1), renderActivityDots(0, 80, theme)[0]);
+	const animatedLatest = latest.render(80);
+	assert.equal(animatedLatest.length, normalLatest.length + 1, "the dots add a row and keep Pi's bottom padding");
+	assert.deepEqual(animatedLatest.slice(0, -1), normalLatest);
+	assert.equal(stripTerminalSequences(animatedLatest.at(-1)!).trim(), renderActivityDots(0, 80, theme)[0]!.trim());
+	// The dots step aside once the answer streams, and return when the assistant goes back to work.
+	handlers.get("message_update")?.({ assistantMessageEvent: { type: "text_delta" } });
+	assert.equal(currentWidget, undefined, "no dots under a streaming answer");
+	assert.deepEqual(latest.render(80), normalLatest);
+	handlers.get("message_update")?.({ assistantMessageEvent: { type: "toolcall_start" } });
+	assert.equal(typeof currentWidget, "function", "a tool call brings the dots back");
+	(currentWidget as unknown as (tui: any, theme: Theme) => Component)(tui, theme);
+	handlers.get("message_update")?.({ assistantMessageEvent: { type: "text_start" } });
+	assert.equal(currentWidget, undefined);
+	handlers.get("turn_start")?.();
+	assert.equal(typeof currentWidget, "function", "a new turn brings the dots back");
+	(currentWidget as unknown as (tui: any, theme: Theme) => Component)(tui, theme);
+	handlers.get("agent_end")?.();
+	assert.equal(currentWidget, undefined);
+	assert.equal(gap.render(80).length, 1, "the editor spacing returns after the turn");
+	assert.deepEqual(document.render(80), ["prompt", "sweep"]);
+	assert.notEqual(latest.render(80).at(-1), renderActivityDots(0, 80, theme)[0]);
+	activity.dispose();
 });
 
 test("summarizes failure diagnostics from file and shell output", () => {
@@ -540,6 +828,8 @@ test("animates every built-in, restores reload renderers, and reuses unchanged l
 		registerTool: (definition: { name: string; renderCall?: unknown; renderResult?: unknown }) =>
 			registered.push(definition),
 		registerMarkdownTransformer: () => {},
+		registerCommand: () => {},
+		registerShortcut: () => {},
 	} as unknown as ExtensionAPI;
 	const ctx = {
 		cwd: process.cwd(),
@@ -748,6 +1038,8 @@ test("registers renderers again after every session replacement", async () => {
 			on: (name: string, handler: (event: any, ctx: any) => void) => handlers.set(name, handler),
 			registerTool: (definition: { name: string }) => registered.push(definition.name),
 			registerMarkdownTransformer: () => {},
+			registerCommand: () => {},
+			registerShortcut: () => {},
 		} as unknown as ExtensionAPI;
 		return { registered, handlers, pi };
 	};
@@ -1315,6 +1607,7 @@ test("renders custom tools compactly and expands into the author's renderer", as
 			registerTool: () => {},
 			registerMarkdownTransformer: () => {},
 			registerCommand: () => {},
+			registerShortcut: () => {},
 		} as unknown as ExtensionAPI);
 		class Row extends FakeToolRow {}
 		assert.equal(patchToolRows(Row.prototype), true);
@@ -1489,4 +1782,39 @@ test("hooks a method once and lets every later load replace only its behavior", 
 	assert.equal(Box.prototype.render, wrapper, "installed once per process");
 	assert.deepEqual(new Box().render(7), ["v2", "box 7"]);
 	assert.equal(hookMethod({}, "render", `${name}.missing`, () => []), false);
+});
+
+test("hides Pi's own notice lines from the chat and restores its children", () => {
+	const line = (text: string) => ({ render: () => [text], invalidate: () => {} });
+	const user = line("PROMPT");
+	const answer = line("ANSWER");
+	const children: unknown[] = [
+		user,
+		new Spacer(1),
+		new Text("Warning: Wait for the current response to finish before reloading.", 1, 0),
+		answer,
+		new Spacer(1),
+		new Text("Reloaded keybindings, extensions, skills, prompts, themes, and context files", 1, 0),
+	];
+	const chat = { children };
+	const render = () => (chat.children as Array<{ render(width: number): string[] }>).flatMap((child) => child.render(80));
+	assert.deepEqual(renderWithoutNotices(chat, 80, render), ["PROMPT", "ANSWER"]);
+	assert.equal(chat.children, children, "the chat keeps its own children");
+	assert.deepEqual(renderWithoutNotices({ children: [user, answer] }, 80, () => ["unchanged"]), ["unchanged"]);
+});
+
+test("shares one animation clock that stops when nothing listens", async () => {
+	const { onTick, TICK_MS } = await import("../extensions/compact-tools-clock.ts");
+	let label = 0;
+	let line = 0;
+	const stopLabel = onTick(() => label++);
+	const stopLine = onTick(() => line++);
+	await new Promise((resolve) => setTimeout(resolve, TICK_MS * 2 + 30));
+	stopLabel();
+	stopLine();
+	// Both animations advanced on the same ticks, so Pi repaints once per tick for both.
+	assert.ok(label >= 2 && label === line, `label ${label}, line ${line}`);
+	const settled = label;
+	await new Promise((resolve) => setTimeout(resolve, TICK_MS + 20));
+	assert.equal(label, settled, "the clock stops once idle");
 });

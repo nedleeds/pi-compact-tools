@@ -8,6 +8,12 @@
     "$schema": {
       "type": "string"
     },
+    "mode": {
+      "description": "normal shows every tool row. silent leaves only your prompts and the final answers: tool rows, in-between assistant turns, thinking, error and abort notices, extension notices, and Pi's own status lines are hidden while a light animates beneath the prompt. Ctrl+' or /silent toggles it for the current session.",
+      "type": "string",
+      "enum": ["normal", "silent"],
+      "default": "normal"
+    },
     "tools": {
       "description": "Built-in tools that use compact rendering. Omitted tools keep Pi's default renderer.",
       "type": "array",

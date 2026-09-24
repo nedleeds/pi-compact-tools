@@ -39,6 +39,7 @@ Optional. Put it in `~/.pi/agent/compact-tools.json` or `<project>/.pi/compact-t
 
 - `tools`: tools to render compactly. Also available: `grep`, `find`, `ls`, `powershell`.
 - `auto_compact`: `true` starts hidden, `false` starts with a preview of up to `previewLines` rows (`1`–`100`).
+- `mode`: `"normal"` (default) or `"silent"`. See [Silent mode](#silent-mode).
 - `custom_tools`: compact rendering for tools from other packages. See [Custom tools](#custom-tools).
 
 ## Custom tools
@@ -61,11 +62,25 @@ Built-in tools follow `tools` above: a built-in left out of that list keeps Pi's
 
 Pi has no public API for changing how another package's tool is drawn, so this wraps the renderer lookup of Pi's tool row component. Nothing in Pi's installation is modified, and it only applies while this extension is loaded. If a Pi release changes that component, custom tools fall back to their own renderers and Pi shows a warning once.
 
+## Silent mode
+
+Silent mode shows only your prompts and the final answers. Tool calls (including custom tools from other packages), the assistant's in-between turns, thinking, error and abort notices, extension notices such as web-search progress, and Pi's own status lines are hidden while the animated working label shows what is running.
+
+- While the agent works, a light runs back and forth along a short line beneath your latest prompt, above the working label and just as long, leaving a fading afterimage in the thinking level's color. It steps aside once the answer starts.
+- `Ctrl+'` or `/silent` toggles it for the current session; `/silent on` and `/silent off` set it explicitly.
+- `Ctrl+'` needs a terminal that reports it as its own key (the Kitty keyboard protocol: Ghostty, Kitty, WezTerm, and others). Where it only types `'`, use `/silent`.
+- Set `"mode": "silent"` in `compact-tools.json` to start every session silent.
+- Turning it off brings back every hidden row. Nothing is removed from the session or the model's context.
+- Errors are hidden too, so a run that fails ends without an answer. Turn silent mode off to see what went wrong.
+
+Pi has no public API for hiding other extensions' tool rows, so silent mode wraps Pi's transcript components. If a future Pi release changes them, `/silent` reports that it is unavailable and the transcript renders normally.
+
 ## Controls
 
 - Click a row or press `Ctrl+O` to expand or collapse results.
-- In fullscreen mode, expanding or collapsing every row, and cycling thinking keep the text you were reading in place instead of jumping.
+- In fullscreen mode, expanding or collapsing every row, cycling thinking, and toggling silent mode keep the text you were reading in place instead of jumping.
 - `Ctrl+T` cycles thinking: summary → detail → summary → hidden.
+- `Ctrl+'` or `/silent` toggles silent mode.
 
 ## Development
 
