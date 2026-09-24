@@ -73,9 +73,10 @@ if (schema.properties?.previewLines?.default !== 10) {
 
 const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const releaseNotes = JSON.parse(await readFile(new URL("../release-notes.json", import.meta.url), "utf8"));
-if (!Array.isArray(releaseNotes[manifest.version]) || releaseNotes[manifest.version].length === 0 ||
+// Every published version needs an entry. An empty list is a quiet release that shows no notice.
+if (!Array.isArray(releaseNotes[manifest.version]) ||
     releaseNotes[manifest.version].some((note) => typeof note !== "string" || !note.trim())) {
-  throw new Error(`release-notes.json must describe v${manifest.version} before publishing`);
+  throw new Error(`release-notes.json must have an entry for v${manifest.version} before publishing; use [] for no notice`);
 }
 
 console.log("Resource checks passed");

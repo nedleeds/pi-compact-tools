@@ -39,25 +39,27 @@ export function compareVersions(left: string, right: string): number {
 
 /**
  * The notes to show, newest first: every version with notes after the last one
- * shown, up to the installed one. With nothing shown before, only the installed
- * version's notes appear: that is either a new install or an update from a
- * version that predates these notices, and there is no telling which.
+ * shown, up to the installed one. An empty list marks a quiet release, such as a
+ * documentation update, that shows nothing. With nothing shown before, only the
+ * newest notes up to the installed version appear: that is either a new install
+ * or an update from a version that predates these notices, and there is no
+ * telling which.
  */
 export function releasesToShow(
 	installed: string,
 	notes: ReleaseNotes,
 	lastShown: string | undefined,
 ): Array<{ version: string; notes: readonly string[] }> {
-	const versions = lastShown === undefined
-		? (notes[installed]?.length ? [installed] : [])
-		: Object.keys(notes).filter((version) =>
+	const withNotes = Object.keys(notes)
+		.filter((version) =>
 			VERSION.test(version)
-			&& compareVersions(version, lastShown) > 0
 			&& compareVersions(version, installed) <= 0
-			&& notes[version]!.length > 0);
-	return versions
-		.sort((left, right) => compareVersions(right, left))
-		.map((version) => ({ version, notes: notes[version]! }));
+			&& notes[version]!.length > 0)
+		.sort((left, right) => compareVersions(right, left));
+	const versions = lastShown === undefined
+		? withNotes.slice(0, 1)
+		: withNotes.filter((version) => compareVersions(version, lastShown) > 0);
+	return versions.map((version) => ({ version, notes: notes[version]! }));
 }
 
 function lastShownVersion(directory: string): string | undefined {

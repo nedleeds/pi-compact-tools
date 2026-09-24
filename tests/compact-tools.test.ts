@@ -162,6 +162,11 @@ test("lists every release skipped since the last notice, newest first", () => {
 	assert.deepEqual(releasesToShow("0.11.0", notes, undefined).map(({ version }) => version), ["0.11.0"]);
 	assert.deepEqual(releasesToShow("0.11.0", notes, "0.11.0"), []);
 	assert.ok(compareVersions("0.10.0", "0.9.3") > 0, "versions compare numerically");
+	// An empty list is a quiet release: updating to it shows nothing new...
+	const quiet = { "0.10.0": ["Silent mode"], "0.10.1": [] };
+	assert.deepEqual(releasesToShow("0.10.1", quiet, "0.10.0"), []);
+	// ...but a first notice still shows the newest release that has notes.
+	assert.deepEqual(releasesToShow("0.10.1", quiet, undefined).map(({ version }) => version), ["0.10.0"]);
 });
 
 test("falls back to a status line when Pi's chat can't be reached", () => {

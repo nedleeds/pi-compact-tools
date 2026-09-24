@@ -88,7 +88,7 @@ npm run check
 pi -e .
 ```
 
-Before publishing, add the new version's notes to `release-notes.json`. Pi shows them once after users update.
+Before publishing, add the new version's notes to `release-notes.json`. Pi shows them once after users update. Use `[]` for a release with nothing to announce.
 
 ## License
 
