@@ -420,6 +420,19 @@ export function getEditChanges(result: AgentToolResult<unknown>): string {
 		.trimEnd();
 }
 
+/** How many lines an edit added and removed, counted from the diff Pi attaches to its result. */
+export function countEditChanges(result: AgentToolResult<unknown>): { added: number; removed: number } | undefined {
+	const diff = getEditDiff(result);
+	if (!diff) return undefined;
+	let added = 0;
+	let removed = 0;
+	for (const line of diff.split("\n")) {
+		if (line.startsWith("+")) added++;
+		else if (line.startsWith("-")) removed++;
+	}
+	return { added, removed };
+}
+
 const READ_FOOTER = /\n\n(\[(?:Showing lines |\d+ more lines in file\.)[^\n]*\])$/u;
 
 /** Separate a read's file contents from the continuation notice Pi appends to them. */

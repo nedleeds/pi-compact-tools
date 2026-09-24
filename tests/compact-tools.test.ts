@@ -28,6 +28,7 @@ import {
 	formatResultLineSummary,
 	getArgumentDetails,
 	getCallDetails,
+	countEditChanges,
 	getEditChanges,
 	splitReadFooter,
 	summarizeCustomArguments,
@@ -1007,6 +1008,20 @@ test("animates every built-in, restores reload renderers, and reuses unchanged l
 	assert.equal(failedEdit.filter((line) => line.includes("Could not find the exact text")).length, 1, "the error appears once");
 	assert.match(failedEdit.at(-1)!, /^ └ Failed( in \S+)?$/u);
 
+	// A successful edit reports its change like a diff: lines added and removed,
+	// each in the theme's diff color.
+	const diffTheme = { ...renderTheme, fg: (color: string, text: string) => `<${color}>${text}</${color}>` } as unknown as Theme;
+	const editDiff = "     ...\n  57 context\n- 58 old line\n+ 58 new line\n+ 59 added line\n  60 context";
+	const editedStatus = renderEditResult(
+		{ content: [{ type: "text", text: "Successfully replaced 1 block(s) in file.ts." }], details: { diff: editDiff, patch: "" } },
+		{ expanded: false, isPartial: false },
+		diffTheme,
+		{ ...resultContext, args: { path: "file.ts" }, expanded: false, isError: false, state: {}, toolCallId: "counted-edit", lastComponent: undefined },
+	).render(200).at(-1)!;
+	assert.match(stripTerminalSequences(editedStatus).replace(/<\/?[a-zA-Z]+>/gu, ""), /└ Done.*\(\+2 -1\)$/u);
+	assert.ok(editedStatus.includes("<toolDiffAdded>+2</toolDiffAdded>"), "additions use the added color");
+	assert.ok(editedStatus.includes("<toolDiffRemoved>-1</toolDiffRemoved>"), "removals use the removed color");
+
 	registered.length = 0;
 	handlers.get("session_start")?.({ reason: "startup" }, ctx);
 	assert.deepEqual(registered, []);
@@ -1841,4 +1856,11 @@ test("shares one animation clock that stops when nothing listens", async () => {
 	const settled = label;
 	await new Promise((resolve) => setTimeout(resolve, TICK_MS + 20));
 	assert.equal(label, settled, "the clock stops once idle");
+});
+
+test("counts the lines an edit added and removed from Pi's diff", () => {
+	const result = (diff: unknown) => ({ content: [], details: { diff } });
+	assert.deepEqual(countEditChanges(result("     ...\n  1 a\n- 2 b\n+ 2 c\n+ 3 d")), { added: 2, removed: 1 });
+	assert.deepEqual(countEditChanges(result("+ 1 only added")), { added: 1, removed: 0 });
+	assert.equal(countEditChanges(result(undefined)), undefined);
 });

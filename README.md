@@ -13,6 +13,7 @@ Compact, expandable rendering for Pi's built-in tools and for custom tools from 
 - Compact rows for `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`, with status, duration, and line count
 - The same compact rows for custom tools registered by other packages, such as web search or MCP tools, with no setup
 - Syntax-highlighted edit diffs and numbered `read`/`write` code views, including Markdown code fences
+- Edits report what they changed on their status line, lines added and removed in the diff colors: `(+3 -1)`
 - Animated working label above the prompt, lit in the session's own thinking-level color, and a `Ctrl+T` thinking summary/detail cycle
 - Theme-agnostic chrome: rails, the tool indicator, and the working label are derived from the active theme and stay legible on light and dark backgrounds
 - No Nerd Font required

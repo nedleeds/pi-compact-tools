@@ -32,6 +32,7 @@ import { loadConfig } from "./compact-tools-config.ts";
 import { installToolRowPatch, setRowResolver, type RowRenderers, type ToolRow } from "./compact-tools-custom.ts";
 import {
 	formatResultLineSummary,
+	countEditChanges,
 	getArgumentDetails,
 	getCallDetails,
 	getEditDiff,
@@ -143,6 +144,7 @@ function renderControls(
 	isError: boolean,
 	lineSummary?: string,
 	failureReason?: string,
+	changes?: { added: number; removed: number },
 ): Component {
 	const duration = running ? undefined : formatDuration(state);
 	const status = running
@@ -153,6 +155,11 @@ function renderControls(
 	const chrome = chromePainter(theme);
 	let details = chrome(status);
 	if (failureReason && isError && !running) details += chrome(" · ") + theme.fg("error", failureReason);
+	// An edit reports what it changed the way a diff does: lines added and removed.
+	else if (changes && !running && !isError) {
+		details += chrome(" (") + theme.fg("toolDiffAdded", `+${changes.added}`) + chrome(" ")
+			+ theme.fg("toolDiffRemoved", `-${changes.removed}`) + chrome(")");
+	}
 	// A failed call produced no result worth counting; "(0 lines)" would only mislead.
 	else if (lineSummary && !running && !isError) details += chrome(` (${lineSummary})`);
 	return prefixedText(details, chrome(" └ "), "   ");
@@ -255,7 +262,7 @@ function renderFileResult(
 		state.resultLineSummaryComputed = true;
 	}
 	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary,
-		hiddenFailureReason(name, state, ctx.isError, output)));
+		hiddenFailureReason(name, state, ctx.isError, output), name === "edit" ? countEditChanges(result) : undefined));
 	rememberResult(state, result, options, ctx);
 	return container;
 }
