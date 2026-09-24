@@ -523,6 +523,8 @@ export default function compactTools(pi: ExtensionAPI): void {
 			silent.dispose();
 		}
 	});
+	pi.on("tool_execution_start", (event) => runtime.noteExecutionStart(event.toolCallId));
+	pi.on("tool_execution_end", (event) => runtime.noteExecutionEnd(event.toolCallId));
 	pi.on("session_shutdown", (event) => {
 		thinkingCycle.dispose();
 		progress.dispose();

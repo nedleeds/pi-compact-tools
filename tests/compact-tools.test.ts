@@ -1918,3 +1918,30 @@ test("counts the lines an edit added and removed from Pi's diff", () => {
 	assert.deepEqual(countEditChanges(result("+ 1 only added")), { added: 1, removed: 0 });
 	assert.equal(countEditChanges(result(undefined)), undefined);
 });
+
+test("marks a finished custom tool's row as done before its result is drawn", async () => {
+	const compactTools = (await import("../extensions/compact-tools.ts")).default;
+	const handlers = new Map<string, (event: any) => void>();
+	compactTools({
+		on: (name: string, handler: (event: any) => void) => handlers.set(name, handler),
+		registerTool: () => {},
+		registerMarkdownTransformer: () => {},
+		registerCommand: () => {},
+		registerShortcut: () => {},
+	} as unknown as ExtensionAPI);
+	class Row extends FakeToolRow {}
+	assert.equal(patchToolRows(Row.prototype), true);
+	const theme = { fg: (color: string, text: string) => `<${color}>${text}</${color}>`, bold: (text: string) => text } as unknown as Theme;
+	const row = new Row("web_search", {});
+	const renderCall = row.getCallRenderer() as (args: unknown, theme: Theme, ctx: unknown) => Component;
+	const context = {
+		args: { query: "pi" }, argsComplete: true, cwd: process.cwd(), executionStarted: true, expanded: false,
+		invalidate: () => {}, isError: false, isPartial: false, lastComponent: undefined, showImages: false,
+		state: {}, toolCallId: "custom-finished",
+	};
+	handlers.get("tool_execution_start")?.({ toolCallId: "custom-finished", toolName: "web_search", args: {} });
+	// Pi tells extensions a tool ended, then redraws the row call first, result second.
+	handlers.get("tool_execution_end")?.({ toolCallId: "custom-finished", toolName: "web_search", result: {}, isError: false });
+	const call = renderCall({ query: "pi" }, theme, context).render(80)[0]!;
+	assert.match(call, /<success>⦁<\/success>/u, "the dot turns green without waiting for another redraw");
+});

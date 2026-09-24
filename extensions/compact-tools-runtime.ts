@@ -103,6 +103,22 @@ export class ToolRuntime {
 		return state;
 	}
 
+	/**
+	 * Record when a tool this extension does not wrap starts and ends. Pi reports
+	 * both to extensions before it redraws the row, and the row draws its status
+	 * dot before its result, so without this a finished custom tool kept the
+	 * running dot. Wrapped built-ins already have timings, which are kept.
+	 */
+	noteExecutionStart(toolCallId: string): void {
+		if (!this.executionTimings.has(toolCallId)) this.executionTimings.set(toolCallId, { startedAt: Date.now() });
+	}
+
+	noteExecutionEnd(toolCallId: string): void {
+		const timing = this.executionTimings.get(toolCallId) ?? { startedAt: Date.now() };
+		timing.endedAt ??= Date.now();
+		this.executionTimings.set(toolCallId, timing);
+	}
+
 	createTimedExecute(definition: BuiltInDefinition): TimedExecute {
 		const execute = definition.execute as TimedExecute;
 		return async (...args: any[]) => {
