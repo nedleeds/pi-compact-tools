@@ -57,6 +57,10 @@ import {
 } from "../extensions/compact-tools-thinking.ts";
 import { SUPPORTED_TOOLS, type BuiltInDefinition, type RowState } from "../extensions/compact-tools-types.ts";
 
+// Tests must never read the developer's real ~/.pi/agent: its settings.json
+// (thinking visibility) and compact-tools.json would change what they see.
+process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "compact-tools-agent-"));
+
 test("normalizes CRLF, LF, and CR line endings", () => {
 	assert.equal(normalizeLineEndings("a\r\nb\rc\nd"), "a\nb\nc\nd");
 });
