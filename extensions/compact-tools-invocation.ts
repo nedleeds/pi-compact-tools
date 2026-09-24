@@ -1,4 +1,5 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { normalizeLineEndings } from "./compact-tools-core.ts";
 import type { ToolArgs } from "./compact-tools-types.ts";
 
@@ -30,6 +31,40 @@ export function getCallDetails(name: string, args: ToolArgs): string {
 	if (name !== "grep" && name !== "find") return path;
 	const pattern = typeof args.pattern === "string" ? normalizeLineEndings(args.pattern) : "…";
 	return name === "grep" ? `/${pattern}/ in ${path}` : `${pattern} in ${path}`;
+}
+
+/** Argument names that usually identify what a tool call is about, most specific first. */
+const CUSTOM_SUMMARY_KEYS = [
+	"command", "query", "queries", "q", "url", "urls", "path", "file_path", "paths",
+	"pattern", "prompt", "question", "claim", "name", "id", "tool",
+];
+const CUSTOM_SUMMARY_MAX_LENGTH = 160;
+
+function summaryValue(value: unknown): string | undefined {
+	if (typeof value === "string") return value;
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	if (Array.isArray(value)) {
+		const parts = value.filter((item) => typeof item === "string" || typeof item === "number").map(String);
+		return parts.length > 0 ? parts.join(", ") : undefined;
+	}
+	return undefined;
+}
+
+/** One line describing a custom tool call; the full arguments stay available when expanded. */
+export function summarizeCustomArguments(args: ToolArgs): string {
+	const keys = [...CUSTOM_SUMMARY_KEYS.filter((key) => key in args), ...Object.keys(args)];
+	for (const key of keys) {
+		const value = summaryValue(args[key]);
+		if (!value?.trim()) continue;
+		const line = stripTerminalSequences(normalizeLineEndings(value))
+			.replace(/[\x00-\x1f\x7f]/gu, " ")
+			.replace(/\s+/gu, " ")
+			.trim();
+		return line.length > CUSTOM_SUMMARY_MAX_LENGTH
+			? `${line.slice(0, CUSTOM_SUMMARY_MAX_LENGTH - 1).trimEnd()}…`
+			: line;
+	}
+	return "";
 }
 
 export function getArgumentDetails(name: string, args: ToolArgs): ToolArgs {

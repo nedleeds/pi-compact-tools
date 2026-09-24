@@ -18,6 +18,32 @@
       },
       "default": ["read", "write", "edit", "bash"]
     },
+    "custom_tools": {
+      "description": "Compact rendering for tools registered by other extensions. true/false toggles it; the object form also sets whether rows start hidden and which tools keep their own renderer.",
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "auto_compact": {
+              "description": "True starts custom tool rows hidden; false starts with a bounded preview.",
+              "type": "boolean",
+              "default": true
+            },
+            "exclude": {
+              "description": "Tool names that keep their own renderer.",
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string" },
+              "default": []
+            }
+          }
+        }
+      ],
+      "default": { "enabled": true, "auto_compact": true, "exclude": [] }
+    },
     "previewLines": {
       "description": "Maximum rendered lines shown initially when auto_compact is false. Explicit expansion always shows the complete result.",
       "type": "integer",

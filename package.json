@@ -1,7 +1,7 @@
 {
   "name": "pi-compact-tools",
   "version": "0.9.3",
-  "description": "Compact, expandable UI for pi's built-in tools, bundled with a polished GitHub Dark theme.",
+  "description": "Compact, expandable UI for pi's built-in and custom tools, bundled with a polished GitHub Dark theme.",
   "type": "module",
   "license": "MIT",
   "author": "Dong Hyeong Lee",

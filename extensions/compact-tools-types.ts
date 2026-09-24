@@ -8,9 +8,17 @@ export type ShellToolName = "bash" | "powershell";
 export type ToolArgs = Record<string, unknown>;
 export type BuiltInDefinition = ToolDefinition<any, any, any>;
 
+export interface CustomToolsConfig {
+	/** Render tools registered by other extensions compactly as well. */
+	enabled: boolean;
+	auto_compact: boolean;
+	exclude: string[];
+}
+
 export interface CompactToolsConfig {
 	tools: CompactToolName[];
 	auto_compact: Record<CompactToolName, boolean>;
+	custom_tools: CustomToolsConfig;
 	previewLines: number;
 }
 

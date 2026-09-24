@@ -23,6 +23,11 @@ export const DEFAULT_CONFIG: CompactToolsConfig = {
 		find: true,
 		ls: true,
 	},
+	custom_tools: {
+		enabled: true,
+		auto_compact: true,
+		exclude: [],
+	},
 };
 
 function isObject(value: unknown): value is JsonObject {
@@ -75,6 +80,33 @@ function parseAutoCompact(
 	return result;
 }
 
+function parseCustomTools(
+	base: CompactToolsConfig["custom_tools"],
+	value: unknown,
+	path: string,
+): CompactToolsConfig["custom_tools"] {
+	if (value === undefined) return base;
+	if (typeof value === "boolean") return { ...base, enabled: value };
+	if (!isObject(value)) {
+		warn(path, "custom_tools must be true, false, or an object; using previous values");
+		return base;
+	}
+	const result = { ...base };
+	for (const key of ["enabled", "auto_compact"] as const) {
+		if (value[key] === undefined) continue;
+		if (typeof value[key] === "boolean") result[key] = value[key];
+		else warn(path, `custom_tools.${key} must be true or false; using previous value`);
+	}
+	if (value.exclude !== undefined) {
+		if (Array.isArray(value.exclude) && value.exclude.every((name) => typeof name === "string")) {
+			result.exclude = [...new Set(value.exclude as string[])];
+		} else {
+			warn(path, "custom_tools.exclude must be an array of tool names; using previous values");
+		}
+	}
+	return result;
+}
+
 export function mergeConfig(base: CompactToolsConfig, value: unknown, path: string): CompactToolsConfig {
 	if (value === undefined) return base;
 	if (!isObject(value)) {
@@ -83,12 +115,13 @@ export function mergeConfig(base: CompactToolsConfig, value: unknown, path: stri
 	}
 	const tools = value.tools === undefined ? base.tools : (parseTools(value.tools, path) ?? base.tools);
 	const auto_compact = parseAutoCompact(base.auto_compact, value.auto_compact, path);
+	const custom_tools = parseCustomTools(base.custom_tools, value.custom_tools, path);
 	const previewLines = value.previewLines === undefined ? base.previewLines
 		: isIntegerInRange(value.previewLines, 1, 100) ? value.previewLines : base.previewLines;
 	if (value.previewLines !== undefined && !isIntegerInRange(value.previewLines, 1, 100)) {
 		warn(path, "previewLines must be 1–100; using previous value");
 	}
-	return { tools, auto_compact, previewLines };
+	return { tools, auto_compact, custom_tools, previewLines };
 }
 
 function readJson(path: string): unknown {

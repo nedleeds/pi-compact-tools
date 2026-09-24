@@ -1,6 +1,6 @@
 # pi-compact-tools
 
-Compact, expandable rendering for Pi's built-in tools, with a GitHub Dark theme.
+Compact, expandable rendering for Pi's built-in tools and for custom tools from other packages, with a GitHub Dark theme.
 
 ![Compact rows for every built-in tool](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/compact-workflow.gif)
 
@@ -11,6 +11,7 @@ Compact, expandable rendering for Pi's built-in tools, with a GitHub Dark theme.
 ## Features
 
 - Compact rows for `read`, `write`, `edit`, `bash`, `powershell`, `grep`, `find`, and `ls`, with status, duration, and line count
+- The same compact rows for custom tools registered by other packages, such as web search or MCP tools, with no setup
 - Syntax-highlighted edit diffs and numbered `read`/`write` code views, including Markdown code fences
 - Animated working label above the prompt, lit in the session's own thinking-level color, and a `Ctrl+T` thinking summary/detail cycle
 - Theme-agnostic chrome: rails, the tool indicator, and the working label are derived from the active theme and stay legible on light and dark backgrounds
@@ -38,6 +39,27 @@ Optional. Put it in `~/.pi/agent/compact-tools.json` or `<project>/.pi/compact-t
 
 - `tools`: tools to render compactly. Also available: `grep`, `find`, `ls`, `powershell`.
 - `auto_compact`: `true` starts hidden, `false` starts with a preview of up to `previewLines` rows (`1`–`100`).
+- `custom_tools`: compact rendering for tools from other packages. See [Custom tools](#custom-tools).
+
+## Custom tools
+
+Tools registered by other packages get the same row as the built-ins: a status indicator, the tool name, a one-line summary of the call, then duration and line count once it finishes. It works for any tool, whichever package registered it, with nothing to configure.
+
+Expanding a row shows the call's arguments and then the result as the tool's own package renders it, so a package's custom result view is kept. Tools without a result renderer show their text output.
+
+```json
+{
+  "custom_tools": { "enabled": true, "auto_compact": true, "exclude": ["my_tool"] }
+}
+```
+
+- `enabled`: `false` leaves every custom tool with its own renderer. `"custom_tools": false` is shorthand.
+- `auto_compact`: like the built-in setting, `true` starts rows hidden and `false` starts with a preview.
+- `exclude`: tool names that keep their own renderer.
+
+Built-in tools follow `tools` above: a built-in left out of that list keeps Pi's default renderer.
+
+Pi has no public API for changing how another package's tool is drawn, so this wraps the renderer lookup of Pi's tool row component. Nothing in Pi's installation is modified, and it only applies while this extension is loaded. If a Pi release changes that component, custom tools fall back to their own renderers and Pi shows a warning once.
 
 ## Controls
 

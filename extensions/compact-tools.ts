@@ -29,6 +29,7 @@ import {
 } from "./compact-tools-core.ts";
 import { colorizeRgb, interpolateRgb } from "./compact-tools-color.ts";
 import { loadConfig } from "./compact-tools-config.ts";
+import { installToolRowPatch, setRowResolver, type RowRenderers, type ToolRow } from "./compact-tools-custom.ts";
 import {
 	formatResultLineSummary,
 	getArgumentDetails,
@@ -39,12 +40,14 @@ import {
 	getTextResult,
 	isReadTextResult,
 	splitReadFooter,
+	summarizeCustomArguments,
 	summarizeShellCommand,
 } from "./compact-tools-invocation.ts";
 import {
 	CachedContainer,
 	limitComponentLines,
 	prefixedText,
+	railComponent,
 	renderArguments,
 	renderCodeDiff,
 	renderCodeView,
@@ -56,13 +59,14 @@ import { chromePainter, indicatorPulse } from "./compact-tools-palette.ts";
 import { ProgressController } from "./compact-tools-progress.ts";
 import { ToolRuntime } from "./compact-tools-runtime.ts";
 import { ThinkingCycleController } from "./compact-tools-thinking.ts";
-import type {
-	BuiltInDefinition,
-	CompactToolName,
-	RenderContext,
-	RowState,
-	ShellToolName,
-	ToolArgs,
+import {
+	SUPPORTED_TOOL_SET,
+	type BuiltInDefinition,
+	type CompactToolName,
+	type RenderContext,
+	type RowState,
+	type ShellToolName,
+	type ToolArgs,
 } from "./compact-tools-types.ts";
 
 /** Context lines kept around each change while an edit result is collapsed. */
@@ -285,6 +289,101 @@ function renderShellResult(
 	return container;
 }
 
+function renderCustomCall(name: string, args: ToolArgs, theme: Theme, ctx: RenderContext): Component {
+	const state = runtime.syncRow(ctx, ctx.state.endedAt === undefined);
+	runtime.syncExpansion(state, ctx.expanded, name);
+	const summary = summarizeCustomArguments(args);
+	const container = new CachedContainer();
+	container.addChild(renderToolCall(
+		renderCallTitle(name, theme, ctx, state),
+		summary ? theme.fg("toolOutput", summary) : undefined,
+		theme,
+	));
+	if (state.expanded && Object.keys(args).length > 0) container.addChild(renderArguments(args, theme));
+	return container;
+}
+
+type AuthorResultRenderer = (expanded: boolean) => Component | undefined;
+
+function renderCustomBody(
+	output: string,
+	expanded: boolean,
+	theme: Theme,
+	isError: boolean,
+	renderAuthorResult: AuthorResultRenderer | undefined,
+): Component | undefined {
+	if (renderAuthorResult) {
+		try {
+			const component = renderAuthorResult(expanded);
+			if (component) return railComponent(component, theme);
+		} catch {
+			// A failing third-party renderer degrades to the plain text result.
+		}
+	}
+	return renderOutput(output, theme, isError);
+}
+
+function renderCustomResult(
+	name: string,
+	result: AgentToolResult<unknown>,
+	options: ToolRenderResultOptions,
+	theme: Theme,
+	ctx: RenderContext,
+	renderAuthorResult: AuthorResultRenderer | undefined,
+): Component {
+	const state = runtime.syncRow(ctx, options.isPartial, !options.isPartial);
+	runtime.syncExpansion(state, ctx.expanded, name);
+	if (canReuseResult(state, result, options, ctx)) return ctx.lastComponent;
+	const output = getTextResult(result);
+	runtime.setResultAvailable(state, name, output.length > 0 || renderAuthorResult !== undefined);
+	if (!options.isPartial && !state.resultLineSummaryComputed) {
+		state.resultLineSummary = output ? formatResultLineSummary(name, ctx.args, result, output) : undefined;
+		state.resultLineSummaryComputed = true;
+	}
+	const container = new CachedContainer();
+	if (state.expanded || state.preview) {
+		const body = renderCustomBody(output, state.expanded === true, theme, ctx.isError, renderAuthorResult);
+		if (body) container.addChild(state.expanded ? body : limitComponentLines(body, runtime.config.previewLines, theme));
+	}
+	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary));
+	rememberResult(state, result, options, ctx);
+	return container;
+}
+
+/**
+ * Compact renderers for one row of a tool this extension did not register. The
+ * author's result renderer still draws the expanded body; the row chrome, status,
+ * and collapse behavior match the built-ins.
+ */
+function createCustomRenderers(name: string, author: ToolDefinition<any, any, any> | undefined): RowRenderers {
+	// Pi hands both renderers the row's own state object, which belongs to the tool's
+	// author. Compact bookkeeping is kept here so neither side overwrites the other.
+	const state: RowState = {};
+	let authorResult: Component | undefined;
+	const own = (ctx: RenderContext<any>): RenderContext => ({ ...ctx, args: ctx.args ?? {}, state });
+	return {
+		renderCall: (args, theme, ctx) => renderCustomCall(name, (args ?? {}) as ToolArgs, theme, own(ctx)),
+		renderResult: (result, options, theme, ctx) => {
+			const authorRenderer = author?.renderResult;
+			const renderAuthorResult = authorRenderer
+				? (expanded: boolean) => {
+					authorResult = authorRenderer(result, { ...options, expanded }, theme, { ...ctx, lastComponent: authorResult });
+					return authorResult;
+				}
+				: undefined;
+			return renderCustomResult(name, result, options, theme, own(ctx), renderAuthorResult);
+		},
+	};
+}
+
+function resolveCustomRow(row: ToolRow): RowRenderers | undefined {
+	const customTools = runtime.config.custom_tools;
+	// Built-ins are governed by `tools`: ones left out keep Pi's own renderer.
+	if (!customTools.enabled || SUPPORTED_TOOL_SET.has(row.toolName)) return undefined;
+	if (customTools.exclude.includes(row.toolName)) return undefined;
+	return createCustomRenderers(row.toolName, row.toolDefinition);
+}
+
 const toolFactories: Record<CompactToolName, (cwd: string) => BuiltInDefinition> = {
 	read: createReadToolDefinition,
 	write: createWriteToolDefinition,
@@ -369,6 +468,9 @@ export default function compactTools(pi: ExtensionAPI): void {
 
 	const thinkingCycle = new ThinkingCycleController(pi);
 	const progress = new ProgressController(pi);
+	const customRowsAvailable = installToolRowPatch();
+	setRowResolver(resolveCustomRow);
+	let customRowsWarned = false;
 	// Register once while the extension runtime is being built. In particular, this
 	// makes the overrides available before Pi restores the active tool set on /reload.
 	configure(pi, process.cwd());
@@ -378,6 +480,10 @@ export default function compactTools(pi: ExtensionAPI): void {
 		if (ctx.mode === "tui") {
 			progress.bind(ctx);
 			thinkingCycle.bind(ctx);
+			if (runtime.config.custom_tools.enabled && !customRowsAvailable && !customRowsWarned) {
+				customRowsWarned = true;
+				ctx.ui.notify("Compact rendering for custom tools is unavailable in this version of Pi", "warning");
+			}
 		} else {
 			progress.dispose();
 			thinkingCycle.dispose();

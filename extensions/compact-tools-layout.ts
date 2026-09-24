@@ -399,6 +399,16 @@ export function limitComponentLines(component: Component, maximumLines: number, 
 	}, () => component.invalidate?.());
 }
 
+/** Indent another renderer's component under the result rail so it reads as part of the row. */
+export function railComponent(component: Component, theme: Theme): Component {
+	const rail = paintChrome(theme, " │ ");
+	const railWidth = visibleWidth(rail);
+	return new CachedComponent(
+		(width) => component.render(Math.max(1, width - railWidth)).map((line) => rail + line),
+		() => component.invalidate?.(),
+	);
+}
+
 export function renderArguments(args: ToolArgs, theme: Theme): Component {
 	const json = JSON.stringify(args, null, 2) ?? "{}";
 	const styled = styleMultiline(json, (line) => theme.fg("toolOutput", line));

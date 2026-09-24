@@ -17,6 +17,7 @@ import {
 } from "../extensions/compact-tools-core.ts";
 import { colorizeRgb, fillRgb } from "../extensions/compact-tools-color.ts";
 import { DEFAULT_CONFIG, loadConfig, mergeConfig } from "../extensions/compact-tools-config.ts";
+import { patchToolRows } from "../extensions/compact-tools-custom.ts";
 import { languageFromPath, languageFromShebang, resolveLanguage } from "../extensions/compact-tools-language.ts";
 import {
 	formatResultLineSummary,
@@ -24,6 +25,7 @@ import {
 	getCallDetails,
 	getEditChanges,
 	splitReadFooter,
+	summarizeCustomArguments,
 	summarizeShellCommand,
 } from "../extensions/compact-tools-invocation.ts";
 import {
@@ -1186,4 +1188,157 @@ test("splits headings into independently styled thinking sections", () => {
 	assert.ok(rendered.includes("<thinking>Detail heading</thinking>  \n│  \n│ Body"));
 	assert.equal(rendered.match(/ctrl\+t toggle/gu)?.length, 1);
 	assert.deepEqual(styledSections, [0, 1]);
+});
+
+test("summarizes custom tool arguments on one line", () => {
+	assert.equal(summarizeCustomArguments({ numResults: 10, queries: ["IREN news", "IREN earnings"] }), "IREN news, IREN earnings");
+	assert.equal(summarizeCustomArguments({ mode: "readable", url: "https://example.com" }), "https://example.com");
+	assert.equal(summarizeCustomArguments({ note: "first\nsecond" }), "first second");
+	assert.equal(summarizeCustomArguments({ options: { deep: true } }), "");
+	assert.equal(summarizeCustomArguments({ query: "x".repeat(400) }).length, 160);
+});
+
+test("parses custom_tools as a switch or a policy object", () => {
+	assert.deepEqual(DEFAULT_CONFIG.custom_tools, { enabled: true, auto_compact: true, exclude: [] });
+	assert.equal(mergeConfig(DEFAULT_CONFIG, { custom_tools: false }, "test").custom_tools.enabled, false);
+	const merged = mergeConfig(DEFAULT_CONFIG, { custom_tools: { auto_compact: false, exclude: ["web_search"] } }, "test");
+	assert.deepEqual(merged.custom_tools, { enabled: true, auto_compact: false, exclude: ["web_search"] });
+	assert.deepEqual(mergeConfig(merged, { custom_tools: { exclude: "web_search" } }, "test").custom_tools.exclude, ["web_search"]);
+	assert.equal(mergeConfig(merged, { custom_tools: "yes" }, "test").custom_tools.auto_compact, false);
+});
+
+class FakeToolRow {
+	constructor(
+		readonly toolName: string,
+		readonly toolDefinition?: { renderCall?: unknown; renderResult?: unknown; renderShell?: "default" | "self" },
+	) {}
+	getCallRenderer(): unknown {
+		return this.toolDefinition?.renderCall;
+	}
+	getResultRenderer(): unknown {
+		return this.toolDefinition?.renderResult;
+	}
+	getRenderShell(): string {
+		return this.toolDefinition?.renderShell ?? "default";
+	}
+	hasRendererDefinition(): boolean {
+		return this.toolDefinition !== undefined;
+	}
+}
+
+test("routes tool rows through the resolver once per row", () => {
+	class Row extends FakeToolRow {}
+	const resolverKey = Symbol.for("pi-compact-tools.custom.resolver");
+	const holder = globalThis as Record<symbol, unknown>;
+	const previous = holder[resolverKey];
+	let calls = 0;
+	const renderers = { renderCall: () => undefined, renderResult: () => undefined };
+	holder[resolverKey] = (row: FakeToolRow) => {
+		calls++;
+		return row.toolName === "custom" ? renderers : undefined;
+	};
+	try {
+		assert.equal(patchToolRows(Row.prototype), true);
+		assert.equal(patchToolRows(Row.prototype), true);
+		const custom = new Row("custom");
+		assert.equal(custom.hasRendererDefinition(), true);
+		assert.equal(custom.getRenderShell(), "self");
+		assert.equal(custom.getCallRenderer(), renderers.renderCall);
+		assert.equal(custom.getResultRenderer(), renderers.renderResult);
+		const own = () => undefined;
+		const other = new Row("other", { renderCall: own });
+		assert.equal(other.getCallRenderer(), own);
+		assert.equal(other.getRenderShell(), "default");
+		assert.equal(new Row("other").hasRendererDefinition(), false);
+		// One decision per row, however often Pi asks.
+		assert.equal(calls, 3);
+		holder[resolverKey] = () => undefined;
+		assert.equal(custom.getRenderShell(), "self", "a built row never switches renderers");
+		assert.equal(patchToolRows(undefined), false);
+		assert.equal(patchToolRows({ getCallRenderer() {} }), false);
+	} finally {
+		holder[resolverKey] = previous;
+	}
+});
+
+test("renders custom tools compactly and expands into the author's renderer", async () => {
+	const agentDirVariable = "PI_CODING_AGENT_DIR";
+	const previousAgentDir = process.env[agentDirVariable];
+	process.env[agentDirVariable] = mkdtempSync(join(tmpdir(), "compact-tools-custom-"));
+	writeFileSync(
+		join(process.env[agentDirVariable]!, "compact-tools.json"),
+		JSON.stringify({ custom_tools: { exclude: ["keep_me"] } }),
+	);
+	try {
+		const compactTools = (await import("../extensions/compact-tools.ts")).default;
+		compactTools({
+			on: () => {},
+			registerTool: () => {},
+			registerMarkdownTransformer: () => {},
+			registerCommand: () => {},
+		} as unknown as ExtensionAPI);
+		class Row extends FakeToolRow {}
+		assert.equal(patchToolRows(Row.prototype), true);
+
+		const theme = {
+			fg: (_color: string, text: string) => text,
+			bg: (_color: string, text: string) => text,
+			bold: (text: string) => text,
+			italic: (text: string) => text,
+			getFgAnsi: () => "\x1b[38;2;20;30;40m",
+			getColorMode: () => "truecolor",
+		} as unknown as Theme;
+		const authorState = { author: true };
+		const authorCalls: Array<{ expanded: boolean; state: unknown }> = [];
+		const renderAuthorResult = (_result: unknown, options: { expanded: boolean }, _theme: Theme, ctx: any) => {
+			authorCalls.push({ expanded: options.expanded, state: ctx.state });
+			return { render: () => ["AUTHOR CARD"], invalidate: () => {} };
+		};
+		const row = new Row("web_search", { renderResult: renderAuthorResult, renderShell: "default" });
+		assert.equal(row.getRenderShell(), "self");
+		const args = { queries: ["IREN news"], numResults: 10 };
+		const context = (expanded: boolean) => ({
+			args,
+			argsComplete: true,
+			cwd: process.cwd(),
+			executionStarted: true,
+			expanded,
+			invalidate: () => {},
+			isError: false,
+			isPartial: false,
+			lastComponent: undefined,
+			showImages: false,
+			state: authorState,
+			toolCallId: `custom-${expanded}`,
+		});
+		const renderCall = row.getCallRenderer() as (args: unknown, theme: Theme, ctx: unknown) => Component;
+		const renderResult = row.getResultRenderer() as (
+			result: unknown,
+			options: { expanded: boolean; isPartial: boolean },
+			theme: Theme,
+			ctx: unknown,
+		) => Component;
+		const call = renderCall(args, theme, context(false)).render(80).map((line) => stripTerminalSequences(line));
+		assert.match(call[0]!, /⦁ web_search IREN news$/u);
+		const result = { content: [{ type: "text", text: "one\ntwo" }] };
+
+		const collapsed = renderResult(result, { expanded: false, isPartial: false }, theme, context(false))
+			.render(80).map((line) => stripTerminalSequences(line));
+		assert.equal(collapsed.length, 1);
+		assert.match(collapsed[0]!, /^ └ Done.*\(2 lines\)$/u);
+		assert.equal(authorCalls.length, 0, "a collapsed row does not ask the author to render");
+
+		const expanded = renderResult(result, { expanded: true, isPartial: false }, theme, context(true))
+			.render(80).map((line) => stripTerminalSequences(line));
+		assert.deepEqual(expanded.slice(0, 1), [" │ AUTHOR CARD"]);
+		assert.deepEqual(authorCalls, [{ expanded: true, state: authorState }]);
+		assert.deepEqual(authorState, { author: true }, "compact bookkeeping stays out of the author's state");
+
+		const kept = () => undefined;
+		assert.equal(new Row("keep_me", { renderCall: kept }).getCallRenderer(), kept);
+		assert.equal(new Row("read", { renderCall: kept }).getCallRenderer(), kept);
+	} finally {
+		if (previousAgentDir === undefined) delete process.env[agentDirVariable];
+		else process.env[agentDirVariable] = previousAgentDir;
+	}
 });

@@ -1,11 +1,12 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG } from "./compact-tools-config.ts";
-import type {
-	BuiltInDefinition,
-	CompactToolName,
-	CompactToolsConfig,
-	RenderContext,
-	RowState,
+import {
+	SUPPORTED_TOOL_SET,
+	type BuiltInDefinition,
+	type CompactToolName,
+	type CompactToolsConfig,
+	type RenderContext,
+	type RowState,
 } from "./compact-tools-types.ts";
 
 const MAX_TRACKED_ROWS = 2_000;
@@ -66,7 +67,7 @@ export class ToolRuntime {
 		return this.indicatorFrame;
 	}
 
-	syncExpansion(state: RowState, hostExpanded: boolean, name: CompactToolName): boolean {
+	syncExpansion(state: RowState, hostExpanded: boolean, name: string): boolean {
 		const initialized = this.initializeExpansion(state, name, hostExpanded);
 		if (!initialized && state.lastHostExpanded !== hostExpanded) {
 			state.lastHostExpanded = hostExpanded;
@@ -74,12 +75,12 @@ export class ToolRuntime {
 			// A non-auto-compacted row collapses back to its bounded preview. Hiding it
 			// here removes the clicked row from under the pointer, so the next click can
 			// accidentally hit the Thinking block that moved into the same coordinates.
-			state.preview = !hostExpanded && !this.configValue.auto_compact[name];
+			state.preview = !hostExpanded && !this.autoCompact(name);
 		}
 		return state.expanded ?? false;
 	}
 
-	setResultAvailable(state: RowState, name: CompactToolName, available: boolean): void {
+	setResultAvailable(state: RowState, name: string, available: boolean): void {
 		this.initializeExpansion(state, name);
 		state.hasResult = available;
 	}
@@ -131,12 +132,19 @@ export class ToolRuntime {
 		this.indicatorFrame = 0;
 	}
 
-	private initializeExpansion(state: RowState, name: CompactToolName, hostExpanded = false): boolean {
+	/** Built-ins follow their own auto_compact entry; every other tool shares the custom_tools policy. */
+	private autoCompact(name: string): boolean {
+		return SUPPORTED_TOOL_SET.has(name)
+			? this.configValue.auto_compact[name as CompactToolName]
+			: this.configValue.custom_tools.auto_compact;
+	}
+
+	private initializeExpansion(state: RowState, name: string, hostExpanded = false): boolean {
 		if (state.configRevision === this.configRevision) return false;
 		state.configRevision = this.configRevision;
 		state.lastHostExpanded = hostExpanded;
 		state.expanded = hostExpanded;
-		state.preview = !hostExpanded && !this.configValue.auto_compact[name];
+		state.preview = !hostExpanded && !this.autoCompact(name);
 		return true;
 	}
 
