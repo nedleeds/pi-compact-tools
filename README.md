@@ -74,6 +74,8 @@ Shows only your prompts and the final answers. Tool calls, thinking, and notices
 
 ## Controls
 
+![Ctrl+O expands every tool row, then collapses them again](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/expand-collapse.gif)
+
 - Click a row or press `Ctrl+O` to expand or collapse results.
 - `Ctrl+T` cycles thinking: summary → detail → summary → hidden.
 - `Ctrl+'` or `/silent` toggles silent mode.
