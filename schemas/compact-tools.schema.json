@@ -58,9 +58,9 @@
       "default": 10
     },
     "auto_compact": {
-      "description": "Whether each compact-rendered tool starts hidden. False starts with a bounded preview; Pi's normal click and Ctrl+O flow can expand either state.",
+      "description": "Whether each compact-rendered tool starts hidden. False starts with a bounded preview; Pi's normal click and Ctrl+O flow can expand either state. Custom tools can be listed by name too, which overrides custom_tools.auto_compact for that tool.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": { "type": "boolean" },
       "properties": {
         "read": { "type": "boolean", "default": true },
         "write": { "type": "boolean", "default": true },

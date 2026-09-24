@@ -77,13 +77,12 @@ function parseAutoCompact(
 		return base;
 	}
 	const result = { ...base };
+	// Any tool name is accepted: a custom tool's entry overrides custom_tools.auto_compact.
 	for (const [name, enabled] of Object.entries(value)) {
-		if (!SUPPORTED_TOOL_SET.has(name)) {
-			warn(path, `ignoring unsupported auto_compact tool: ${name}`);
-		} else if (typeof enabled !== "boolean") {
+		if (typeof enabled !== "boolean") {
 			warn(path, `auto_compact.${name} must be true or false; using previous value`);
 		} else {
-			result[name as CompactToolName] = enabled;
+			result[name] = enabled;
 		}
 	}
 	return result;

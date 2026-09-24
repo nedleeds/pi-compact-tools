@@ -1945,3 +1945,28 @@ test("marks a finished custom tool's row as done before its result is drawn", as
 	const call = renderCall({ query: "pi" }, theme, context).render(80)[0]!;
 	assert.match(call, /<success>⦁<\/success>/u, "the dot turns green without waiting for another redraw");
 });
+
+test("lets auto_compact name a custom tool, overriding the custom_tools default for it", () => {
+	const warnings: string[] = [];
+	const originalError = console.error;
+	console.error = (message: string) => warnings.push(message);
+	try {
+		const merged = mergeConfig(DEFAULT_CONFIG, { auto_compact: { web_search: false, fetch_content: "no" } }, "test");
+		assert.equal(merged.auto_compact.web_search, false);
+		assert.equal(merged.auto_compact.fetch_content, undefined, "a non-boolean value is ignored");
+		assert.deepEqual(warnings, ["[compact-tools] test: auto_compact.fetch_content must be true or false; using previous value"]);
+		assert.equal(merged.auto_compact.read, true, "built-ins keep their defaults");
+
+		const runtime = new ToolRuntime();
+		runtime.configure(merged);
+		const listed: RowState = {};
+		runtime.syncExpansion(listed, false, "web_search");
+		assert.equal(listed.preview, true, "web_search: false starts with a preview");
+		const unlisted: RowState = {};
+		runtime.syncExpansion(unlisted, false, "other_tool");
+		assert.equal(unlisted.preview, false, "other custom tools follow custom_tools.auto_compact");
+		runtime.reset(true);
+	} finally {
+		console.error = originalError;
+	}
+});

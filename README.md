@@ -39,7 +39,7 @@ Optional. Put it in `~/.pi/agent/compact-tools.json` or `<project>/.pi/compact-t
 ```
 
 - `tools`: tools to render compactly. Also available: `grep`, `find`, `ls`, `powershell`.
-- `auto_compact`: `true` starts hidden, `false` starts with a preview of up to `previewLines` rows (`1`–`100`).
+- `auto_compact`: `true` starts hidden, `false` starts with a preview of up to `previewLines` rows (`1`–`100`). Custom tools can be listed by name too, such as `"web_search": false`.
 - `mode`: `"normal"` (default) or `"silent"`. See [Silent mode](#silent-mode).
 - `custom_tools`: compact rendering for tools from other packages. See [Custom tools](#custom-tools).
 
@@ -56,7 +56,7 @@ Expanding a row shows the call's arguments and then the result as the tool's own
 ```
 
 - `enabled`: `false` leaves every custom tool with its own renderer. `"custom_tools": false` is shorthand.
-- `auto_compact`: like the built-in setting, `true` starts rows hidden and `false` starts with a preview.
+- `auto_compact`: like the built-in setting, `true` starts rows hidden and `false` starts with a preview. A tool named in the top-level `auto_compact` uses its own setting instead.
 - `exclude`: tool names that keep their own renderer.
 
 Built-in tools follow `tools` above: a built-in left out of that list keeps Pi's default renderer.

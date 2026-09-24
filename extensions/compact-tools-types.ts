@@ -21,7 +21,8 @@ export interface CustomToolsConfig {
 export interface CompactToolsConfig {
 	mode: DisplayMode;
 	tools: CompactToolName[];
-	auto_compact: Record<CompactToolName, boolean>;
+	/** Built-ins always have an entry; custom tools may, and otherwise use custom_tools.auto_compact. */
+	auto_compact: Record<CompactToolName, boolean> & { [tool: string]: boolean | undefined };
 	custom_tools: CustomToolsConfig;
 	previewLines: number;
 }

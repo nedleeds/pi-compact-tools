@@ -151,11 +151,11 @@ export class ToolRuntime {
 		this.indicatorFrame = 0;
 	}
 
-	/** Built-ins follow their own auto_compact entry; every other tool shares the custom_tools policy. */
+	/** Built-ins follow their own auto_compact entry; a custom tool its own entry if it has one, else the custom_tools policy. */
 	private autoCompact(name: string): boolean {
 		return SUPPORTED_TOOL_SET.has(name)
 			? this.configValue.auto_compact[name as CompactToolName]
-			: this.configValue.custom_tools.auto_compact;
+			: this.configValue.auto_compact[name] ?? this.configValue.custom_tools.auto_compact;
 	}
 
 	private initializeExpansion(state: RowState, name: string, hostExpanded = false): boolean {
