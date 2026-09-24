@@ -59,6 +59,7 @@ import { chromePainter, indicatorPulse } from "./compact-tools-palette.ts";
 import { ProgressController } from "./compact-tools-progress.ts";
 import { ToolRuntime } from "./compact-tools-runtime.ts";
 import { ThinkingCycleController } from "./compact-tools-thinking.ts";
+import { ViewportKeeper } from "./compact-tools-viewport.ts";
 import {
 	SUPPORTED_TOOL_SET,
 	type BuiltInDefinition,
@@ -468,6 +469,7 @@ export default function compactTools(pi: ExtensionAPI): void {
 
 	const thinkingCycle = new ThinkingCycleController(pi);
 	const progress = new ProgressController(pi);
+	const viewport = new ViewportKeeper();
 	const customRowsAvailable = installToolRowPatch();
 	setRowResolver(resolveCustomRow);
 	let customRowsWarned = false;
@@ -478,6 +480,8 @@ export default function compactTools(pi: ExtensionAPI): void {
 		if (event.reason !== "reload") runtime.clearTimings();
 		configure(pi, ctx.cwd, ctx.isProjectTrusted());
 		if (ctx.mode === "tui") {
+			// First, so its input listener sees relayout keys before the thinking controller consumes them.
+			viewport.bind(ctx);
 			progress.bind(ctx);
 			thinkingCycle.bind(ctx);
 			if (runtime.config.custom_tools.enabled && !customRowsAvailable && !customRowsWarned) {
@@ -485,6 +489,7 @@ export default function compactTools(pi: ExtensionAPI): void {
 				ctx.ui.notify("Compact rendering for custom tools is unavailable in this version of Pi", "warning");
 			}
 		} else {
+			viewport.dispose();
 			progress.dispose();
 			thinkingCycle.dispose();
 		}
@@ -492,6 +497,7 @@ export default function compactTools(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", (event) => {
 		thinkingCycle.dispose();
 		progress.dispose();
+		viewport.dispose();
 		runtime.reset(event.reason !== "reload");
 	});
 }

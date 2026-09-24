@@ -64,6 +64,7 @@ Pi has no public API for changing how another package's tool is drawn, so this w
 ## Controls
 
 - Click a row or press `Ctrl+O` to expand or collapse results.
+- In fullscreen mode, expanding or collapsing every row, and cycling thinking keep the text you were reading in place instead of jumping.
 - `Ctrl+T` cycles thinking: summary → detail → summary → hidden.
 
 ## Development

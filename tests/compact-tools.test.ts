@@ -18,6 +18,8 @@ import {
 import { colorizeRgb, fillRgb } from "../extensions/compact-tools-color.ts";
 import { DEFAULT_CONFIG, loadConfig, mergeConfig } from "../extensions/compact-tools-config.ts";
 import { patchToolRows } from "../extensions/compact-tools-custom.ts";
+import { findAnchorTop, ViewportKeeper } from "../extensions/compact-tools-viewport.ts";
+import { hookMethod } from "../extensions/compact-tools-hook.ts";
 import { languageFromPath, languageFromShebang, resolveLanguage } from "../extensions/compact-tools-language.ts";
 import {
 	formatResultLineSummary,
@@ -1345,4 +1347,113 @@ test("renders custom tools compactly and expands into the author's renderer", as
 		if (previousAgentDir === undefined) delete process.env[agentDirVariable];
 		else process.env[agentDirVariable] = previousAgentDir;
 	}
+});
+
+test("finds where the reader's text moved after rows above it resized", () => {
+	const before = ["a1", "a2", "TOOL", "", "b1", "b2", "b3", "c1"];
+	// A row above the viewport expanded by three lines.
+	const expanded = ["a1", "a2", "TOOL", "x", "y", "z", "", "b1", "b2", "b3", "c1"];
+	assert.equal(findAnchorTop(before, 4, 3, expanded), 7);
+	// Collapsing it again brings the same text back to its old offset.
+	assert.equal(findAnchorTop(expanded, 7, 3, before), 4);
+	// When the top line vanished (a hidden tool row), the next surviving text keeps its screen row.
+	const hidden = ["a1", "a2", "", "b1", "b2", "b3", "c1"];
+	assert.equal(findAnchorTop(["a1", "a2", "TOOL", "DONE", "b1", "b2"], 2, 4, hidden), 1);
+	// Blank windows never anchor, and nothing surviving yields no move.
+	assert.equal(findAnchorTop(["", "", "q"], 0, 2, ["", "", ""]), undefined);
+	// A repeated window picks the occurrence nearest the old position.
+	assert.equal(findAnchorTop(["r", "s", "r", "s", "t"], 2, 2, ["n", "r", "s", "r", "s", "t"]), 3);
+});
+
+test("keeps the reader's place across a relayout key and ignores a view that follows the end", async () => {
+	const { TuiAltScreen } = await import("@earendil-works/pi-tui");
+	let content = ["a1", "a2", "TOOL", "", "b1", "b2", "b3", "c1", "c2", "c3"];
+	const scrollView = {
+		scrollTop: 4,
+		isFollowingEnd: false,
+		viewportHeight: 3,
+		child: { render: () => content },
+		getContentWidth: (width: number) => width,
+		updateLayout(height: number) { this.height = height; },
+		height: content.length,
+		scrollTo(top: number) { this.scrollTop = top; },
+	};
+	const layout = () => ({ root: { children: [{ scrollView, scrollContentLines: content, rect: { width: 40 }, children: [] }] } });
+	// Extensions only see a proxy to Pi's current renderer, so the restore hooks the
+	// fullscreen renderer's class. Its real doRender returns at once for a renderer
+	// that is not on the alternate screen, like this stand-in.
+	const tui = {
+		terminal: { columns: 40 },
+		currentLayout: layout(),
+		getPrimaryScrollView: () => scrollView,
+	};
+	const render = () => (TuiAltScreen.prototype as unknown as { doRender(): void }).doRender.call(tui);
+	let input: ((data: string) => unknown) | undefined;
+	const ctx = {
+		ui: {
+			setWidget: (_key: string, factory: unknown) => {
+				if (typeof factory === "function") factory(tui, {});
+			},
+			onTerminalInput: (handler: (data: string) => unknown) => {
+				input = handler;
+				return () => { input = undefined; };
+			},
+		},
+	} as unknown as ExtensionContext;
+	const keeper = new ViewportKeeper();
+	keeper.bind(ctx);
+	assert.equal(input!("\x0f"), undefined, "the key is observed, never consumed");
+	// Pi expands every row: three lines appear above the viewport.
+	content = ["a1", "a2", "TOOL", "x", "y", "z", "", "b1", "b2", "b3", "c1", "c2", "c3"];
+	render();
+	assert.equal(scrollView.scrollTop, 7, "b1 stays on the first screen row");
+
+	// The Kitty release of the same key must not snapshot again: the reader's next
+	// scroll would otherwise be pulled back to the old place.
+	tui.currentLayout = layout();
+	input!("\x1b[111;5:3u");
+	scrollView.scrollTop = 2;
+	render();
+	assert.equal(scrollView.scrollTop, 2, "a released key leaves the reader's scroll alone");
+
+	// Nor may a snapshot undo a scroll that happened before the relayout was drawn.
+	scrollView.scrollTop = 7;
+	tui.currentLayout = layout();
+	input!("\x0f");
+	scrollView.scrollTop = 5;
+	content = ["a1"];
+	render();
+	assert.equal(scrollView.scrollTop, 5);
+
+	// Following the end needs no help, so nothing is captured.
+	scrollView.isFollowingEnd = true;
+	input!("\x0f");
+	render();
+	assert.equal(scrollView.scrollTop, 5);
+	keeper.dispose();
+	assert.equal(input, undefined);
+});
+
+test("hooks a method once and lets every later load replace only its behavior", () => {
+	const legacy = Symbol.for("pi-compact-tools.test.legacyRender");
+	class Box {
+		render(width: number): string[] {
+			return [`box ${width}`];
+		}
+	}
+	// An older version wrapped render and kept the original under its own marker.
+	const original = Box.prototype.render;
+	Box.prototype.render = function (width: number) {
+		return ["OLD", ...original.call(this, width)];
+	};
+	Object.defineProperty(Box.prototype, legacy, { value: original });
+	const name = `test.box.${Math.random()}`;
+	assert.equal(hookMethod(Box.prototype, "render", name, (_self, args, render) => ["v1", ...render(...args)], [legacy]), true);
+	assert.deepEqual(new Box().render(5), ["v1", "box 5"], "the legacy wrapper is dropped, not stacked");
+	// A /reload loads the module again: the same hook now runs the new behavior.
+	const wrapper = Box.prototype.render;
+	assert.equal(hookMethod(Box.prototype, "render", name, (_self, args, render) => ["v2", ...render(...args)], [legacy]), true);
+	assert.equal(Box.prototype.render, wrapper, "installed once per process");
+	assert.deepEqual(new Box().render(7), ["v2", "box 7"]);
+	assert.equal(hookMethod({}, "render", `${name}.missing`, () => []), false);
 });
