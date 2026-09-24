@@ -1,11 +1,12 @@
 import {
 	AssistantMessageComponent,
 	CustomMessageComponent,
+	DynamicBorder,
 	ToolExecutionComponent,
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
+import { Markdown, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
 import { hookMethod } from "./compact-tools-hook.ts";
 import type { DisplayMode } from "./compact-tools-types.ts";
 import { captureViewport } from "./compact-tools-viewport.ts";
@@ -118,6 +119,14 @@ export function renderAnswerOnly(component: AssistantLike, width: number, render
 }
 
 /**
+ * A row Pi (or this extension) adds to the chat directly rather than as a message:
+ * status lines are Text, and "What's New" blocks add borders and Markdown too.
+ */
+function isNotice(child: unknown): boolean {
+	return isKind(child, Text) || isKind(child, DynamicBorder) || isKind(child, Markdown);
+}
+
+/**
  * Render a transcript container without Pi's own notices. Pi writes warnings,
  * errors, and status lines ("Reloaded …", "Wait for the current response …")
  * straight into the chat as a spacer followed by a plain Text, while every
@@ -126,10 +135,10 @@ export function renderAnswerOnly(component: AssistantLike, width: number, render
  */
 export function renderWithoutNotices(container: { children?: unknown[] }, width: number, render: Render): string[] {
 	const children = container.children;
-	if (!Array.isArray(children) || !children.some((child) => isKind(child, Text))) return render(width);
+	if (!Array.isArray(children) || !children.some(isNotice)) return render(width);
 	const kept: unknown[] = [];
 	for (const child of children) {
-		if (isKind(child, Text)) {
+		if (isNotice(child)) {
 			if (isKind(kept.at(-1), Spacer)) kept.pop();
 			continue;
 		}

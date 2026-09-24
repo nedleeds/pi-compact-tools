@@ -20,7 +20,7 @@ import { DEFAULT_CONFIG, loadConfig, mergeConfig } from "../extensions/compact-t
 import { patchToolRows } from "../extensions/compact-tools-custom.ts";
 import { findAnchorTop, ViewportKeeper } from "../extensions/compact-tools-viewport.ts";
 import { hookMethod } from "../extensions/compact-tools-hook.ts";
-import { installedVersion, showReleaseNotice } from "../extensions/compact-tools-release.ts";
+import { compareVersions, releasesToShow, showReleaseNotice } from "../extensions/compact-tools-release.ts";
 import { isIntermediateAssistant, parseSilentArgument, patchRender, renderAnswerOnly, renderWithoutNotices, SilentModeController } from "../extensions/compact-tools-silent.ts";
 import { attachActivityToUserMessage, bottomAlignTranscript, dotIntensities, frameChanges, renderActivityDots, SilentActivityAnimator } from "../extensions/compact-tools-activity.ts";
 import { languageFromPath, languageFromShebang, resolveLanguage } from "../extensions/compact-tools-language.ts";
@@ -108,29 +108,83 @@ test("parses display mode and keeps the previous value when invalid", () => {
 	assert.equal(mergeConfig(silent, { previewLines: 4 }, "test").mode, "silent");
 });
 
-test("shows release notes once per installed version in Pi's dim status area", () => {
+test("shows what changed once, like Pi's own What's New, and only as a conversation starts", () => {
 	const dir = mkdtempSync(join(tmpdir(), "compact-tools-notices-"));
-	const messages: Array<{ text: string; type: string }> = [];
+	const notes = { "0.9.0": ["Older"], "0.10.0": ["Silent mode", "Custom tools"], "0.11.0": ["Next"] };
+	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
+	const chat = { children: [] as unknown[], addChild(component: unknown) { this.children.push(component); } };
+	const tui = { children: [{ children: [{}, {}, chat] }] };
+	const notices: string[] = [];
+	let entries: Array<{ type: string }> = [];
 	const ctx = {
 		mode: "tui",
-		ui: { notify: (text: string, type: string) => { messages.push({ text, type }); } },
+		sessionManager: { getEntries: () => entries },
+		ui: {
+			theme,
+			notify: (text: string) => notices.push(text),
+			setWidget: (_key: string, factory: unknown) => {
+				if (typeof factory === "function") factory(tui, theme);
+			},
+		},
 	} as unknown as ExtensionContext;
+	const shownText = () => (chat.children as Array<{ render(width: number): string[] }>)
+		.flatMap((child) => child.render(60)).map((line) => line.trim()).filter(Boolean);
 	try {
-		const version = installedVersion();
-		assert.equal(showReleaseNotice({ ...ctx, mode: "print" } as ExtensionContext, version, dir), false);
-		assert.equal(showReleaseNotice(ctx, version, dir), true);
-		assert.equal(messages.length, 1);
-		assert.equal(messages[0]!.type, "info");
-		assert.ok(messages[0]!.text.startsWith(`pi-compact-tools updated to v${version}\n  • `));
-		assert.equal(showReleaseNotice(ctx, version, dir), false, "a new session or reload must not repeat it");
-		assert.equal(showReleaseNotice(ctx, "999.0.0", dir), false, "a version without notes is not acknowledged");
-		assert.equal(showReleaseNotice(ctx, "../escape", dir), false);
-		assert.equal(messages.length, 1);
+		assert.equal(showReleaseNotice({ ...ctx, mode: "print" } as ExtensionContext, "0.10.0", dir, notes), false);
+		// A resumed conversation keeps the notes for the next new one.
+		entries = [{ type: "message" }];
+		assert.equal(showReleaseNotice(ctx, "0.10.0", dir, notes), false);
+		entries = [];
+		// With nothing shown before, the installed version's notes appear once, as a bordered block.
+		assert.equal(showReleaseNotice(ctx, "0.10.0", dir, notes), true);
+		const block = shownText();
+		assert.equal(block[0], "─".repeat(60));
+		assert.equal(block[1], "What's new in pi-compact-tools v0.10.0");
+		assert.deepEqual(block.slice(2, 4), ["• Silent mode", "• Custom tools"]);
+		assert.equal(block.at(-1), "─".repeat(60));
+		assert.ok(!block.some((line) => line.includes("Older")), "versions before the first notice stay quiet");
+		assert.equal(notices.length, 0);
+		// A new session or /reload must not repeat it.
+		assert.equal(showReleaseNotice(ctx, "0.10.0", dir, notes), false);
+		// Updating later shows only what is new since.
+		chat.children.length = 0;
+		assert.equal(showReleaseNotice(ctx, "0.11.0", dir, notes), true);
+		assert.deepEqual(shownText().filter((line) => line.startsWith("What's new")), ["What's new in pi-compact-tools v0.11.0"]);
+		assert.equal(showReleaseNotice(ctx, "../escape", dir, notes), false);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
 
+test("lists every release skipped since the last notice, newest first", () => {
+	const notes = { "0.9.0": ["a"], "0.10.0": ["b"], "0.10.1": [], "0.11.0": ["c"], "0.12.0": ["d"] };
+	assert.deepEqual(releasesToShow("0.11.0", notes, "0.9.0").map(({ version }) => version), ["0.11.0", "0.10.0"]);
+	assert.deepEqual(releasesToShow("0.11.0", notes, undefined).map(({ version }) => version), ["0.11.0"]);
+	assert.deepEqual(releasesToShow("0.11.0", notes, "0.11.0"), []);
+	assert.ok(compareVersions("0.10.0", "0.9.3") > 0, "versions compare numerically");
+});
+
+test("falls back to a status line when Pi's chat can't be reached", () => {
+	const dir = mkdtempSync(join(tmpdir(), "compact-tools-notices-"));
+	const notices: string[] = [];
+	const ctx = {
+		mode: "tui",
+		sessionManager: { getEntries: () => [] },
+		ui: {
+			theme: { fg: (_color: string, text: string) => text, bold: (text: string) => text },
+			notify: (text: string) => notices.push(text),
+			setWidget: (_key: string, factory: unknown) => {
+				if (typeof factory === "function") factory({}, {});
+			},
+		},
+	} as unknown as ExtensionContext;
+	try {
+		assert.equal(showReleaseNotice(ctx, "0.10.0", dir, { "0.10.0": ["Silent mode"] }), true);
+		assert.deepEqual(notices, ["pi-compact-tools v0.10.0\n  • Silent mode"]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
 test("treats every tool-handoff assistant turn as intermediate, however it ended", () => {
 	assert.equal(isIntermediateAssistant({ hasToolCalls: true }), true);
 	assert.equal(isIntermediateAssistant({ hasToolCalls: false }), false);
