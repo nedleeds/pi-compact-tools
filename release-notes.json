@@ -1,4 +1,5 @@
 {
+  "0.10.1": [],
   "0.10.0": [
     "Silent mode shows only prompts and final answers (Ctrl+' or /silent)",
     "Tools from other packages get the same compact rows as the built-ins",
