@@ -164,8 +164,8 @@ function renderThinkingSections(
 				? typeof controls === "function" ? controls(detail.length > 0) : controls
 				: undefined;
 			const controlLines = sectionControls
-				? wrapTextWithAnsi(sectionControls, Math.max(1, availableWidth - 3)).map(
-						(line, index) => `${index === 0 ? styleControlPrefix("└─ ") : "   "}${line}`,
+				? wrapTextWithAnsi(sectionControls, Math.max(1, availableWidth - 2)).map(
+						(line, index) => `${index === 0 ? styleControlPrefix("└ ") : "  "}${line}`,
 					)
 				: [];
 			if (view === "detail" && detail) {

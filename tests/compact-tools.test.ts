@@ -647,7 +647,7 @@ test("animates every built-in, restores reload renderers, and reuses unchanged l
 		{ ...resultContext, state: {}, toolCallId: "finished-result", lastComponent: undefined },
 	).render(80);
 	const controls = finished.at(-1)!;
-	assert.match(stripTerminalSequences(controls), /└─ Done/u);
+	assert.match(stripTerminalSequences(controls), /└ Done/u);
 	assert.deepEqual([...new Set([...controls.matchAll(/38;2;\d+;\d+;\d+/gu)].map((match) => match[0]))], [
 		paintChrome(renderTheme, "x").match(/38;2;\d+;\d+;\d+/u)![0],
 	]);
@@ -1149,7 +1149,7 @@ test("renders each thinking view without changing source content", () => {
 	assert.equal(renderThinkingView(thinking, "summary", 80), "Check the implementation");
 	assert.equal(
 		renderThinkingView(thinking, "detail", 80),
-		"Check the implementation  \n│  \n│ Inspect the renderer.  \n│ Keep the cache.  \n└─ ctrl+t toggle • click to hide",
+		"Check the implementation  \n│  \n│ Inspect the renderer.  \n│ Keep the cache.  \n└ ctrl+t toggle • click to hide",
 	);
 	assert.equal(renderThinkingView(thinking, "hidden", 80), "Thinking...");
 	assert.equal(thinking, "## **Check the implementation**\n\nInspect the renderer.\nKeep the cache.");

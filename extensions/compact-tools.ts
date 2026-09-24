@@ -144,7 +144,7 @@ function renderControls(
 	const chrome = chromePainter(theme);
 	let details = chrome(status);
 	if (lineSummary && !running) details += chrome(` (${lineSummary})`);
-	return prefixedText(details, chrome(" └─ "), "    ");
+	return prefixedText(details, chrome(" └ "), "   ");
 }
 
 function renderCallTitle(name: string, theme: Theme, ctx: RenderContext, state: RowState): string {
