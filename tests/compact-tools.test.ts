@@ -28,6 +28,7 @@ import {
 	getEditChanges,
 	splitReadFooter,
 	summarizeCustomArguments,
+	summarizeFailure,
 	summarizeShellCommand,
 } from "../extensions/compact-tools-invocation.ts";
 import {
@@ -93,6 +94,15 @@ test("merges configuration without mutating defaults", () => {
 	assert.equal(merged.previewLines, 12);
 	assert.equal(mergeConfig(DEFAULT_CONFIG, { previewLines: 0 }, "test").previewLines, 10);
 	assert.equal(DEFAULT_CONFIG.auto_compact.read, true);
+});
+
+test("summarizes failure diagnostics from file and shell output", () => {
+	assert.equal(summarizeFailure("read", "\x1b[31mENOENT: missing file\x1b[0m\nstack frame"), "ENOENT: missing file");
+	assert.equal(summarizeFailure("bash", "running tests\nError: missing module\n\nCommand exited with code 1"),
+		"Error: missing module (Command exited with code 1)");
+	assert.equal(summarizeFailure("bash", "output\n\nCommand timed out after 5 seconds"),
+		"Command timed out after 5 seconds");
+	assert.equal(summarizeFailure("read", "  \n  "), undefined);
 });
 
 test("hard-wraps long ANSI paths into remaining columns instead of moving the path", () => {
@@ -659,6 +669,29 @@ test("animates every built-in, restores reload renderers, and reuses unchanged l
 	assert.deepEqual([...new Set([...controls.matchAll(/38;2;\d+;\d+;\d+/gu)].map((match) => match[0]))], [
 		paintChrome(renderTheme, "x").match(/38;2;\d+;\d+;\d+/u)![0],
 	]);
+
+	const failedResult = renderResult(
+		{ content: [{ type: "text", text: "ENOENT: missing file\nstack frame" }] },
+		{ expanded: false, isPartial: false },
+		renderTheme,
+		{ ...resultContext, expanded: false, isError: true, state: {}, toolCallId: "failed-read", lastComponent: undefined },
+	).render(80).map(stripTerminalSequences).join("\n");
+	assert.match(failedResult, /Failed.*ENOENT: missing file/u);
+	assert.doesNotMatch(failedResult, /stack frame/u);
+
+	// An edit starts with its preview showing, so the error is already on screen:
+	// the status line must not repeat it.
+	const editDefinition = registered.find(({ name }) => name === "edit");
+	const renderEditResult = editDefinition?.renderResult as typeof renderResult;
+	const editError = "Could not find the exact text in file.ts. The old text must match exactly.";
+	const failedEdit = renderEditResult(
+		{ content: [{ type: "text", text: editError }] },
+		{ expanded: false, isPartial: false },
+		renderTheme,
+		{ ...resultContext, args: { path: "file.ts" }, expanded: false, isError: true, state: {}, toolCallId: "failed-edit", lastComponent: undefined },
+	).render(200).map(stripTerminalSequences);
+	assert.equal(failedEdit.filter((line) => line.includes("Could not find the exact text")).length, 1, "the error appears once");
+	assert.match(failedEdit.at(-1)!, /^ └ Failed( in \S+)?$/u);
 
 	registered.length = 0;
 	handlers.get("session_start")?.({ reason: "startup" }, ctx);

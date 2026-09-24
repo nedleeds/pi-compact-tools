@@ -41,6 +41,7 @@ import {
 	isReadTextResult,
 	splitReadFooter,
 	summarizeCustomArguments,
+	summarizeFailure,
 	summarizeShellCommand,
 } from "./compact-tools-invocation.ts";
 import {
@@ -139,6 +140,7 @@ function renderControls(
 	running: boolean,
 	isError: boolean,
 	lineSummary?: string,
+	failureReason?: string,
 ): Component {
 	const duration = running ? undefined : formatDuration(state);
 	const status = running
@@ -148,8 +150,19 @@ function renderControls(
 	// background, so the status word stays chrome rather than repeating that signal.
 	const chrome = chromePainter(theme);
 	let details = chrome(status);
-	if (lineSummary && !running) details += chrome(` (${lineSummary})`);
+	if (failureReason && isError && !running) details += chrome(" · ") + theme.fg("error", failureReason);
+	// A failed call produced no result worth counting; "(0 lines)" would only mislead.
+	else if (lineSummary && !running && !isError) details += chrome(` (${lineSummary})`);
 	return prefixedText(details, chrome(" └ "), "   ");
+}
+
+/**
+ * A failed row whose output is hidden gets its reason on the status line. When
+ * the output shows, expanded or as a preview, it already says why, and repeating
+ * it there only doubles the error.
+ */
+function hiddenFailureReason(name: string, state: RowState, isError: boolean, output: string): string | undefined {
+	return isError && !state.expanded && !state.preview ? summarizeFailure(name, output) : undefined;
 }
 
 function renderCallTitle(name: string, theme: Theme, ctx: RenderContext, state: RowState): string {
@@ -239,7 +252,8 @@ function renderFileResult(
 		state.resultLineSummary = formatResultLineSummary(name, ctx.args, result, output);
 		state.resultLineSummaryComputed = true;
 	}
-	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary));
+	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary,
+		hiddenFailureReason(name, state, ctx.isError, output)));
 	rememberResult(state, result, options, ctx);
 	return container;
 }
@@ -270,13 +284,14 @@ function renderShellResult(
 	runtime.syncExpansion(state, ctx.expanded, name);
 	if (canReuseResult(state, result, options, ctx)) return ctx.lastComponent;
 	const output = getTextResult(result);
+	const failureReason = hiddenFailureReason(name, state, ctx.isError, output);
 	runtime.setResultAvailable(state, name, output.length > 0);
 	if (!options.isPartial && !state.resultLineSummaryComputed) {
 		state.resultLineSummary = formatResultLineSummary(name, ctx.args, result, output);
 		state.resultLineSummaryComputed = true;
 	}
 	if (!state.expanded && !state.preview) {
-		const controls = renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary);
+		const controls = renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary, failureReason);
 		rememberResult(state, result, options, ctx);
 		return controls;
 	}
@@ -285,7 +300,7 @@ function renderShellResult(
 	if (component) {
 		container.addChild(state.expanded ? component : limitComponentLines(component, runtime.config.previewLines, theme));
 	}
-	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary));
+	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary, failureReason));
 	rememberResult(state, result, options, ctx);
 	return container;
 }
@@ -346,7 +361,8 @@ function renderCustomResult(
 		const body = renderCustomBody(output, state.expanded === true, theme, ctx.isError, renderAuthorResult);
 		if (body) container.addChild(state.expanded ? body : limitComponentLines(body, runtime.config.previewLines, theme));
 	}
-	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary));
+	const failureReason = hiddenFailureReason(name, state, ctx.isError, output);
+	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary, failureReason));
 	rememberResult(state, result, options, ctx);
 	return container;
 }

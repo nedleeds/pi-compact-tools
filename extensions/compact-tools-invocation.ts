@@ -354,6 +354,30 @@ export function getTextResult(result: AgentToolResult<unknown>): string {
 	return normalizeLineEndings(parts.join("\n")).trimEnd();
 }
 
+const FAILURE_REASON_MAX_LENGTH = 140;
+
+/** Pull a useful diagnostic into a collapsed failed row without exposing raw control sequences. */
+export function summarizeFailure(name: string, output: string): string | undefined {
+	const lines = normalizeLineEndings(stripTerminalSequences(output))
+		.split("\n")
+		.map((line) => line.replace(/[\x00-\x1f\x7f]/gu, " ").trim())
+		.filter(Boolean);
+	if (lines.length === 0) return undefined;
+	const last = lines[lines.length - 1]!;
+	const shellStatus = (name === "bash" || name === "powershell")
+		&& /^Command (?:exited with code \d+|timed out.*|aborted|terminated.*)$/iu.test(last)
+		? last
+		: undefined;
+	const diagnostic = shellStatus
+		? lines.slice(0, -1).reverse().find((line) =>
+			/\b(?:error|failed|failure|fatal|exception|denied|not found|no such file)\b|ENOENT/iu.test(line))
+		: undefined;
+	const reason = diagnostic ? `${diagnostic} (${shellStatus})` : shellStatus ?? lines[0]!;
+	return reason.length > FAILURE_REASON_MAX_LENGTH
+		? `${reason.slice(0, FAILURE_REASON_MAX_LENGTH - 1).trimEnd()}…`
+		: reason;
+}
+
 type ResultDetails = {
 	diff?: unknown;
 	patch?: unknown;
