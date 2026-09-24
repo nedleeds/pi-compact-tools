@@ -2,9 +2,9 @@
 
 Compact, expandable rendering for Pi's built-in tools and for custom tools from other packages, with a GitHub Dark theme.
 
-![Compact rows for every built-in tool](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/compact-workflow.gif)
+![Compact rows for every tool, with the reason a failed one failed](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/compact-workflow.gif)
 
-![Syntax-highlighted edit diff](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/edit-diff.gif)
+![Syntax-highlighted edit diff with lines added and removed](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/edit-diff.gif)
 
 ![Numbered read code view](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/code-aware-results.gif)
 
@@ -64,6 +64,8 @@ Built-in tools follow `tools` above: a built-in left out of that list keeps Pi's
 Pi has no public API for changing how another package's tool is drawn, so this wraps the renderer lookup of Pi's tool row component. Nothing in Pi's installation is modified, and it only applies while this extension is loaded. If a Pi release changes that component, custom tools fall back to their own renderers and Pi shows a warning once.
 
 ## Silent mode
+
+![Silent mode: only the prompt and the answer, then every hidden row coming back](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/silent-mode.gif)
 
 Silent mode shows only your prompts and the final answers. Tool calls (including custom tools from other packages), the assistant's in-between turns, thinking, error and abort notices, extension notices such as web-search progress, and Pi's own status lines are hidden while the animated working label shows what is running.
 
