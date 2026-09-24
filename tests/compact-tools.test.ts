@@ -1155,9 +1155,13 @@ test("renders each thinking view without changing source content", () => {
 	assert.equal(thinking, "## **Check the implementation**\n\nInspect the renderer.\nKeep the cache.");
 });
 
-test("keeps the thinking summary on one visual line", () => {
-	const rendered = renderThinkingView("A very long summary that must be truncated", "summary", 16);
-	assert.match(rendered.split("\n")[0]!, /^.{1,15}…$/u);
+test("shows the whole thinking summary instead of truncating it", () => {
+	const paragraph = "I need to check the config loader first because project settings are ignored when untrusted.";
+	for (const view of ["summary", "detail"] as const) {
+		const rendered = renderThinkingView(paragraph, view, 16);
+		assert.ok(rendered.includes(paragraph), view);
+		assert.ok(!rendered.includes("…"), view);
+	}
 });
 
 test("renders a connected detail rail while preserving fenced code", () => {

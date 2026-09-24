@@ -7,7 +7,6 @@ import {
 	Key,
 	matchesKey,
 	stripTerminalSequences,
-	truncateToWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { chromePainter } from "./compact-tools-palette.ts";
@@ -156,10 +155,11 @@ function renderThinkingSections(
 	const styleControlPrefix = options.styleControlPrefix ?? ((prefix: string) => prefix);
 	return sections
 		.map(({ summary, detail }, sectionIndex) => {
-			const fittedSummary = stripTerminalSequences(
-				truncateToWidth(summary, Math.max(1, availableWidth), "…"),
-			);
-			const title = options.styleSummary?.(fittedSummary, sectionIndex) ?? fittedSummary;
+			// The summary is never cut short: a provider that sends one unstructured
+			// paragraph has no detail to expand into, so the summary is all there is.
+			// The host's Markdown component wraps it to the available width.
+			const plain = stripTerminalSequences(summary);
+			const title = options.styleSummary?.(plain, sectionIndex) ?? plain;
 			const sectionControls = view === "detail"
 				? typeof controls === "function" ? controls(detail.length > 0) : controls
 				: undefined;
