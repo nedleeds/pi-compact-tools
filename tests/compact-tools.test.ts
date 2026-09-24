@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ import { DEFAULT_CONFIG, loadConfig, mergeConfig } from "../extensions/compact-t
 import { patchToolRows } from "../extensions/compact-tools-custom.ts";
 import { findAnchorTop, ViewportKeeper } from "../extensions/compact-tools-viewport.ts";
 import { hookMethod } from "../extensions/compact-tools-hook.ts";
+import { installedVersion, showReleaseNotice } from "../extensions/compact-tools-release.ts";
 import { isIntermediateAssistant, parseSilentArgument, patchRender, renderAnswerOnly, renderWithoutNotices, SilentModeController } from "../extensions/compact-tools-silent.ts";
 import { attachActivityToUserMessage, bottomAlignTranscript, dotIntensities, frameChanges, renderActivityDots, SilentActivityAnimator } from "../extensions/compact-tools-activity.ts";
 import { languageFromPath, languageFromShebang, resolveLanguage } from "../extensions/compact-tools-language.ts";
@@ -104,6 +105,29 @@ test("parses display mode and keeps the previous value when invalid", () => {
 	const silent = mergeConfig(DEFAULT_CONFIG, { mode: "silent" }, "test");
 	assert.equal(mergeConfig(silent, { mode: "quiet" }, "test").mode, "silent");
 	assert.equal(mergeConfig(silent, { previewLines: 4 }, "test").mode, "silent");
+});
+
+test("shows release notes once per installed version in Pi's dim status area", () => {
+	const dir = mkdtempSync(join(tmpdir(), "compact-tools-notices-"));
+	const messages: Array<{ text: string; type: string }> = [];
+	const ctx = {
+		mode: "tui",
+		ui: { notify: (text: string, type: string) => { messages.push({ text, type }); } },
+	} as unknown as ExtensionContext;
+	try {
+		const version = installedVersion();
+		assert.equal(showReleaseNotice({ ...ctx, mode: "print" } as ExtensionContext, version, dir), false);
+		assert.equal(showReleaseNotice(ctx, version, dir), true);
+		assert.equal(messages.length, 1);
+		assert.equal(messages[0]!.type, "info");
+		assert.ok(messages[0]!.text.startsWith(`pi-compact-tools updated to v${version}\n  • `));
+		assert.equal(showReleaseNotice(ctx, version, dir), false, "a new session or reload must not repeat it");
+		assert.equal(showReleaseNotice(ctx, "999.0.0", dir), false, "a version without notes is not acknowledged");
+		assert.equal(showReleaseNotice(ctx, "../escape", dir), false);
+		assert.equal(messages.length, 1);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("treats every tool-handoff assistant turn as intermediate, however it ended", () => {

@@ -58,6 +58,7 @@ import {
 } from "./compact-tools-layout.ts";
 import { chromePainter, indicatorPulse } from "./compact-tools-palette.ts";
 import { ProgressController } from "./compact-tools-progress.ts";
+import { showReleaseNotice } from "./compact-tools-release.ts";
 import { ToolRuntime } from "./compact-tools-runtime.ts";
 import { SilentModeController } from "./compact-tools-silent.ts";
 import { ThinkingCycleController } from "./compact-tools-thinking.ts";
@@ -487,7 +488,7 @@ export default function compactTools(pi: ExtensionAPI): void {
 	const thinkingCycle = new ThinkingCycleController(pi);
 	const progress = new ProgressController(pi);
 	const viewport = new ViewportKeeper();
-	const silent = new SilentModeController(pi);
+	const silent = new SilentModeController(pi, showReleaseNotice);
 	const customRowsAvailable = installToolRowPatch();
 	setRowResolver(resolveCustomRow);
 	let customRowsWarned = false;
@@ -503,6 +504,7 @@ export default function compactTools(pi: ExtensionAPI): void {
 			progress.bind(ctx);
 			thinkingCycle.bind(ctx);
 			silent.bind(ctx, runtime.config.mode, event.reason === "reload");
+			if (!silent.isEnabled()) showReleaseNotice(ctx);
 			if (runtime.config.custom_tools.enabled && !customRowsAvailable && !customRowsWarned) {
 				customRowsWarned = true;
 				ctx.ui.notify("Compact rendering for custom tools is unavailable in this version of Pi", "warning");

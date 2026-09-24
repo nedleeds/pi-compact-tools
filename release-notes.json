@@ -1,0 +1,7 @@
+{
+  "0.9.3": [
+    "Silent mode shows only prompts and final answers (/silent or Ctrl+')",
+    "Fullscreen scrolling stays in place when expanding rows or cycling thinking",
+    "Failed tool rows show a short error reason while collapsed"
+  ]
+}

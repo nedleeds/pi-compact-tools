@@ -82,6 +82,10 @@ Pi has no public API for hiding other extensions' tool rows, so silent mode wrap
 - `Ctrl+T` cycles thinking: summary → detail → summary → hidden.
 - `Ctrl+'` or `/silent` toggles silent mode.
 
+## Release notes
+
+After installing or updating, Pi shows the notes for the installed version once in a dim line above the prompt. The notice is local to the TUI, never sent to the model, and is deferred while silent mode is on. When publishing a new version, add its changes to `release-notes.json`; `npm run check` requires an entry matching `package.json`.
+
 ## Development
 
 ```bash
