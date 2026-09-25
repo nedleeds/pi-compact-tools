@@ -18,7 +18,7 @@ Pick a style. Silent mode works on top of either.
 
 | | Setting | Shows | How |
 |---|---|---|---|
-| **Compact** | Style | every tool call, one short row each | `"style": "compact"` (default) |
+| **Compact** | Style | every tool call as its own compact, expandable row | `"style": "compact"` (default) |
 | **Claude** | Style | reads and searches folded into one line, like Claude Code | `"style": "claude"` |
 | **Silent** | Mode | only your prompts and the answers | `Ctrl+'` or `/silent` |
 
@@ -26,9 +26,9 @@ Set `"style"` in the config below, then `/reload`. `"style": "off"` restores Pi'
 
 ### Style: Compact
 
-![Compact style: searches, reads, a test run, and an edit with its diff, one row each](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/compact-workflow.gif)
+![Compact style: searches, reads, a test run, and an edit with its diff, each call with its status](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/compact-workflow.gif)
 
-- One row per call: status, duration, and line count.
+- Each call: what it ran, then its status, duration, and line count.
 - Edits show a highlighted diff with `(+3 -1)`; reads and writes show numbered code.
 
 ### Style: Claude

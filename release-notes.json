@@ -1,4 +1,7 @@
 {
+  "0.11.2": [
+    "Claude style no longer cuts commands to one row; long ones wrap, and only past two lines or 160 characters are shortened"
+  ],
   "0.11.1": [],
   "0.11.0": [
     "Claude style: set \"style\": \"claude\" to see tool calls the way Claude Code shows them",
