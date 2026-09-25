@@ -1,6 +1,6 @@
 {
   "name": "pi-compact-tools",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "Compact, expandable UI for pi's built-in and custom tools, bundled with a polished GitHub Dark theme.",
   "type": "module",
   "license": "MIT",
@@ -43,7 +43,7 @@
     "themes": [
       "./themes/github-dark-pro.json"
     ],
-    "image": "https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/compact-workflow.gif"
+    "image": "https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/overview.gif"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.85.1",

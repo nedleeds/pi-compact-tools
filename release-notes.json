@@ -1,4 +1,10 @@
 {
+  "0.11.0": [
+    "Claude style: set \"style\": \"claude\" to see tool calls the way Claude Code shows them",
+    "Reads, searches, and listings fold into one line; Bash, Update, and Write keep their own rows",
+    "\"style\": \"off\" leaves Pi's own tool rows; silent mode stays \"mode\": \"silent\"",
+    "Edit diffs no longer show a gap marker twice"
+  ],
   "0.10.1": [],
   "0.10.0": [
     "Silent mode shows only prompts and final answers (Ctrl+' or /silent)",
