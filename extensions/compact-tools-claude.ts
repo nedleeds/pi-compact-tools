@@ -51,10 +51,28 @@ function commandOf(args: ToolArgs): string {
 	return typeof args.command === "string" ? args.command : "";
 }
 
+/** Claude Code shortens a collapsed command only past two lines or 160 characters. */
+export const CLAUDE_COMMAND_LINES = 2;
+export const CLAUDE_COMMAND_CHARS = 160;
+
+/**
+ * A command as Claude Code titles it: whole when opened, and collapsed cut only
+ * past its line and character limits, with an ellipsis. Within them it is never
+ * cut to fit the row; the title wraps instead.
+ */
+export function claudeCommand(command: string, expanded: boolean): string {
+	const text = normalizeLineEndings(stripTerminalSequences(command)).trim();
+	if (expanded) return text;
+	const lines = text.split("\n");
+	let shown = lines.length > CLAUDE_COMMAND_LINES ? lines.slice(0, CLAUDE_COMMAND_LINES).join("\n") : text;
+	if (shown.length > CLAUDE_COMMAND_CHARS) shown = shown.slice(0, CLAUDE_COMMAND_CHARS);
+	return shown === text ? text : `${shown.trim()}…`;
+}
+
 /** What goes between the parentheses: `Bash(npm test)`, `Search(pattern: "x", path: "src")`. */
-export function claudeArgument(name: string, args: ToolArgs): string {
+export function claudeArgument(name: string, args: ToolArgs, expanded = false): string {
 	const path = pathOf(args);
-	if (name === "bash" || name === "powershell") return oneLine(commandOf(args));
+	if (name === "bash" || name === "powershell") return claudeCommand(commandOf(args), expanded);
 	if (name === "grep" || name === "find") {
 		const pattern = typeof args.pattern === "string" ? oneLine(args.pattern) : "";
 		// Arguments stream in; until the pattern arrives there is nothing to name.
@@ -85,8 +103,8 @@ export function formatArguments(args: ToolArgs): string {
 	return parts.length > 0 ? parts.join(", ") : summarizeCustomArguments(args);
 }
 
-export function claudeTitle(name: string, args: ToolArgs): { label: string; argument: string } {
-	return { label: claudeLabel(name), argument: claudeArgument(name, args) };
+export function claudeTitle(name: string, args: ToolArgs, expanded = false): { label: string; argument: string } {
+	return { label: claudeLabel(name), argument: claudeArgument(name, args, expanded) };
 }
 
 // Claude Code's own lists: a command made only of these only looks around, so it

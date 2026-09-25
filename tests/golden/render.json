@@ -2864,7 +2864,8 @@
 	],
 	"claude/read/failed/closed/44": [
 		" {error}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
-		"{174;210;123} └ {/}{error}Error: ENOENT: no such file or directory{0}…{0}"
+		"{174;210;123} └ {/}{error}Error: ENOENT: no such file or directory,",
+		"   {error}access 'src/app.ts'{/}"
 	],
 	"claude/read/failed/open/100": [
 		" {error}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
@@ -2919,7 +2920,8 @@
 	],
 	"claude/read@offset/failed/closed/44": [
 		" {error}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
-		"{174;210;123} └ {/}{error}Error: Offset 40 is beyond end of file ({0}…{0}"
+		"{174;210;123} └ {/}{error}Error: Offset 40 is beyond end of file (1",
+		"   {error}2 lines total){/}"
 	],
 	"claude/read@offset/failed/open/100": [
 		" {error}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
@@ -3020,7 +3022,8 @@
 	],
 	"claude/write/failed/closed/44": [
 		" {error}⦁{/} {toolTitle}{b}Write{/b}{/}{toolOutput}(notes.md){/}",
-		"{174;210;123} └ {/}{error}Error: EACCES: permission denied, open '{0}…{0}"
+		"{174;210;123} └ {/}{error}Error: EACCES: permission denied, open 'n",
+		"   {error}otes.md'{/}"
 	],
 	"claude/write/failed/open/100": [
 		" {error}⦁{/} {toolTitle}{b}Write{/b}{/}{toolOutput}(notes.md){/}",
@@ -3137,11 +3140,14 @@
 	],
 	"claude/edit/failed/closed/100": [
 		" {error}⦁{/} {toolTitle}{b}Update{/b}{/}{toolOutput}(app.ts){/}",
-		"{174;210;123} └ {/}{error}Error: Could not find the exact text in app.ts. The old text must match exactly including all wh{0}…{0}"
+		"{174;210;123} └ {/}{error}Error: Could not find the exact text in app.ts. The old text must match exactly including all whi",
+		"   {error}tespace and newlines.{/}"
 	],
 	"claude/edit/failed/closed/44": [
 		" {error}⦁{/} {toolTitle}{b}Update{/b}{/}{toolOutput}(app.ts){/}",
-		"{174;210;123} └ {/}{error}Error: Could not find the exact text in {0}…{0}"
+		"{174;210;123} └ {/}{error}Error: Could not find the exact text in a",
+		"   {error}pp.ts. The old text must match exactly in",
+		"   {error}cluding all whitespace and newlines.{/}"
 	],
 	"claude/edit/failed/open/100": [
 		" {error}⦁{/} {toolTitle}{b}Update{/b}{/}{toolOutput}(app.ts){/}",
@@ -3352,7 +3358,8 @@
 	],
 	"claude/edit@large/failed/closed/44": [
 		" {error}⦁{/} {toolTitle}{b}Update{/b}{/}{toolOutput}(big.txt){/}",
-		"{174;210;123} └ {/}{error}Error: Found 20 occurrences of the text {0}…{0}"
+		"{174;210;123} └ {/}{error}Error: Found 20 occurrences of the text i",
+		"   {error}n big.txt. The text must be unique.{/}"
 	],
 	"claude/edit@large/failed/open/100": [
 		" {error}⦁{/} {toolTitle}{b}Update{/b}{/}{toolOutput}(big.txt){/}",
@@ -3526,11 +3533,15 @@
 		"{174;210;123} └ {/}{error}Error: Command timed out after 5 seconds{/}"
 	],
 	"claude/bash@wide/running/closed/100": [
-		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' && echo 'a very long command that keeps going well past th{0}…{0}",
+		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' && echo 'a very long command that keeps going well past t",
+		"{174;210;123} │ {/}{134;73;167}{/}{toolTitle}{b}{/b}{/}{toolOutput}he edge of a narrow terminal'){/}",
 		"{174;210;123} └ {/}{174;210;123}Running…{/}"
 	],
 	"claude/bash@wide/running/closed/44": [
-		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' &&{0}…{0}",
+		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' &",
+		"{174;210;123} │ {/}{134;73;167}{/}{toolTitle}{b}{/b}{/}{toolOutput}& echo 'a very long command that keeps go",
+		"{174;210;123} │ {/}{134;73;167}{/}{toolTitle}{b}{/b}{/}{toolOutput}ing well past the edge of a narrow termin",
+		"{174;210;123} │ {/}{134;73;167}{/}{toolTitle}{b}{/b}{/}{toolOutput}al'){/}",
 		"{174;210;123} └ {/}{174;210;123}Running…{/}"
 	],
 	"claude/bash@wide/running/open/100": [
@@ -3546,14 +3557,18 @@
 		"{174;210;123} └ {/}{174;210;123}Running…{/}"
 	],
 	"claude/bash@wide/done/closed/100": [
-		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' && echo 'a very long command that keeps going well past th{0}…{0}",
+		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' && echo 'a very long command that keeps going well past t",
+		"{174;210;123} │ {/}{134;73;167}{/}{toolTitle}{b}{/b}{/}{toolOutput}he edge of a narrow terminal'){/}",
 		"{174;210;123} └ {/}{toolOutput}xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
 		"   {toolOutput}xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx{/}",
 		"   {toolOutput}      70 /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/README.md{/}",
 		"   {toolOutput}last{/}"
 	],
 	"claude/bash@wide/done/closed/44": [
-		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' &&{0}…{0}",
+		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' &",
+		"{174;210;123} │ {/}{134;73;167}{/}{toolTitle}{b}{/b}{/}{toolOutput}& echo 'a very long command that keeps go",
+		"{174;210;123} │ {/}{134;73;167}{/}{toolTitle}{b}{/b}{/}{toolOutput}ing well past the edge of a narrow termin",
+		"{174;210;123} │ {/}{134;73;167}{/}{toolTitle}{b}{/b}{/}{toolOutput}al'){/}",
 		"{174;210;123} └ {/}{toolOutput}xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
 		"   {toolOutput}xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
 		"   {toolOutput}xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -3581,12 +3596,16 @@
 		"   {toolOutput}last{/}"
 	],
 	"claude/bash@wide/failed/closed/100": [
-		" {error}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' && echo 'a very long command that keeps going well past th{0}…{0}",
+		" {error}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' && echo 'a very long command that keeps going well past t",
+		"{174;210;123} │ {/}{error}{/}{toolTitle}{b}{/b}{/}{toolOutput}he edge of a narrow terminal'){/}",
 		"{174;210;123} └ {/}{error}Error: Exit code 5{/}",
 		"   {error}jq: error (at <stdin>:1): Cannot index string with \"scripts\"{/}"
 	],
 	"claude/bash@wide/failed/closed/44": [
-		" {error}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' &&{0}…{0}",
+		" {error}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' &",
+		"{174;210;123} │ {/}{error}{/}{toolTitle}{b}{/b}{/}{toolOutput}& echo 'a very long command that keeps go",
+		"{174;210;123} │ {/}{error}{/}{toolTitle}{b}{/b}{/}{toolOutput}ing well past the edge of a narrow termin",
+		"{174;210;123} │ {/}{error}{/}{toolTitle}{b}{/b}{/}{toolOutput}al'){/}",
 		"{174;210;123} └ {/}{error}Error: Exit code 5{/}",
 		"   {error}jq: error (at <stdin>:1): Cannot i",
 		"   {error}ndex string with \"scripts\"{/}"
@@ -3675,7 +3694,8 @@
 		"{174;210;123} └ {/}{174;210;123}Running…{/}"
 	],
 	"claude/powershell/running/closed/44": [
-		" {134;73;167}⦁{/} {toolTitle}{b}PowerShell{/b}{/}{toolOutput}(Get-ChildItem -Path src | Sel{0}…{0}",
+		" {134;73;167}⦁{/} {toolTitle}{b}PowerShell{/b}{/}{toolOutput}(Get-ChildItem -Path src | Se",
+		"{174;210;123} │ {/}{134;73;167}{/}{toolTitle}{b}{/b}{/}{toolOutput}lect-Object Name){/}",
 		"{174;210;123} └ {/}{174;210;123}Running…{/}"
 	],
 	"claude/powershell/running/open/100": [
@@ -3695,7 +3715,8 @@
 		"   {toolOutput}util.ts{/}"
 	],
 	"claude/powershell/done/closed/44": [
-		" {134;73;167}⦁{/} {toolTitle}{b}PowerShell{/b}{/}{toolOutput}(Get-ChildItem -Path src | Sel{0}…{0}",
+		" {134;73;167}⦁{/} {toolTitle}{b}PowerShell{/b}{/}{toolOutput}(Get-ChildItem -Path src | Se",
+		"{174;210;123} │ {/}{134;73;167}{/}{toolTitle}{b}{/b}{/}{toolOutput}lect-Object Name){/}",
 		"{174;210;123} └ {/}{toolOutput}Name{/}",
 		"   {toolOutput}----{/}",
 		"   {toolOutput}app.ts{/}",
@@ -3722,7 +3743,8 @@
 		"   {error}Get-ChildItem: Cannot find path 'src'{/}"
 	],
 	"claude/powershell/failed/closed/44": [
-		" {error}⦁{/} {toolTitle}{b}PowerShell{/b}{/}{toolOutput}(Get-ChildItem -Path src | Sel{0}…{0}",
+		" {error}⦁{/} {toolTitle}{b}PowerShell{/b}{/}{toolOutput}(Get-ChildItem -Path src | Se",
+		"{174;210;123} │ {/}{error}{/}{toolTitle}{b}{/b}{/}{toolOutput}lect-Object Name){/}",
 		"{174;210;123} └ {/}{error}Error: Exit code 1{/}",
 		"   {error}Get-ChildItem: Cannot find path 's",
 		"   {error}rc'{/}"
@@ -3780,7 +3802,7 @@
 	],
 	"claude/grep/failed/closed/44": [
 		" {error}⦁{/} {toolTitle}{b}Search{/b}{/}{toolOutput}(pattern: \"TODO\", path: \"src\"){/}",
-		"{174;210;123} └ {/}{error}Error: rg: src: No such file or directory{/}"
+		"{174;210;123} └ {/}{error}Error: rg: src: No such file or directory"
 	],
 	"claude/grep/failed/open/100": [
 		" {error}⦁{/} {toolTitle}{b}Search{/b}{/}{toolOutput}(pattern: \"TODO\", path: \"src\"){/}",
@@ -3971,7 +3993,8 @@
 		"{174;210;123} └ {/}{174;210;123}Running…{/}"
 	],
 	"claude/custom:fetch@author/running/closed/44": [
-		" {134;73;167}⦁{/} {toolTitle}{b}fetch{/b}{/}{toolOutput}(urls: [\"https://a.example\", \"https{0}…{0}",
+		" {134;73;167}⦁{/} {toolTitle}{b}fetch{/b}{/}{toolOutput}(urls: [\"https://a.example\", \"http",
+		"{174;210;123} │ {/}{134;73;167}{/}{toolTitle}{b}{/b}{/}{toolOutput}s://b.example\"]){/}",
 		"{174;210;123} └ {/}{174;210;123}Running…{/}"
 	],
 	"claude/custom:fetch@author/running/open/100": [
@@ -4007,7 +4030,8 @@
 		"   {toolOutput}body line{/}"
 	],
 	"claude/custom:fetch@author/done/closed/44": [
-		" {success}⦁{/} {toolTitle}{b}fetch{/b}{/}{toolOutput}(urls: [\"https://a.example\", \"https{0}…{0}",
+		" {success}⦁{/} {toolTitle}{b}fetch{/b}{/}{toolOutput}(urls: [\"https://a.example\", \"http",
+		"{174;210;123} │ {/}{success}{/}{toolTitle}{b}{/b}{/}{toolOutput}s://b.example\"]){/}",
 		"{174;210;123} └ {/}{toolOutput}# Fetched{/}",
 		"   {toolOutput}body line{/}"
 	],
@@ -4045,7 +4069,8 @@
 		"{174;210;123} └ {/}{error}Error: fetch failed: 503{/}"
 	],
 	"claude/custom:fetch@author/failed/closed/44": [
-		" {error}⦁{/} {toolTitle}{b}fetch{/b}{/}{toolOutput}(urls: [\"https://a.example\", \"https{0}…{0}",
+		" {error}⦁{/} {toolTitle}{b}fetch{/b}{/}{toolOutput}(urls: [\"https://a.example\", \"http",
+		"{174;210;123} │ {/}{error}{/}{toolTitle}{b}{/b}{/}{toolOutput}s://b.example\"]){/}",
 		"{174;210;123} └ {/}{error}Error: fetch failed: 503{/}"
 	],
 	"claude/custom:fetch@author/failed/open/100": [

@@ -176,11 +176,11 @@ function renderRowCall(name: string, args: ToolArgs, theme: Theme, ctx: RenderCo
 	const container = new CachedContainer();
 	if (isClaude()) {
 		// Claude Code's call line: `⦁ Bash(npm test)`, `⦁ Update(src/app.ts)`.
-		const { label, argument } = claudeTitle(name, args);
+		const { label, argument } = claudeTitle(name, args, state.expanded === true);
 		const title = `${renderIndicator(theme, ctx, state)} ${theme.fg("toolTitle", theme.bold(label))}`
-			+ (argument ? theme.fg("toolOutput", `(${argument})`) : "");
-		// Collapsed, a long command keeps to one row; opened, it shows in full.
-		container.addChild(state.expanded ? renderToolCall(title, undefined, theme) : prefixedLines(title, " ", " ", true));
+			+ (argument ? styleMultiline(`(${argument})`, (line) => theme.fg("toolOutput", line)) : "");
+		// The title wraps rather than being cut to the row; only a very long command is shortened.
+		container.addChild(renderToolCall(title, undefined, theme));
 		// The title already lists plain arguments; only nested ones need the full view.
 		if (kind === "custom" && state.expanded && hasNestedArguments(args)) container.addChild(renderArguments(args, theme));
 		return container;
@@ -313,8 +313,8 @@ function renderClaudeResult(
 ): Component {
 	const chrome = chromePainter(theme);
 	const container = new CachedContainer();
-	// One line under the call; collapsed it keeps to one row.
-	const line = (text: string) => prefixedLines(text, chrome(" └ "), CLAUDE_INDENT, !expanded);
+	// One line under the call, wrapped rather than cut to the row.
+	const line = (text: string) => prefixedLines(text, chrome(" └ "), CLAUDE_INDENT, false);
 	if (options.isPartial) {
 		container.addChild(line(chrome("Running…")));
 		return container;

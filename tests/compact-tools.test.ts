@@ -23,7 +23,7 @@ import { hookMethod } from "../extensions/compact-tools-hook.ts";
 import { compareVersions, releasesToShow, showReleaseNotice } from "../extensions/compact-tools-release.ts";
 import { isIntermediateAssistant, parseSilentArgument, patchRender, renderAnswerOnly, renderWithoutNotices, SilentModeController } from "../extensions/compact-tools-silent.ts";
 import { attachActivityToUserMessage, bottomAlignTranscript, dotIntensities, frameChanges, renderActivityDots, SilentActivityAnimator } from "../extensions/compact-tools-activity.ts";
-import { classifyShellCommand, claudeArgument, claudeFailure, claudeOutcome, claudeTitle } from "../extensions/compact-tools-claude.ts";
+import { classifyShellCommand, claudeArgument, claudeCommand, claudeFailure, claudeOutcome, claudeTitle } from "../extensions/compact-tools-claude.ts";
 import { countGroup, EXPAND_HINT, groupChildren, groupFailures, groupHint, summarizeGroup, ToolGroupComponent, type ToolRowLike } from "../extensions/compact-tools-grouping.ts";
 import { languageFromPath, languageFromShebang, resolveLanguage } from "../extensions/compact-tools-language.ts";
 import {
@@ -2068,8 +2068,22 @@ test("a group's second line names the running call, and failures stay in view", 
 	assert.deepEqual(groupFailures([read, failed]), ["Error: ENOENT: no such file"]);
 });
 
+test("a collapsed command is cut only past Claude Code's two lines or 160 characters", () => {
+	const long = "x".repeat(200);
+	assert.equal(claudeCommand("npm test", false), "npm test");
+	assert.equal(claudeCommand("a\nb", false), "a\nb");
+	assert.equal(claudeCommand("a\nb\nc", false), "a\nb…", "a third line is cut");
+	assert.equal(claudeCommand(long, false), `${"x".repeat(160)}…`, "past 160 characters is cut");
+	assert.equal(claudeCommand("x".repeat(160), false), "x".repeat(160), "exactly 160 is whole");
+	assert.equal(claudeCommand(`a\nb\nc ${long}`, true), `a\nb\nc ${long}`, "opened, the whole command shows");
+	// The title wraps to the width instead: a command within the limits is never cut to the row.
+	const title = claudeTitle("bash", { command: "echo " + "word ".repeat(20) });
+	assert.equal(title.argument, "echo " + "word ".repeat(20).trim());
+});
+
 test("titles and outcomes read like Claude Code's", () => {
-	assert.deepEqual(claudeTitle("bash", { command: "npm test\nnpm run lint" }), { label: "Bash", argument: "npm test …" });
+	assert.deepEqual(claudeTitle("bash", { command: "npm test\nnpm run lint" }), { label: "Bash", argument: "npm test\nnpm run lint" },
+		"two lines fit Claude Code's limit and show whole");
 	assert.deepEqual(claudeTitle("edit", { path: "src/app.ts" }), { label: "Update", argument: "src/app.ts" });
 	assert.deepEqual(claudeTitle("web_search", { query: "pi tui", limit: 5, domains: ["a", "b"] }),
 		{ label: "web_search", argument: 'query: "pi tui", limit: 5, domains: ["a", "b"]' });
