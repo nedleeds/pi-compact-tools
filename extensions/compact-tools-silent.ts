@@ -59,7 +59,7 @@ function sharedState(): SilentState {
  * an install with a second copy (a development checkout, for one) still builds
  * the same classes, so a matching name identifies them there.
  */
-function isKind(child: unknown, kind: abstract new (...args: any[]) => unknown): boolean {
+export function isKind(child: unknown, kind: abstract new (...args: any[]) => unknown): boolean {
 	return child instanceof kind
 		|| (typeof child === "object" && child !== null && child.constructor?.name === kind.name);
 }
@@ -159,10 +159,16 @@ type TuiLike = { children?: Array<{ children?: unknown[] }> };
  * Pi mounts the transcript document first in both regular and fullscreen mode, and
  * its chat is the document's last child, after the header and resource list.
  */
-function hookChatNotices(tui: unknown): void {
+export function findChat(tui: unknown): { children: unknown[] } | undefined {
 	const documentChildren = (tui as TuiLike).children?.[0]?.children;
 	const chat = Array.isArray(documentChildren) ? documentChildren.at(-1) : undefined;
-	if (typeof chat !== "object" || chat === null || !Array.isArray((chat as { children?: unknown }).children)) return;
+	if (typeof chat !== "object" || chat === null || !Array.isArray((chat as { children?: unknown }).children)) return undefined;
+	return chat as { children: unknown[] };
+}
+
+function hookChatNotices(tui: unknown): void {
+	const chat = findChat(tui);
+	if (!chat) return;
 	hookMethod(chat, "render", "silent.chatNotices", (self, args, original) => {
 		const state = sharedState();
 		if (!state.active || !state.enabled) return original.apply(self, args);

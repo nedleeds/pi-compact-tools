@@ -1,7 +1,5 @@
 import type {
 	AgentToolResult,
-	BashToolDetails,
-	BashToolInput,
 	ExtensionAPI,
 	Theme,
 	ToolDefinition,
@@ -17,17 +15,8 @@ import {
 	createReadToolDefinition,
 	createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import type { Component, Container } from "@earendil-works/pi-tui";
-import {
-	classifyCallStatus,
-	formatDurationMs,
-	indicatorGlyph,
-	indicatorStrength,
-	indicatorTone,
-	normalizeLineEndings,
-	type RowStatus,
-} from "./compact-tools-core.ts";
-import { colorizeRgb, interpolateRgb } from "./compact-tools-color.ts";
+import type { Component } from "@earendil-works/pi-tui";
+import { classifyCallStatus, formatDurationMs, normalizeLineEndings, type RowStatus } from "./compact-tools-core.ts";
 import { loadConfig } from "./compact-tools-config.ts";
 import { installToolRowPatch, setRowResolver, type RowRenderers, type ToolRow } from "./compact-tools-custom.ts";
 import {
@@ -47,7 +36,9 @@ import {
 } from "./compact-tools-invocation.ts";
 import {
 	CachedContainer,
+	claudeRows,
 	limitComponentLines,
+	prefixedLines,
 	prefixedText,
 	railComponent,
 	renderArguments,
@@ -57,7 +48,9 @@ import {
 	renderToolCall,
 	styleMultiline,
 } from "./compact-tools-layout.ts";
-import { chromePainter, indicatorPulse } from "./compact-tools-palette.ts";
+import { CLAUDE_DIFF_CONTEXT_LINES, CLAUDE_OUTPUT_ROWS, CLAUDE_WRITE_ROWS, claudeFailure, claudeOutcome, claudeTitle } from "./compact-tools-claude.ts";
+import { ToolGroupController } from "./compact-tools-grouping.ts";
+import { chromePainter, paintIndicator } from "./compact-tools-palette.ts";
 import { ProgressController } from "./compact-tools-progress.ts";
 import { showReleaseNotice } from "./compact-tools-release.ts";
 import { ToolRuntime } from "./compact-tools-runtime.ts";
@@ -70,16 +63,33 @@ import {
 	type CompactToolName,
 	type RenderContext,
 	type RowState,
-	type ShellToolName,
 	type ToolArgs,
 } from "./compact-tools-types.ts";
 
 /** Context lines kept around each change while an edit result is collapsed. */
 const PREVIEW_DIFF_CONTEXT_LINES = 1;
+/** Claude Code sets what a call returned under the "⎿" rather than beside a rail. */
+const CLAUDE_INDENT = "   ";
 
 const runtime = new ToolRuntime();
 const registeredTools = new Set<CompactToolName>();
 let registeredConfiguration: string | undefined;
+
+/** How a tool's row is drawn: a file tool's result is code, a shell's is output, a custom tool's is its author's. */
+type RowKind = "file" | "shell" | "custom";
+type AuthorResultRenderer = (expanded: boolean) => Component | undefined;
+
+function rowKind(name: string): RowKind {
+	return name === "bash" || name === "powershell" ? "shell" : SUPPORTED_TOOL_SET.has(name) ? "file" : "custom";
+}
+
+function isClaude(): boolean {
+	return runtime.config.style === "claude";
+}
+
+function pathArgument(args: ToolArgs): string {
+	return typeof args.path === "string" ? args.path : typeof args.file_path === "string" ? args.file_path : "";
+}
 
 function callStatus(ctx: RenderContext, state: RowState): RowStatus {
 	// write/edit arguments can stream for much longer than their eventual filesystem
@@ -89,16 +99,9 @@ function callStatus(ctx: RenderContext, state: RowState): RowStatus {
 	return classifyCallStatus(ctx.isError, active, state.endedAt !== undefined);
 }
 
-function renderIndicator(theme: Theme, ctx: RenderContext, status: RowStatus): string {
-	const frame = runtime.syncIndicator(ctx.toolCallId, status === "running", () => ctx.invalidate());
-	const glyph = indicatorGlyph(status, frame);
-	if (status === "running") {
-		const pulse = indicatorPulse(theme);
-		if (pulse) {
-			return colorizeRgb(theme, interpolateRgb(pulse.from, pulse.to, indicatorStrength(status, frame)), glyph);
-		}
-	}
-	return theme.fg(indicatorTone(status, frame), glyph);
+function renderIndicator(theme: Theme, ctx: RenderContext, state: RowState): string {
+	const status = callStatus(ctx, state);
+	return paintIndicator(theme, status, runtime.syncIndicator(ctx.toolCallId, status === "running", () => ctx.invalidate()));
 }
 
 function formatDuration(state: RowState): string | undefined {
@@ -106,9 +109,9 @@ function formatDuration(state: RowState): string | undefined {
 	return formatDurationMs((state.endedAt ?? Date.now()) - state.startedAt);
 }
 
-function canReuseResult<TDetails, TArgs>(
+function canReuseResult<TArgs>(
 	state: RowState,
-	result: AgentToolResult<TDetails>,
+	result: AgentToolResult<unknown>,
 	options: ToolRenderResultOptions,
 	ctx: RenderContext<TArgs>,
 ): ctx is RenderContext<TArgs> & { lastComponent: Component } {
@@ -122,18 +125,13 @@ function canReuseResult<TDetails, TArgs>(
 		&& state.lastResultConfigRevision === state.configRevision;
 }
 
-function rememberResult<TDetails, TArgs>(
-	state: RowState,
-	result: AgentToolResult<TDetails>,
-	options: ToolRenderResultOptions,
-	ctx: RenderContext<TArgs>,
-): void {
+function rememberResult(state: RowState, result: AgentToolResult<unknown>, options: ToolRenderResultOptions, isError: boolean): void {
 	state.lastResultContent = result.content;
 	state.lastResultDetails = result.details;
 	state.lastResultPartial = options.isPartial;
 	state.lastResultExpanded = state.expanded;
 	state.lastResultPreview = state.preview;
-	state.lastResultError = ctx.isError;
+	state.lastResultError = isError;
 	state.lastResultConfigRevision = state.configRevision;
 }
 
@@ -142,7 +140,6 @@ function renderControls(
 	state: RowState,
 	running: boolean,
 	isError: boolean,
-	lineSummary?: string,
 	failureReason?: string,
 	changes?: { added: number; removed: number },
 ): Component {
@@ -161,45 +158,53 @@ function renderControls(
 			+ theme.fg("toolDiffRemoved", `-${changes.removed}`) + chrome(")");
 	}
 	// A failed call produced no result worth counting; "(0 lines)" would only mislead.
-	else if (lineSummary && !running && !isError) details += chrome(` (${lineSummary})`);
+	else if (state.resultLineSummary && !running && !isError) details += chrome(` (${state.resultLineSummary})`);
 	return prefixedText(details, chrome(" └ "), "   ");
 }
 
-/**
- * A failed row whose output is hidden gets its reason on the status line. When
- * the output shows, expanded or as a preview, it already says why, and repeating
- * it there only doubles the error.
- */
-function hiddenFailureReason(name: string, state: RowState, isError: boolean, output: string): string | undefined {
-	return isError && !state.expanded && !state.preview ? summarizeFailure(name, output) : undefined;
+/** Arguments a one-line summary cannot show: objects, or lists of them. */
+function hasNestedArguments(args: ToolArgs): boolean {
+	return Object.values(args).some((value) => typeof value === "object" && value !== null
+		&& (!Array.isArray(value) || value.some((item) => typeof item === "object" && item !== null)));
 }
 
-function renderCallTitle(name: string, theme: Theme, ctx: RenderContext, state: RowState): string {
-	return `${renderIndicator(theme, ctx, callStatus(ctx, state))} ${theme.fg("toolTitle", theme.bold(name))}`;
-}
-
-function renderFileCall(
-	definition: BuiltInDefinition,
-	args: ToolArgs,
-	theme: Theme,
-	ctx: RenderContext,
-): Container {
-	const name = definition.name as CompactToolName;
+/** The call line: a status dot, the tool, and what it was asked, then any arguments the line leaves out. */
+function renderRowCall(name: string, args: ToolArgs, theme: Theme, ctx: RenderContext): Component {
 	const state = runtime.syncRow(ctx, ctx.state.endedAt === undefined);
 	runtime.syncExpansion(state, ctx.expanded, name);
-	const callDetails = getCallDetails(name, args);
-	const details = callDetails
-		? styleMultiline(callDetails, (line) => theme.fg("toolOutput", line))
-		: undefined;
+	const kind = rowKind(name);
 	const container = new CachedContainer();
-	container.addChild(renderToolCall(renderCallTitle(name, theme, ctx, state), details, theme));
-	const arguments_ = getArgumentDetails(name, args);
-	if (Object.keys(arguments_).length > 0) container.addChild(renderArguments(arguments_, theme));
+	if (isClaude()) {
+		// Claude Code's call line: `⦁ Bash(npm test)`, `⦁ Update(src/app.ts)`.
+		const { label, argument } = claudeTitle(name, args);
+		const title = `${renderIndicator(theme, ctx, state)} ${theme.fg("toolTitle", theme.bold(label))}`
+			+ (argument ? theme.fg("toolOutput", `(${argument})`) : "");
+		// Collapsed, a long command keeps to one row; opened, it shows in full.
+		container.addChild(state.expanded ? renderToolCall(title, undefined, theme) : prefixedLines(title, " ", " ", true));
+		// The title already lists plain arguments; only nested ones need the full view.
+		if (kind === "custom" && state.expanded && hasNestedArguments(args)) container.addChild(renderArguments(args, theme));
+		return container;
+	}
+	const title = `${renderIndicator(theme, ctx, state)} ${theme.fg("toolTitle", theme.bold(name))}`;
+	let details: string | undefined;
+	if (kind === "shell") {
+		const command = normalizeLineEndings(typeof args.command === "string" ? args.command : "");
+		details = state.expanded
+			? styleMultiline(command || "…", (line) => theme.fg("toolOutput", line))
+			: theme.fg("toolOutput", summarizeShellCommand(name, command));
+	} else {
+		const summary = kind === "file" ? getCallDetails(name, args) : summarizeCustomArguments(args);
+		details = summary ? styleMultiline(summary, (line) => theme.fg("toolOutput", line)) : undefined;
+	}
+	container.addChild(renderToolCall(title, details, theme));
+	const extra = kind === "file" ? getArgumentDetails(name, args) : kind === "custom" && state.expanded ? args : {};
+	if (Object.keys(extra).length > 0) container.addChild(renderArguments(extra, theme));
 	return container;
 }
 
+/** A result body as code where it is code: numbered file text, or an edit's diff. */
 function renderFileBody(
-	name: CompactToolName,
+	name: string,
 	args: ToolArgs,
 	result: AgentToolResult<unknown>,
 	output: string,
@@ -208,13 +213,10 @@ function renderFileBody(
 	isError: boolean,
 ): Component | undefined {
 	if (isError) return renderOutput(output, theme, isError);
-	const path = typeof args.path === "string" ? args.path : typeof args.file_path === "string" ? args.file_path : "";
-	if (name === "edit") {
-		const diff = getEditDiff(result);
-		const component = diff
-			? renderCodeDiff(getEditPatch(result), diff, path, theme, expanded ? {} : { contextLines: PREVIEW_DIFF_CONTEXT_LINES })
-			: undefined;
-		return component ?? renderOutput(output, theme, isError);
+	const path = pathArgument(args);
+	if (name === "edit" && getEditDiff(result)) {
+		return renderCodeDiff(getEditPatch(result), getEditDiff(result), path, theme,
+			expanded ? {} : { contextLines: PREVIEW_DIFF_CONTEXT_LINES }) ?? renderOutput(output, theme, isError);
 	}
 	if (name === "read" && isReadTextResult(result)) {
 		const { body, footer } = splitReadFooter(output);
@@ -225,121 +227,20 @@ function renderFileBody(
 	return renderOutput(output, theme, isError);
 }
 
-function appendFileResult(
-	container: Container,
-	name: CompactToolName,
-	state: RowState,
+function renderRowBody(
+	name: string,
 	args: ToolArgs,
 	result: AgentToolResult<unknown>,
-	output: string,
-	theme: Theme,
-	isError: boolean,
-): void {
-	if (!state.expanded && !state.preview) return;
-	const component = renderFileBody(name, args, result, output, state.expanded === true, theme, isError);
-	if (!component) return;
-	container.addChild(state.expanded ? component : limitComponentLines(component, runtime.config.previewLines, theme));
-}
-
-function renderFileResult(
-	definition: BuiltInDefinition,
-	result: AgentToolResult<unknown>,
-	options: ToolRenderResultOptions,
-	theme: Theme,
-	ctx: RenderContext,
-): Component {
-	const name = definition.name as CompactToolName;
-	const state = runtime.syncRow(ctx, options.isPartial, !options.isPartial);
-	runtime.syncExpansion(state, ctx.expanded, name);
-	if (canReuseResult(state, result, options, ctx)) return ctx.lastComponent;
-	const output = getFileOutput(name, ctx.args, result, ctx.isError);
-	const hasEditDiff = name === "edit" && getEditDiff(result).length > 0;
-	runtime.setResultAvailable(state, name, hasEditDiff || output.length > 0);
-	const container = new CachedContainer();
-	appendFileResult(container, name, state, ctx.args, result, output, theme, ctx.isError);
-	if (!options.isPartial && !state.resultLineSummaryComputed) {
-		state.resultLineSummary = formatResultLineSummary(name, ctx.args, result, output);
-		state.resultLineSummaryComputed = true;
-	}
-	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary,
-		hiddenFailureReason(name, state, ctx.isError, output), name === "edit" ? countEditChanges(result) : undefined));
-	rememberResult(state, result, options, ctx);
-	return container;
-}
-
-function renderShellCall(
-	name: ShellToolName,
-	args: BashToolInput,
-	theme: Theme,
-	ctx: RenderContext<BashToolInput>,
-): Component {
-	const state = runtime.syncRow(ctx, ctx.state.endedAt === undefined);
-	runtime.syncExpansion(state, ctx.expanded, name);
-	const command = normalizeLineEndings(args.command ?? "");
-	const details = state.expanded
-		? styleMultiline(command || "…", (line) => theme.fg("toolOutput", line))
-		: theme.fg("toolOutput", summarizeShellCommand(name, command));
-	return renderToolCall(renderCallTitle(name, theme, ctx, state), details, theme);
-}
-
-function renderShellResult(
-	name: ShellToolName,
-	result: AgentToolResult<BashToolDetails | undefined>,
-	options: ToolRenderResultOptions,
-	theme: Theme,
-	ctx: RenderContext<BashToolInput>,
-): Component {
-	const state = runtime.syncRow(ctx, options.isPartial, !options.isPartial);
-	runtime.syncExpansion(state, ctx.expanded, name);
-	if (canReuseResult(state, result, options, ctx)) return ctx.lastComponent;
-	const output = getTextResult(result);
-	const failureReason = hiddenFailureReason(name, state, ctx.isError, output);
-	runtime.setResultAvailable(state, name, output.length > 0);
-	if (!options.isPartial && !state.resultLineSummaryComputed) {
-		state.resultLineSummary = formatResultLineSummary(name, ctx.args, result, output);
-		state.resultLineSummaryComputed = true;
-	}
-	if (!state.expanded && !state.preview) {
-		const controls = renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary, failureReason);
-		rememberResult(state, result, options, ctx);
-		return controls;
-	}
-	const container = new CachedContainer();
-	const component = renderOutput(output, theme, ctx.isError);
-	if (component) {
-		container.addChild(state.expanded ? component : limitComponentLines(component, runtime.config.previewLines, theme));
-	}
-	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary, failureReason));
-	rememberResult(state, result, options, ctx);
-	return container;
-}
-
-function renderCustomCall(name: string, args: ToolArgs, theme: Theme, ctx: RenderContext): Component {
-	const state = runtime.syncRow(ctx, ctx.state.endedAt === undefined);
-	runtime.syncExpansion(state, ctx.expanded, name);
-	const summary = summarizeCustomArguments(args);
-	const container = new CachedContainer();
-	container.addChild(renderToolCall(
-		renderCallTitle(name, theme, ctx, state),
-		summary ? theme.fg("toolOutput", summary) : undefined,
-		theme,
-	));
-	if (state.expanded && Object.keys(args).length > 0) container.addChild(renderArguments(args, theme));
-	return container;
-}
-
-type AuthorResultRenderer = (expanded: boolean) => Component | undefined;
-
-function renderCustomBody(
 	output: string,
 	expanded: boolean,
 	theme: Theme,
 	isError: boolean,
-	renderAuthorResult: AuthorResultRenderer | undefined,
+	author: AuthorResultRenderer | undefined,
 ): Component | undefined {
-	if (renderAuthorResult) {
+	if (rowKind(name) !== "custom") return renderFileBody(name, args, result, output, expanded, theme, isError);
+	if (author) {
 		try {
-			const component = renderAuthorResult(expanded);
+			const component = author(expanded);
 			if (component) return railComponent(component, theme);
 		} catch {
 			// A failing third-party renderer degrades to the plain text result.
@@ -348,32 +249,144 @@ function renderCustomBody(
 	return renderOutput(output, theme, isError);
 }
 
-function renderCustomResult(
+function claudeMoreLines(theme: Theme, hidden: number): string {
+	return chromePainter(theme)(`… +${hidden} ${hidden === 1 ? "line" : "lines"} (ctrl+o to expand)`);
+}
+
+/** Output previewed in rows the way Claude Code previews it, all of it once opened. */
+function claudeOutput(output: string, expanded: boolean, theme: Theme, isError: boolean, empty: string, firstPrefix: string): Component {
+	const normalized = normalizeLineEndings(output).trimEnd();
+	// Pi's bash reports an empty run as "(no output)"; Claude Code dims its own words for it.
+	const lines = !normalized || normalized === "(no output)"
+		? [chromePainter(theme)(empty)]
+		: normalized.split("\n").map((line) => theme.fg(isError ? "error" : "toolOutput", line));
+	return claudeRows(lines, firstPrefix, CLAUDE_INDENT, expanded ? undefined : CLAUDE_OUTPUT_ROWS,
+		(hidden) => claudeMoreLines(theme, hidden));
+}
+
+/**
+ * What Claude Code draws beneath a finished call: an edit's every hunk, a write's
+ * first rows, the author's view of a custom tool once opened, and otherwise
+ * nothing until the row is opened.
+ */
+function claudeBody(
+	name: string,
+	args: ToolArgs,
+	result: AgentToolResult<unknown>,
+	output: string,
+	expanded: boolean,
+	theme: Theme,
+	author: AuthorResultRenderer | undefined,
+): Component | undefined {
+	const path = pathArgument(args);
+	if (name === "edit") {
+		return renderCodeDiff(getEditPatch(result), getEditDiff(result), path, theme,
+			{ contextLines: CLAUDE_DIFF_CONTEXT_LINES, rail: CLAUDE_INDENT });
+	}
+	if (name === "write") {
+		const component = renderCodeView(output, path, theme, { rail: CLAUDE_INDENT });
+		return component && !expanded
+			? limitComponentLines(component, CLAUDE_WRITE_ROWS, theme, (hidden) => CLAUDE_INDENT + claudeMoreLines(theme, hidden))
+			: component;
+	}
+	// A command's output is already the result line itself.
+	const kind = rowKind(name);
+	if (!expanded || kind === "shell") return undefined;
+	if (kind === "custom") return author ? renderRowBody(name, args, result, output, true, theme, false, author) : undefined;
+	return renderFileBody(name, args, result, output, true, theme, false);
+}
+
+/**
+ * Claude Code's result block: a "└" line saying what happened, or the output
+ * itself for commands and custom tools, then any diff or code beneath it.
+ */
+function renderClaudeResult(
+	name: string,
+	args: ToolArgs,
+	result: AgentToolResult<unknown>,
+	options: ToolRenderResultOptions,
+	theme: Theme,
+	isError: boolean,
+	expanded: boolean,
+	output: string,
+	author: AuthorResultRenderer | undefined,
+): Component {
+	const chrome = chromePainter(theme);
+	const container = new CachedContainer();
+	// One line under the call; collapsed it keeps to one row.
+	const line = (text: string) => prefixedLines(text, chrome(" └ "), CLAUDE_INDENT, !expanded);
+	if (options.isPartial) {
+		container.addChild(line(chrome("Running…")));
+		return container;
+	}
+	if (isError) {
+		const failure = claudeFailure(name, output);
+		// A command's output says why beneath its exit code; another tool's message is
+		// shortened to one line, and a click shows it whole in its place.
+		if (failure.detail) {
+			container.addChild(line(theme.fg("error", failure.headline)));
+			container.addChild(claudeOutput(failure.detail, expanded, theme, true, "", CLAUDE_INDENT));
+		} else if (expanded && output.trim()) {
+			container.addChild(claudeOutput(`Error: ${output.trim()}`, true, theme, true, "", chrome(" └ ")));
+		} else {
+			container.addChild(line(theme.fg("error", failure.headline)));
+		}
+		return container;
+	}
+	const body = claudeBody(name, args, result, output, expanded, theme, author);
+	// The author's view already shows a custom tool's output, so the line above it only counts it.
+	const outcome = body && rowKind(name) === "custom"
+		? formatResultLineSummary(name, args, result, output) ?? "Done"
+		: claudeOutcome(name, args, result, output, (value) => theme.bold(value));
+	if (outcome !== undefined) container.addChild(line(theme.fg("toolOutput", outcome)));
+	else container.addChild(claudeOutput(output, expanded, theme, false, rowKind(name) === "shell" ? "(No output)" : "(No content)", chrome(" └ ")));
+	if (body) container.addChild(body);
+	return container;
+}
+
+/**
+ * The result under a call: a preview or the whole of it when shown, and a status
+ * line with how long it took and how much it returned. An unchanged result reuses
+ * the component it drew last, so a large output is laid out once.
+ */
+function renderRowResult(
 	name: string,
 	result: AgentToolResult<unknown>,
 	options: ToolRenderResultOptions,
 	theme: Theme,
 	ctx: RenderContext,
-	renderAuthorResult: AuthorResultRenderer | undefined,
+	author?: AuthorResultRenderer,
 ): Component {
 	const state = runtime.syncRow(ctx, options.isPartial, !options.isPartial);
 	runtime.syncExpansion(state, ctx.expanded, name);
 	if (canReuseResult(state, result, options, ctx)) return ctx.lastComponent;
-	const output = getTextResult(result);
-	runtime.setResultAvailable(state, name, output.length > 0 || renderAuthorResult !== undefined);
-	if (!options.isPartial && !state.resultLineSummaryComputed) {
-		state.resultLineSummary = output ? formatResultLineSummary(name, ctx.args, result, output) : undefined;
-		state.resultLineSummaryComputed = true;
+	const kind = rowKind(name);
+	const output = kind === "file" ? getFileOutput(name, ctx.args, result, ctx.isError) : getTextResult(result);
+	const hasEditDiff = name === "edit" && getEditDiff(result).length > 0;
+	runtime.setResultAvailable(state, name, hasEditDiff || output.length > 0 || author !== undefined);
+	let component: Component;
+	if (isClaude()) {
+		component = renderClaudeResult(name, ctx.args, result, options, theme, ctx.isError, state.expanded === true, output, author);
+	} else {
+		if (!options.isPartial && !state.resultLineSummaryComputed) {
+			// A custom tool with no text has nothing to count.
+			state.resultLineSummary = kind === "custom" && !output ? undefined : formatResultLineSummary(name, ctx.args, result, output);
+			state.resultLineSummaryComputed = true;
+		}
+		const container = new CachedContainer();
+		if (state.expanded || state.preview) {
+			const body = renderRowBody(name, ctx.args, result, output, state.expanded === true, theme, ctx.isError, author);
+			if (body) container.addChild(state.expanded ? body : limitComponentLines(body, runtime.config.previewLines, theme));
+		}
+		// A failed row whose output is hidden gets its reason on the status line. When
+		// the output shows, it already says why, and repeating it only doubles the error.
+		const failureReason = ctx.isError && !state.expanded && !state.preview ? summarizeFailure(name, output) : undefined;
+		container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, failureReason,
+			name === "edit" ? countEditChanges(result) : undefined));
+		component = container;
 	}
-	const container = new CachedContainer();
-	if (state.expanded || state.preview) {
-		const body = renderCustomBody(output, state.expanded === true, theme, ctx.isError, renderAuthorResult);
-		if (body) container.addChild(state.expanded ? body : limitComponentLines(body, runtime.config.previewLines, theme));
-	}
-	const failureReason = hiddenFailureReason(name, state, ctx.isError, output);
-	container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, state.resultLineSummary, failureReason));
-	rememberResult(state, result, options, ctx);
-	return container;
+	rememberResult(state, result, options, ctx.isError);
+	return component;
 }
 
 /**
@@ -388,7 +401,7 @@ function createCustomRenderers(name: string, author: ToolDefinition<any, any, an
 	let authorResult: Component | undefined;
 	const own = (ctx: RenderContext<any>): RenderContext => ({ ...ctx, args: ctx.args ?? {}, state });
 	return {
-		renderCall: (args, theme, ctx) => renderCustomCall(name, (args ?? {}) as ToolArgs, theme, own(ctx)),
+		renderCall: (args, theme, ctx) => renderRowCall(name, (args ?? {}) as ToolArgs, theme, own(ctx)),
 		renderResult: (result, options, theme, ctx) => {
 			const authorRenderer = author?.renderResult;
 			const renderAuthorResult = authorRenderer
@@ -397,7 +410,7 @@ function createCustomRenderers(name: string, author: ToolDefinition<any, any, an
 					return authorResult;
 				}
 				: undefined;
-			return renderCustomResult(name, result, options, theme, own(ctx), renderAuthorResult);
+			return renderRowResult(name, result, options, theme, own(ctx), renderAuthorResult);
 		},
 	};
 }
@@ -405,7 +418,7 @@ function createCustomRenderers(name: string, author: ToolDefinition<any, any, an
 function resolveCustomRow(row: ToolRow): RowRenderers | undefined {
 	const customTools = runtime.config.custom_tools;
 	// Built-ins are governed by `tools`: ones left out keep Pi's own renderer.
-	if (!customTools.enabled || SUPPORTED_TOOL_SET.has(row.toolName)) return undefined;
+	if (runtime.config.style === "off" || !customTools.enabled || SUPPORTED_TOOL_SET.has(row.toolName)) return undefined;
 	if (customTools.exclude.includes(row.toolName)) return undefined;
 	return createCustomRenderers(row.toolName, row.toolDefinition);
 }
@@ -421,54 +434,32 @@ const toolFactories: Record<CompactToolName, (cwd: string) => BuiltInDefinition>
 	ls: createLsToolDefinition,
 };
 
-function createBuiltInDefinition(name: CompactToolName, cwd: string): BuiltInDefinition {
-	return toolFactories[name](cwd);
-}
-
-function registerFileTool(pi: ExtensionAPI, definition: BuiltInDefinition): void {
+function registerCompactTool(pi: ExtensionAPI, definition: BuiltInDefinition): void {
 	pi.registerTool({
 		...definition,
 		execute: runtime.createTimedExecute(definition),
 		renderShell: "self",
-		renderCall: (args: ToolArgs, theme: Theme, ctx: RenderContext) => renderFileCall(definition, args, theme, ctx),
-		renderResult: (
-			result: AgentToolResult<unknown>,
-			options: ToolRenderResultOptions,
-			theme: Theme,
-			ctx: RenderContext,
-		) => renderFileResult(definition, result, options, theme, ctx),
+		renderCall: (args: ToolArgs, theme: Theme, ctx: RenderContext) => renderRowCall(definition.name, args, theme, ctx),
+		renderResult: (result: AgentToolResult<unknown>, options: ToolRenderResultOptions, theme: Theme, ctx: RenderContext) =>
+			renderRowResult(definition.name, result, options, theme, ctx),
 	} as ToolDefinition<any, any, RowState>);
 }
 
-function registerShellTool(pi: ExtensionAPI, definition: BuiltInDefinition): void {
-	const name = definition.name as ShellToolName;
-	pi.registerTool({
-		...definition,
-		execute: runtime.createTimedExecute(definition),
-		renderShell: "self",
-		renderCall: (args: BashToolInput, theme: Theme, ctx: RenderContext<BashToolInput>) =>
-			renderShellCall(name, args, theme, ctx),
-		renderResult: (
-			result: AgentToolResult<BashToolDetails | undefined>,
-			options: ToolRenderResultOptions,
-			theme: Theme,
-			ctx: RenderContext<BashToolInput>,
-		) => renderShellResult(name, result, options, theme, ctx),
-	} as ToolDefinition<any, BashToolDetails | undefined, RowState>);
+/** Off leaves every tool with Pi's own renderer. */
+function compactedTools(): CompactToolName[] {
+	return runtime.config.style === "off" ? [] : runtime.config.tools;
 }
 
 function registerTools(pi: ExtensionAPI, cwd: string): void {
-	const enabledTools = new Set(runtime.config.tools);
+	const enabledTools = new Set(compactedTools());
 	for (const name of registeredTools) {
 		// Pi exposes no unregister API, so restoring a disabled tool means re-registering
 		// the built-in definition to release this extension's renderers.
-		if (!enabledTools.has(name)) pi.registerTool(createBuiltInDefinition(name, cwd));
+		if (!enabledTools.has(name)) pi.registerTool(toolFactories[name](cwd));
 	}
 	registeredTools.clear();
-	for (const name of runtime.config.tools) {
-		const definition = createBuiltInDefinition(name, cwd);
-		if (name === "bash" || name === "powershell") registerShellTool(pi, definition);
-		else registerFileTool(pi, definition);
+	for (const name of compactedTools()) {
+		registerCompactTool(pi, toolFactories[name](cwd));
 		registeredTools.add(name);
 	}
 }
@@ -496,6 +487,7 @@ export default function compactTools(pi: ExtensionAPI): void {
 	const progress = new ProgressController(pi);
 	const viewport = new ViewportKeeper();
 	const silent = new SilentModeController(pi, showReleaseNotice);
+	const groups = new ToolGroupController(runtime);
 	const customRowsAvailable = installToolRowPatch();
 	setRowResolver(resolveCustomRow);
 	let customRowsWarned = false;
@@ -505,12 +497,13 @@ export default function compactTools(pi: ExtensionAPI): void {
 	pi.on("session_start", (event, ctx) => {
 		if (event.reason !== "reload") runtime.clearTimings();
 		configure(pi, ctx.cwd, ctx.isProjectTrusted());
-		if (ctx.mode === "tui") {
+		if (ctx.mode === "tui" && runtime.config.style !== "off") {
 			// First, so its input listener sees relayout keys before the thinking controller consumes them.
 			viewport.bind(ctx);
 			progress.bind(ctx);
 			thinkingCycle.bind(ctx);
 			silent.bind(ctx, runtime.config.mode, event.reason === "reload");
+			groups.bind(ctx);
 			if (!silent.isEnabled()) showReleaseNotice(ctx);
 			if (runtime.config.custom_tools.enabled && !customRowsAvailable && !customRowsWarned) {
 				customRowsWarned = true;
@@ -521,6 +514,7 @@ export default function compactTools(pi: ExtensionAPI): void {
 			progress.dispose();
 			thinkingCycle.dispose();
 			silent.dispose();
+			groups.dispose();
 		}
 	});
 	pi.on("tool_execution_start", (event) => runtime.noteExecutionStart(event.toolCallId));
@@ -529,6 +523,7 @@ export default function compactTools(pi: ExtensionAPI): void {
 		thinkingCycle.dispose();
 		progress.dispose();
 		silent.dispose();
+		groups.dispose();
 		viewport.dispose();
 		runtime.reset(event.reason !== "reload");
 	});

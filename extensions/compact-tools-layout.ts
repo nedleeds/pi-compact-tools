@@ -4,6 +4,7 @@ import {
 	Container,
 	sliceByColumn,
 	stripTerminalSequences,
+	truncateToWidth,
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
@@ -86,6 +87,48 @@ export function prefixedText(text: string, firstPrefix: string, continuationPref
 	});
 }
 
+/**
+ * Lines under a tree prefix. With `truncate`, each keeps to one row and ends in an
+ * ellipsis, the way Claude Code previews; otherwise each wraps in full. Lines are
+ * handled one by one, so the indentation that output starts with survives.
+ */
+export function prefixedLines(text: string, firstPrefix: string, continuationPrefix: string, truncate: boolean): Component {
+	const prefixWidth = Math.max(visibleWidth(firstPrefix), visibleWidth(continuationPrefix));
+	const lines = text.replace(/\t/g, "   ").split("\n");
+	return new CachedComponent((width) => {
+		const available = Math.max(1, width - prefixWidth);
+		const rows = truncate
+			? lines.map((line) => truncateToWidth(line, available, "…"))
+			: lines.flatMap((line) => hardWrapTextWithAnsi(line, available));
+		return rows.map((row, index) => `${index === 0 ? firstPrefix : continuationPrefix}${row}`);
+	});
+}
+
+/**
+ * Output as Claude Code previews it. Each line is wrapped to the width, and rows
+ * rather than lines are counted: collapsed, `maxRows` show, all of them when only
+ * one more would be hidden, and then `more(hidden)`. Claude Code wraps ten
+ * columns short of the terminal, so previews break where its own do.
+ */
+export function claudeRows(
+	lines: readonly string[],
+	firstPrefix: string,
+	continuationPrefix: string,
+	maxRows: number | undefined,
+	more: (hidden: number) => string,
+): Component {
+	const prefixWidth = Math.max(visibleWidth(firstPrefix), visibleWidth(continuationPrefix));
+	return new CachedComponent((width) => {
+		const available = Math.max(1, width - prefixWidth);
+		const wrapWidth = maxRows === undefined ? available : Math.min(available, Math.max(width - 10, 10));
+		let rows = lines.flatMap((line) => hardWrapTextWithAnsi(line, wrapWidth).map((row) => row.trimEnd()));
+		if (maxRows !== undefined && rows.length > maxRows + 1) {
+			rows = [...rows.slice(0, maxRows), more(rows.length - maxRows)];
+		}
+		return rows.map((row, index) => `${index === 0 ? firstPrefix : continuationPrefix}${row}`);
+	});
+}
+
 export function hardWrapTextWithAnsi(text: string, width: number): string[] {
 	const safeWidth = Math.max(1, width);
 	const wrapped: string[] = [];
@@ -145,6 +188,7 @@ export type CodeDiffLine = {
 export type CodeDiffOptions = {
 	/** Context lines kept around each change; omit to keep every context line the diff carries. */
 	contextLines?: number;
+	rail?: string;
 };
 
 const DIFF_SEPARATOR = "\u22ee";
@@ -216,13 +260,12 @@ export function trimDiffContext(lines: CodeDiffLine[], contextLines: number): Co
 	});
 	const result: CodeDiffLine[] = [];
 	lines.forEach((line, index) => {
-		if (kept[index]) {
-			result.push(line);
-			return;
-		}
-		if (result.length > 0 && result[result.length - 1]!.kind !== "separator") {
-			result.push({ kind: "separator", content: DIFF_SEPARATOR, hunk: line.hunk });
-		}
+		const previous = result[result.length - 1];
+		// One mark per gap: context dropped next to a hunk break the diff already marks
+		// would otherwise draw two.
+		if (previous?.kind === "separator" && (!kept[index] || line.kind === "separator")) return;
+		if (kept[index]) result.push(line);
+		else if (previous) result.push({ kind: "separator", content: DIFF_SEPARATOR, hunk: line.hunk });
 	});
 	while (result.length > 0 && result[result.length - 1]!.kind === "separator") result.pop();
 	return result;
@@ -302,6 +345,8 @@ type CodeRowsOptions = {
 	signs: boolean;
 	/** Dim note rendered below the code, such as a read truncation notice. */
 	footer?: string;
+	/** What each row starts with; the result rail unless a mode draws its own. */
+	rail?: string;
 };
 
 /** Render numbered, syntax-highlighted code rows shared by edit diffs and read/write file views. */
@@ -312,7 +357,7 @@ function renderCodeRows(lines: CodeDiffLine[], path: string, theme: Theme, optio
 	const shebangLine = first?.lineNumber === 1 && first.kind !== "separator" ? first.content : undefined;
 	const highlighted = highlightCodeLines(lines, resolveLanguage(path, shebangLine), theme);
 	const numberWidth = Math.max(1, ...lines.map((line) => String(line.lineNumber ?? "").length));
-	const prefix = paintChrome(theme, " \u2502 ");
+	const prefix = options.rail ?? paintChrome(theme, " \u2502 ");
 	const prefixWidth = visibleWidth(prefix);
 	const gutterWidth = numberWidth + (options.signs ? 3 : 2);
 	const addedTint = options.signs ? diffTintRgb(theme, "toolDiffAdded") : undefined;
@@ -362,13 +407,14 @@ export function renderCodeDiff(
 	const diff = parseCodeDiff(patch, displayDiff);
 	const lines = options.contextLines === undefined ? diff : trimDiffContext(diff, options.contextLines);
 	if (lines.length === 0) return undefined;
-	return renderCodeRows(lines, path, theme, { signs: true });
+	return renderCodeRows(lines, path, theme, { signs: true, rail: options.rail });
 }
 
 export type CodeViewOptions = {
 	/** File line number of the first code line, e.g. a read's `offset`. */
 	startLine?: number;
 	footer?: string;
+	rail?: string;
 };
 
 /** Render file contents with line numbers and syntax highlighting, matching the edit diff layout. */
@@ -382,20 +428,21 @@ export function renderCodeView(code: string, path: string, theme: Theme, options
 		content: content.replace(/\t/gu, "   "),
 		hunk: 0,
 	}));
-	return renderCodeRows(lines, path, theme, { signs: false, footer: options.footer });
+	return renderCodeRows(lines, path, theme, { signs: false, footer: options.footer, rail: options.rail });
 }
 
 /** Limit a result preview by rendered rows while preserving the full source component for expansion. */
-export function limitComponentLines(component: Component, maximumLines: number, theme: Theme): Component {
+export function limitComponentLines(
+	component: Component,
+	maximumLines: number,
+	theme: Theme,
+	footer: (omitted: number) => string = (omitted) => paintChrome(theme, " │ ")
+		+ theme.fg("toolOutput", `… ${omitted} more ${omitted === 1 ? "line" : "lines"}`),
+): Component {
 	return new CachedComponent((width) => {
 		const lines = component.render(width);
 		if (lines.length <= maximumLines) return lines;
-		const omitted = lines.length - maximumLines;
-		return [
-			...lines.slice(0, maximumLines),
-			paintChrome(theme, " │ ")
-				+ theme.fg("toolOutput", `… ${omitted} more ${omitted === 1 ? "line" : "lines"}`),
-		];
+		return [...lines.slice(0, maximumLines), footer(lines.length - maximumLines)];
 	}, () => component.invalidate?.());
 }
 

@@ -72,7 +72,7 @@ export function getArgumentDetails(name: string, args: ToolArgs): ToolArgs {
 	return collectArgumentDetails(name, args);
 }
 
-function shellSegments(command: string): string[] {
+export function shellSegments(command: string): string[] {
 	const segments: string[] = [];
 	let current = "";
 	let quote: "'" | '"' | "`" | undefined;

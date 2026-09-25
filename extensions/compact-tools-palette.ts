@@ -1,4 +1,5 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { indicatorGlyph, indicatorStrength, indicatorTone, type RowStatus } from "./compact-tools-core.ts";
 import {
 	colorizeRgb,
 	interpolateRgb,
@@ -106,6 +107,15 @@ function ramp(theme: Theme, low: ContrastBand, high: ContrastBand): ColorRamp | 
 /** Fade endpoints for the running tool indicator, or undefined when the theme resolves no RGB. */
 export function indicatorPulse(theme: Theme): ColorRamp | undefined {
 	return ramp(theme, PULSE_LOW, PULSE_HIGH);
+}
+
+/** A row's status dot; a running one pulses between the theme's endpoints as frames advance. */
+export function paintIndicator(theme: Theme, status: RowStatus, frame: number): string {
+	const glyph = indicatorGlyph(status, frame);
+	const pulse = status === "running" ? indicatorPulse(theme) : undefined;
+	return pulse
+		? colorizeRgb(theme, interpolateRgb(pulse.from, pulse.to, indicatorStrength(status, frame)), glyph)
+		: theme.fg(indicatorTone(status, frame), glyph);
 }
 
 /** How far the brightest activity dot moves from the level's color toward the label's crest. */

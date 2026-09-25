@@ -38,6 +38,16 @@ export class ToolRuntime {
 		return this.configValue;
 	}
 
+	/** The shared animation frame of running indicators, for rows drawn outside a tool renderer. */
+	get frame(): number {
+		return this.indicatorFrame;
+	}
+
+	/** When a tool call started and, once it has, ended. */
+	timing(toolCallId: string): Readonly<ExecutionTiming> | undefined {
+		return this.executionTimings.get(toolCallId);
+	}
+
 	configure(config: CompactToolsConfig): void {
 		this.configValue = config;
 		this.configRevision = {};

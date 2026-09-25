@@ -23,6 +23,8 @@ import { hookMethod } from "../extensions/compact-tools-hook.ts";
 import { compareVersions, releasesToShow, showReleaseNotice } from "../extensions/compact-tools-release.ts";
 import { isIntermediateAssistant, parseSilentArgument, patchRender, renderAnswerOnly, renderWithoutNotices, SilentModeController } from "../extensions/compact-tools-silent.ts";
 import { attachActivityToUserMessage, bottomAlignTranscript, dotIntensities, frameChanges, renderActivityDots, SilentActivityAnimator } from "../extensions/compact-tools-activity.ts";
+import { classifyShellCommand, claudeArgument, claudeFailure, claudeOutcome, claudeTitle } from "../extensions/compact-tools-claude.ts";
+import { countGroup, EXPAND_HINT, groupChildren, groupFailures, groupHint, summarizeGroup, ToolGroupComponent, type ToolRowLike } from "../extensions/compact-tools-grouping.ts";
 import { languageFromPath, languageFromShebang, resolveLanguage } from "../extensions/compact-tools-language.ts";
 import {
 	formatResultLineSummary,
@@ -40,6 +42,8 @@ import {
 	hardWrapTextWithAnsi,
 	limitComponentLines,
 	parseCodeDiff,
+	claudeRows,
+	prefixedLines,
 	prefixedText,
 	renderArguments,
 	renderCodeDiff,
@@ -102,6 +106,13 @@ test("merges configuration without mutating defaults", () => {
 
 test("parses display mode and keeps the previous value when invalid", () => {
 	assert.equal(DEFAULT_CONFIG.mode, "normal");
+	assert.equal(DEFAULT_CONFIG.style, "compact");
+	assert.equal(mergeConfig(DEFAULT_CONFIG, { style: "claude" }, "test").style, "claude");
+	assert.equal(mergeConfig(DEFAULT_CONFIG, { style: "off" }, "test").style, "off");
+	assert.equal(mergeConfig(DEFAULT_CONFIG, { style: "fancy" }, "test").style, "compact", "an unknown style keeps the previous one");
+	assert.equal(mergeConfig(DEFAULT_CONFIG, { mode: "claude" }, "test").mode, "normal", "styles are not modes");
+	const both = mergeConfig(DEFAULT_CONFIG, { style: "claude", mode: "silent" }, "test");
+	assert.deepEqual([both.style, both.mode], ["claude", "silent"], "a style and silent mode combine");
 	assert.equal(mergeConfig(DEFAULT_CONFIG, { mode: "silent" }, "test").mode, "silent");
 	const silent = mergeConfig(DEFAULT_CONFIG, { mode: "silent" }, "test");
 	assert.equal(mergeConfig(silent, { mode: "quiet" }, "test").mode, "silent");
@@ -1974,4 +1985,169 @@ test("lets auto_compact name a custom tool, overriding the custom_tools default 
 	} finally {
 		console.error = originalError;
 	}
+});
+
+// Named like Pi's class: grouping recognizes a second copy of Pi's classes by name.
+class ToolExecutionComponent {
+	expanded = false;
+	isPartial: boolean;
+	result?: { content: Array<{ type: "text"; text: string }>; isError?: boolean };
+	constructor(
+		readonly toolName: string,
+		readonly args: Record<string, unknown>,
+		output?: string,
+		isError = false,
+		readonly toolCallId = `${toolName}-${Math.random()}`,
+	) {
+		this.isPartial = output === undefined;
+		if (output !== undefined) this.result = { content: [{ type: "text", text: output }], isError };
+	}
+	render(): string[] {
+		return ["", `ROW ${this.toolName}`];
+	}
+	invalidate(): void {}
+}
+
+const toolRow = (name: string, args: Record<string, unknown>, output?: string, isError = false) =>
+	new ToolExecutionComponent(name, args, output, isError) as unknown as ToolRowLike;
+
+test("claude mode words a group the way Claude Code does, in progress or done", () => {
+	const done = [
+		toolRow("read", { path: "a.ts" }, "a"),
+		toolRow("grep", { pattern: "x" }, "hit"),
+		toolRow("read", { path: "b.ts" }, "b"),
+		toolRow("read", { path: "a.ts" }, "a"),
+		toolRow("find", { pattern: "*.ts" }, "a.ts"),
+		toolRow("ls", {}, "a.ts"),
+		toolRow("bash", { command: "rg TODO src | head -5" }, "x"),
+	];
+	assert.equal(summarizeGroup(done), "Searched for 3 patterns, read 2 files, listed 1 directory",
+		"searches first, then reads by distinct file, then listings");
+	assert.equal(summarizeGroup(done, (count) => `*${count}*`), "Searched for *3* patterns, read *2* files, listed *1* directory");
+	const running = [toolRow("read", { path: "a.ts" }, "a"), toolRow("grep", { pattern: "x" })];
+	assert.equal(summarizeGroup(running), "Searching for 1 pattern, reading 1 file");
+	assert.deepEqual(countGroup([toolRow("bash", { command: "cat a | wc -l" }, "1")]), { search: 0, read: 1, list: 0 },
+		"a read by command counts when no file was read");
+	assert.equal(EXPAND_HINT, "(ctrl+o to expand)");
+});
+
+test("only commands that look around fold into a group", () => {
+	assert.equal(classifyShellCommand("rg -n TODO src | head -20"), "search");
+	assert.equal(classifyShellCommand("cat a.ts && wc -l b.ts"), "read");
+	assert.equal(classifyShellCommand("ls -la; echo done"), "list");
+	assert.equal(classifyShellCommand("grep x a | sort | uniq"), "search");
+	assert.equal(classifyShellCommand("echo hi"), undefined, "a command that only prints looks at nothing");
+	assert.equal(classifyShellCommand("npm test"), undefined);
+	assert.equal(classifyShellCommand("cat a.ts && npm test"), undefined, "one step that runs something is enough to keep it apart");
+	assert.equal(classifyShellCommand("rg 'a|b' src"), "search", "a pipe inside quotes is part of the pattern");
+	// Claude Code's own lists, every command in each.
+	const lists = {
+		search: ["find", "grep", "rg", "ag", "ack", "locate", "which", "whereis"],
+		read: ["cat", "head", "tail", "less", "more", "wc", "stat", "file", "strings", "jq", "awk", "cut", "sort", "uniq", "tr"],
+		list: ["ls", "tree", "du"],
+	} as const;
+	for (const [kind, programs] of Object.entries(lists)) {
+		for (const program of programs) assert.equal(classifyShellCommand(`${program} x`), kind, program);
+	}
+	for (const neutral of ["echo", "printf", "true", "false", ":"]) {
+		assert.equal(classifyShellCommand(neutral), undefined, `${neutral} alone looks at nothing`);
+		assert.equal(classifyShellCommand(`${neutral} x && cat y`), "read", `${neutral} does not change what cat does`);
+	}
+	for (const other of ["npm", "node", "git", "sed", "mkdir", "rm", "python3", "curl"]) {
+		assert.equal(classifyShellCommand(`${other} x`), undefined, other);
+	}
+});
+
+test("a group's second line names the running call, and failures stay in view", () => {
+	const read = toolRow("read", { path: "a.ts" }, "one\ntwo");
+	assert.equal(groupHint([read, toolRow("grep", { pattern: "x", path: "src" })]), '"x"');
+	assert.equal(groupHint([toolRow("bash", { command: "cat a.ts" })]), "$ cat a.ts");
+	assert.equal(groupHint([read]), undefined, "a finished group needs no second line");
+	assert.equal(groupHint([toolRow("grep", {})]), undefined, "nothing to name while the arguments stream in");
+	const failed = toolRow("read", { path: "gone.ts" }, "ENOENT: no such file", true);
+	assert.deepEqual(groupFailures([read, failed]), ["Error: ENOENT: no such file"]);
+});
+
+test("titles and outcomes read like Claude Code's", () => {
+	assert.deepEqual(claudeTitle("bash", { command: "npm test\nnpm run lint" }), { label: "Bash", argument: "npm test …" });
+	assert.deepEqual(claudeTitle("edit", { path: "src/app.ts" }), { label: "Update", argument: "src/app.ts" });
+	assert.deepEqual(claudeTitle("web_search", { query: "pi tui", limit: 5, domains: ["a", "b"] }),
+		{ label: "web_search", argument: 'query: "pi tui", limit: 5, domains: ["a", "b"]' });
+	assert.equal(claudeArgument("grep", { pattern: "TODO" }), 'pattern: "TODO"');
+	const text = (value: string, details?: unknown) => ({ content: [{ type: "text" as const, text: value }], details });
+	const bold = (value: string) => `*${value}*`;
+	assert.equal(claudeOutcome("read", { path: "a" }, text("1\n2\n3"), "1\n2\n3", bold), "Read *3* lines");
+	assert.equal(claudeOutcome("write", { path: "a.md", content: "x\ny" }, text(""), "x\ny", bold), "Wrote *2* lines to *a.md*");
+	assert.equal(claudeOutcome("edit", { path: "a.ts" }, text("", { diff: "+1 new\n-1 old\n+2 more" }), ""),
+		"Added 2 lines, removed 1 line");
+	assert.equal(claudeOutcome("edit", { path: "a.ts" }, text("", { diff: "-1 old" }), ""), "Removed 1 line");
+	assert.equal(claudeOutcome("bash", { command: "ls" }, text("a"), "a"), undefined, "a command shows its output instead");
+	assert.deepEqual(claudeFailure("bash", "boom\nCommand exited with code 2"), { headline: "Error: Exit code 2", detail: "boom" });
+	assert.deepEqual(claudeFailure("edit", "Could not find the text to replace"),
+		{ headline: "Error: Could not find the text to replace", detail: "" });
+});
+
+test("output previews in rows the way Claude Code does", () => {
+	const more = (hidden: number) => `+${hidden}`;
+	const rows = (lines: string[], width: number) => claudeRows(lines, "> ", "  ", 3, more).render(width);
+	assert.deepEqual(rows(["1", "2", "3", "4", "5"], 20), ["> 1", "  2", "  3", "  +2"]);
+	assert.deepEqual(rows(["1", "2", "3", "4"], 20), ["> 1", "  2", "  3", "  4"], "one more row shows rather than a count of one");
+	// Rows wrap ten columns short of the width, and a wrapped line counts as its rows.
+	assert.deepEqual(rows(["x".repeat(25), "y"], 20), ["> xxxxxxxxxx", "  xxxxxxxxxx", "  xxxxx", "  y"]);
+	assert.deepEqual(claudeRows(["1", "2", "3", "4", "5"], "> ", "  ", undefined, more).render(20).length, 5, "opened, all of it");
+});
+
+test("folds reads, searches, and the thinking between them; commands and answers stay apart", () => {
+	const text = (label: string) => ({ render: () => [label], invalidate() {} });
+	const thinking = new AssistantMessageComponent({
+		content: [{ type: "thinking", thinking: "Plan" }, { type: "toolCall", id: "d", name: "read", arguments: {} }],
+		stopReason: "toolUse",
+	} as never);
+	const said = new AssistantMessageComponent({
+		content: [{ type: "text", text: "Checking" }, { type: "toolCall", id: "e", name: "read", arguments: {} }],
+		stopReason: "toolUse",
+	} as never);
+	const status = new Text("Tool output: collapsed", 1, 0);
+	const read = toolRow("read", { path: "a" }, "a");
+	const grep = toolRow("grep", { pattern: "x" }, "x");
+	const bash = toolRow("bash", { command: "npm test" }, "a");
+	const ls = toolRow("ls", {}, "a");
+	const find = toolRow("find", { pattern: "*" }, "a");
+	const answer = text("ANSWER");
+	const groups: Array<{ rows: ToolRowLike[]; members: unknown[] }> = [];
+	const result = groupChildren([thinking, read, thinking, status, grep, bash, ls, said, find, thinking, answer], (rows, members) => {
+		groups.push({ rows, members });
+		return text(`GROUP ${rows.length}`);
+	});
+	assert.deepEqual(groups.map((group) => group.rows), [[read, grep], [ls], [find]]);
+	assert.deepEqual(groups[0]!.members, [read, thinking, status, grep], "what sat between the calls opens with the group");
+	const label = (child: unknown) => (child as { render(width: number): string[] }).render(80).find(Boolean);
+	assert.deepEqual(result.map(label), [
+		label(thinking), "GROUP 2", "ROW bash", "GROUP 1", label(said), "GROUP 1", label(thinking), "ANSWER",
+	], "a thinking turn before a run, or after it with nothing to fold into, stays where it was");
+});
+
+test("a group opens on click and follows Ctrl+O both ways", () => {
+	const rows = [toolRow("read", { path: "a" }, "a"), toolRow("grep", { pattern: "x" }, "b")];
+	const state = { expanded: false, lastHostExpanded: false };
+	let toggles = 0;
+	const draw = (_rows: readonly ToolRowLike[], _width: number, expanded: boolean) => ["", expanded ? "OPEN" : "SUMMARY"];
+	const group = (onToggle = () => {}) => new ToolGroupComponent(rows, rows, state, draw, onToggle);
+	const collapsed = group(() => toggles++);
+	assert.deepEqual(collapsed.render(80), ["", "SUMMARY"]);
+	assert.ok(collapsed.handleMouse({ type: "click", button: "left", x: 1, y: 1, width: 80, height: 2 } as never));
+	assert.equal(toggles, 1);
+	assert.deepEqual(group().render(80), ["", "OPEN", "", "ROW read", "", "ROW grep"]);
+	// Ctrl+O collapses every row in Pi, then expands them again.
+	for (const row of rows) row.expanded = true;
+	assert.equal(group().render(80).length, 6);
+	for (const row of rows) row.expanded = false;
+	assert.deepEqual(group().render(80), ["", "SUMMARY"]);
+});
+
+test("collapsed Claude rows keep each line to one row and keep output indentation", () => {
+	const text = "      70 README.md\n" + "x".repeat(30);
+	assert.deepEqual(prefixedLines(text, " └ ", "   ", true).render(20).map(stripTerminalSequences),
+		[" └       70 README.…", "   xxxxxxxxxxxxxxxx…"]);
+	assert.deepEqual(prefixedLines("abcdefgh", " └ ", "   ", false).render(8), [" └ abcde", "   fgh"]);
 });

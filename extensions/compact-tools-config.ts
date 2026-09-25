@@ -3,10 +3,12 @@ import { join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
 	DISPLAY_MODES,
+	DISPLAY_STYLES,
 	SUPPORTED_TOOL_SET,
 	type CompactToolName,
 	type CompactToolsConfig,
 	type DisplayMode,
+	type DisplayStyle,
 } from "./compact-tools-types.ts";
 
 const CONFIG_FILE = "compact-tools.json";
@@ -14,6 +16,7 @@ type JsonObject = Record<string, unknown>;
 
 export const DEFAULT_CONFIG: CompactToolsConfig = {
 	mode: "normal",
+	style: "compact",
 	tools: ["read", "write", "edit", "bash"],
 	previewLines: 10,
 	auto_compact: {
@@ -45,9 +48,9 @@ function isIntegerInRange(value: unknown, minimum: number, maximum: number): val
 	return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= maximum;
 }
 
-function parseMode(value: unknown, path: string): DisplayMode | undefined {
-	if ((DISPLAY_MODES as readonly unknown[]).includes(value)) return value as DisplayMode;
-	warn(path, `mode must be one of ${DISPLAY_MODES.join(", ")}; using previous value`);
+function parseChoice<T extends string>(value: unknown, choices: readonly T[], key: string, path: string): T | undefined {
+	if ((choices as readonly unknown[]).includes(value)) return value as T;
+	warn(path, `${key} must be one of ${choices.join(", ")}; using previous value`);
 	return undefined;
 }
 
@@ -121,7 +124,8 @@ export function mergeConfig(base: CompactToolsConfig, value: unknown, path: stri
 		warn(path, "expected a JSON object; using previous values");
 		return base;
 	}
-	const mode = value.mode === undefined ? base.mode : (parseMode(value.mode, path) ?? base.mode);
+	const mode = value.mode === undefined ? base.mode : (parseChoice<DisplayMode>(value.mode, DISPLAY_MODES, "mode", path) ?? base.mode);
+	const style = value.style === undefined ? base.style : (parseChoice<DisplayStyle>(value.style, DISPLAY_STYLES, "style", path) ?? base.style);
 	const tools = value.tools === undefined ? base.tools : (parseTools(value.tools, path) ?? base.tools);
 	const auto_compact = parseAutoCompact(base.auto_compact, value.auto_compact, path);
 	const custom_tools = parseCustomTools(base.custom_tools, value.custom_tools, path);
@@ -130,7 +134,7 @@ export function mergeConfig(base: CompactToolsConfig, value: unknown, path: stri
 	if (value.previewLines !== undefined && !isIntegerInRange(value.previewLines, 1, 100)) {
 		warn(path, "previewLines must be 1–100; using previous value");
 	}
-	return { mode, tools, auto_compact, custom_tools, previewLines };
+	return { mode, style, tools, auto_compact, custom_tools, previewLines };
 }
 
 function readJson(path: string): unknown {
