@@ -26,14 +26,14 @@ Set `"style"` in the config below, then `/reload`. `"style": "off"` restores Pi'
 
 ### Style: Compact
 
-![Compact style: a web search, ls, and an edit as compact rows with status dots, then the edit's diff](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/compact-workflow.gif)
+![Compact style: searches, reads, a test run, and an edit with its diff, one row each](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/compact-workflow.gif)
 
 - One row per call: status, duration, and line count.
 - Edits show a highlighted diff with `(+3 -1)`; reads and writes show numbered code.
 
 ### Style: Claude
 
-![Claude style: reads and searches fold into one line, then Bash and Update rows; silent mode hides them mid-run and brings them back](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/claude-style.gif)
+![Claude style: reads and searches folded into one line, then Bash and Update rows](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/claude-style.gif)
 
 - Reads, searches, and listings fold into one line: `Searched for 2 patterns, read 3 files`.
 - `Bash`, `Update`, `Write`, and custom tools keep their own rows with short previews.
