@@ -20,6 +20,9 @@ const GOLDEN_PATH = join(import.meta.dirname, "golden", "render.json");
 const WIDTHS = [100, 44];
 
 process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "compact-tools-golden-"));
+// Syntax highlighting follows the terminal's color support; pin it so every
+// machine, a CI runner without a TTY included, draws the same colors.
+process.env.COLORTERM = "truecolor";
 initTheme("dark", false);
 
 // A theme whose colors are real, zero-width escape sequences, so wrapping and

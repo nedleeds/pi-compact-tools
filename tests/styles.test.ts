@@ -16,6 +16,9 @@ import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
 import { SUPPORTED_TOOLS } from "../extensions/compact-tools-types.ts";
 
 process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "compact-tools-styles-"));
+// Syntax highlighting follows the terminal's color support; pin it so every
+// machine, a CI runner without a TTY included, draws the same colors.
+process.env.COLORTERM = "truecolor";
 initTheme("dark", false);
 
 const plainTheme = {
