@@ -3,7 +3,7 @@ import type { TUI } from "@earendil-works/pi-tui";
 import { onTick } from "./compact-tools-clock.ts";
 import { colorizeRgb, interpolateRgb, type Rgb } from "./compact-tools-color.ts";
 import { hookMethod } from "./compact-tools-hook.ts";
-import { activityGlow, type ColorRamp, type ThinkingLevel } from "./compact-tools-palette.ts";
+import { activityGlow, thinkingLevelColor, type ColorRamp, type ThinkingLevel } from "./compact-tools-palette.ts";
 
 const WIDGET_KEY = "compact-tools-silent-activity-render";
 const ACTIVITY_STATE = Symbol.for("pi-compact-tools.silent.activity.state");
@@ -109,17 +109,22 @@ export function frameChanges(frame: number): boolean {
 	return FRAME_CHANGED[frameIndex(frame)]!;
 }
 
-// Resolving a ramp walks the theme's colors; it only changes with the theme or the level.
-const glowCache = new WeakMap<Theme, Map<ThinkingLevel, ColorRamp | null>>();
+/**
+ * Resolving a ramp walks the theme's colors, so each level keeps its last one.
+ * It is kept against the colors it is made from, the level's and the text's, not
+ * against the theme: Pi's theme is one object whose palette /theme swaps.
+ */
+const glowCache = new Map<ThinkingLevel, { colors: string; glow: ColorRamp | undefined }>();
 
 function cachedGlow(theme: Theme, level: ThinkingLevel): ColorRamp | undefined {
-	let byLevel = glowCache.get(theme);
-	if (!byLevel) {
-		byLevel = new Map();
-		glowCache.set(theme, byLevel);
-	}
-	if (!byLevel.has(level)) byLevel.set(level, activityGlow(theme, level) ?? null);
-	return byLevel.get(level) ?? undefined;
+	const colors = typeof theme.getFgAnsi === "function"
+		? theme.getFgAnsi(thinkingLevelColor(level)) + theme.getFgAnsi("text")
+		: "";
+	const cached = glowCache.get(level);
+	if (cached && cached.colors === colors) return cached.glow;
+	const glow = activityGlow(theme, level);
+	glowCache.set(level, { colors, glow });
+	return glow;
 }
 
 function toneColor(glow: ColorRamp, intensity: number): Rgb {

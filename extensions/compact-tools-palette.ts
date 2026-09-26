@@ -66,7 +66,7 @@ const THINKING_LEVEL_COLOR = {
 } as const satisfies Record<ThinkingLevel, ThemeForeground>;
 
 /** The theme color a thinking level is painted with. */
-function thinkingLevelColor(level: ThinkingLevel): ThemeForeground {
+export function thinkingLevelColor(level: ThinkingLevel): ThemeForeground {
 	return THINKING_LEVEL_COLOR[level] ?? "thinkingMedium";
 }
 

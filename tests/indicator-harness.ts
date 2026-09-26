@@ -55,6 +55,8 @@ export interface Harness {
 	requestRenders: () => number;
 	/** Pi's chat, where grouping looks for rows in the Claude style. */
 	chat: { children: unknown[]; render(width: number): string[] };
+	/** Change the thinking level as Pi does. */
+	setThinkingLevel(level: string): void;
 }
 
 /** Load the extension as Pi does; `tui` binds it to a terminal the way interactive mode would. */
@@ -63,6 +65,7 @@ export async function loadExtension(
 	options: { tui?: boolean; idle?: boolean; reason?: string } = {},
 ): Promise<Harness> {
 	const { Container } = await import("@earendil-works/pi-tui");
+	let level = "medium";
 	writeFileSync(join(process.env.PI_CODING_AGENT_DIR!, "compact-tools.json"), JSON.stringify({
 		tools: ["read", "write", "edit", "bash", "powershell", "grep", "find", "ls"],
 		...config,
@@ -83,7 +86,7 @@ export async function loadExtension(
 		registerMarkdownTransformer: () => {},
 		registerCommand: () => {},
 		registerShortcut: () => {},
-		getThinkingLevel: () => "medium",
+		getThinkingLevel: () => level,
 	} as unknown as ExtensionAPI);
 	let renders = 0;
 	const chat = new Container();
@@ -107,7 +110,13 @@ export async function loadExtension(
 	};
 	if (options.idle !== undefined) ctx.isIdle = () => options.idle;
 	handlers.get("session_start")!({ reason: options.reason ?? "startup" }, ctx as unknown as ExtensionContext);
-	return { definitions, handlers, requestRenders: () => renders, chat };
+	const setThinkingLevel = (next: string) => {
+		const previousLevel = level;
+		level = next;
+		// Pi tells extensions as it changes the level.
+		handlers.get("thinking_level_select")?.({ type: "thinking_level_select", level: next, previousLevel });
+	};
+	return { definitions, handlers, requestRenders: () => renders, chat, setThinkingLevel };
 }
 
 export function shutdown(harness: Harness): void {
