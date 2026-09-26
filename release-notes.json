@@ -1,4 +1,11 @@
 {
+  "0.12.0": [
+    "Running rows animate without being rebuilt: one repaint per frame, however many tools run",
+    "A tool's time counts from when it runs, not from when the model began writing its call",
+    "Rows restored from a session show no made-up time, and a call left without a result waits instead of pulsing on",
+    "Claude style: groups draw about ten times faster in long sessions, and wait along with their calls",
+    "Silent mode's activity line follows a theme switch"
+  ],
   "0.11.2": [
     "Claude style no longer cuts commands to one row; long ones wrap, and only past two lines or 160 characters are shortened"
   ],
