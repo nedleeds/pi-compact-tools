@@ -153,17 +153,15 @@ export class ToolRuntime {
 		state.hasResult = available;
 	}
 
-	syncRow(
-		ctx: RenderContext,
-		running = ctx.executionStarted && ctx.state.endedAt === undefined,
-		finished = false,
-	): RowState {
+	syncRow(ctx: RenderContext, finished = false): RowState {
 		const state = ctx.state;
 		state.run ??= this.busy === false ? -1 : this.run;
-		if (this.restoreTiming(state, ctx.toolCallId)) running = false;
-		// A restored row never ran in front of the reader, so it has no time to measure
-		// unless this process timed it before a /reload.
-		const started = this.canRun(state) && (!ctx.argsComplete || ctx.executionStarted || running);
+		this.restoreTiming(state, ctx.toolCallId);
+		// A row is timed from when it runs, as Pi times its own: the model writing the
+		// arguments is not the tool's time. A restored row never ran in front of the
+		// reader, so it has no time to measure unless this process timed it before a
+		// /reload, and a call that never ran has none either.
+		const started = this.canRun(state) && ctx.executionStarted;
 		if (started && state.startedAt === undefined) state.startedAt = Date.now();
 		if (finished) state.finished = true;
 		if (finished && state.startedAt !== undefined && state.endedAt === undefined) state.endedAt = Date.now();
@@ -255,12 +253,11 @@ export class ToolRuntime {
 		return true;
 	}
 
-	private restoreTiming(state: RowState, toolCallId: string): boolean {
+	private restoreTiming(state: RowState, toolCallId: string): void {
 		const timing = this.executionTimings.get(toolCallId);
-		if (!timing) return false;
+		if (!timing) return;
 		state.startedAt = timing.startedAt;
 		state.endedAt = timing.endedAt;
-		return timing.endedAt !== undefined;
 	}
 
 	private persistTiming(state: RowState, toolCallId: string): void {

@@ -185,7 +185,7 @@ function hasNestedArguments(args: ToolArgs): boolean {
 
 /** The call line: a status dot, the tool, and what it was asked, then any arguments the line leaves out. */
 function renderRowCall(name: string, args: ToolArgs, theme: Theme, ctx: RenderContext): Component {
-	const state = runtime.syncRow(ctx, ctx.state.endedAt === undefined);
+	const state = runtime.syncRow(ctx);
 	runtime.syncExpansion(state, ctx.expanded, name);
 	const kind = rowKind(name);
 	const indicator = liveIndicator(theme, ctx, state);
@@ -374,7 +374,7 @@ function renderRowResult(
 	ctx: RenderContext,
 	author?: AuthorResultRenderer,
 ): Component {
-	const state = runtime.syncRow(ctx, options.isPartial, !options.isPartial);
+	const state = runtime.syncRow(ctx, !options.isPartial);
 	runtime.syncExpansion(state, ctx.expanded, name);
 	if (canReuseResult(state, result, options, ctx)) return ctx.lastComponent;
 	const kind = rowKind(name);
