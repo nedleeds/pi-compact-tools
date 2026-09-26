@@ -3,11 +3,12 @@
  * again until something it shows changes, and every such change is drawn.
  */
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
 import { AssistantMessageComponent, initTheme, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, type Component } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../extensions/compact-tools-config.ts";
 import { ToolGroupController } from "../extensions/compact-tools-grouping.ts";
+import { paintIndicator } from "../extensions/compact-tools-palette.ts";
 import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
 import { theme as piTheme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { loadExtension, makeRow, restoreClocks, shutdown, text } from "./indicator-harness.ts";
@@ -155,6 +156,87 @@ test("every change a finished group shows is drawn", async () => {
 	}
 	assert.deepEqual(chat.render(100), dark);
 	controller.dispose();
+	shutdown(harness);
+});
+
+const dotOf = (lines: string[]) => lines.join("\n").match(/\x1b\[[0-9;]*m⦁/u)?.[0];
+const PENDING_DOT = dotOf([paintIndicator(piTheme as Theme, "pending", 0)]);
+const ERROR_DOT = dotOf([paintIndicator(piTheme as Theme, "error", 0)]);
+
+/** The group's line and, opened, its row's own line: they must agree. */
+function groupAndRow(harness: Awaited<ReturnType<typeof loadExtension>>, row: ReturnType<typeof makeRow>) {
+	const collapsed = harness.chat.render(100);
+	row.setExpanded(true);
+	const opened = harness.chat.render(100);
+	row.setExpanded(false);
+	const rowLine = opened.find((line) => /Read\(src\//u.test(strip([line])[0]!))!;
+	return { collapsed, header: collapsed.find((line) => line.includes("⦁"))!, rowLine };
+}
+
+test("a group whose call was restored without its result waits, as its row does", async () => {
+	const harness = await loadExtension({ style: "claude" }, { tui: true, idle: true });
+	const row = makeRow("read", `g-${++sequence}`, { path: "src/a.ts" }, harness.definitions.get("read"));
+	harness.chat.children = [row];
+	const { collapsed, header, rowLine } = groupAndRow(harness, row);
+	assert.deepEqual(strip(collapsed).filter((line) => line.trim()), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.equal(dotOf([header]), PENDING_DOT);
+	assert.equal(dotOf([rowLine]), PENDING_DOT, "the group and its row agree");
+	mock.timers.tick(45 * 20);
+	assert.equal(harness.requestRenders(), 0, "nothing animates");
+	// A new run does not revive it. The dot alone cannot tell: a pulse starts in the waiting shade.
+	harness.handlers.get("agent_start")!({});
+	const revived = groupAndRow(harness, row);
+	assert.deepEqual(strip(revived.collapsed).filter((line) => line.trim()), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.equal(dotOf([revived.header]), PENDING_DOT);
+	shutdown(harness);
+});
+
+test("when the run ends, a group whose call got no result stops running with it", async () => {
+	const harness = await loadExtension({ style: "claude" }, { tui: true, idle: true });
+	harness.handlers.get("agent_start")!({});
+	const row = makeRow("read", `g-${++sequence}`, { path: "src/a.ts" }, harness.definitions.get("read"));
+	row.setArgsComplete();
+	harness.handlers.get("tool_execution_start")!({ toolCallId: (row as unknown as { toolCallId: string }).toolCallId, toolName: "read", args: {} });
+	row.markExecutionStarted();
+	harness.chat.children = [row];
+	const running = strip(harness.chat.render(100)).filter((line) => line.trim());
+	assert.deepEqual(running, [" ⦁ Reading 1 file… (ctrl+o to expand)", " └ src/a.ts"]);
+	mock.timers.tick(45 * 3);
+	harness.chat.render(100);
+	const asked = harness.requestRenders();
+	assert.ok(asked > 0, "it pulsed while the run went on");
+	harness.handlers.get("agent_end")!({ messages: [] });
+	const { collapsed, header, rowLine } = groupAndRow(harness, row);
+	assert.deepEqual(strip(collapsed).filter((line) => line.trim()), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.equal(dotOf([header]), PENDING_DOT);
+	assert.equal(dotOf([rowLine]), PENDING_DOT, "the group and its row agree");
+	const after = harness.requestRenders();
+	for (let frame = 0; frame < 20; frame++) {
+		mock.timers.tick(45);
+		harness.chat.render(100);
+	}
+	assert.equal(harness.requestRenders(), after, "and it asks for no more frames");
+	// The next run cannot give it a result: Pi drops the calls it waited on when a run starts.
+	harness.handlers.get("agent_start")!({});
+	assert.deepEqual(strip(harness.chat.render(100)).filter((line) => line.trim()), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	shutdown(harness);
+});
+
+test("a waiting call leaves a finished group waiting, and a failure still shows first", async () => {
+	const harness = await loadExtension({ style: "claude" }, { tui: true, idle: true });
+	const done = makeRow("read", `g-${++sequence}`, { path: "src/a.ts" }, harness.definitions.get("read"));
+	done.updateResult({ ...text("a"), isError: false } as never);
+	const waiting = makeRow("read", `g-${++sequence}`, { path: "src/b.ts" }, harness.definitions.get("read"));
+	harness.chat.children = [done, waiting];
+	const header = harness.chat.render(100).find((line) => line.includes("⦁"))!;
+	assert.equal(strip([header])[0], " ⦁ Read 2 files (ctrl+o to expand)");
+	assert.equal(dotOf([header]), PENDING_DOT);
+	const failed = makeRow("read", `g-${++sequence}`, { path: "src/c.ts" }, harness.definitions.get("read"));
+	failed.updateResult({ ...text("ENOENT: gone"), isError: true } as never);
+	harness.chat.children = [done, waiting, failed];
+	const withFailure = harness.chat.render(100);
+	assert.equal(dotOf([withFailure.find((line) => line.includes("⦁"))!]), ERROR_DOT);
+	assert.match(strip(withFailure).join("\n"), /Error: ENOENT: gone/u);
 	shutdown(harness);
 });
 

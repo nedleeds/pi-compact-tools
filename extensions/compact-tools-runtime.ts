@@ -40,6 +40,11 @@ export class ToolRuntime {
 	private busy: boolean | undefined;
 	/** Counts the agent's runs, so a row knows whether the run it belongs to is still going. */
 	private run = 0;
+	/**
+	 * The run each call's row was first drawn in, for what draws a call without its
+	 * row state, such as the group a row is folded into.
+	 */
+	private readonly callRuns = new Map<string, number>();
 
 	constructor(private readonly clock: () => number = () => performance.now()) {
 		const shared = globalThis as SharedState;
@@ -68,6 +73,7 @@ export class ToolRuntime {
 
 	clearTimings(): void {
 		this.executionTimings.clear();
+		this.callRuns.clear();
 	}
 
 	reset(clearTimings: boolean): void {
@@ -105,6 +111,12 @@ export class ToolRuntime {
 	 */
 	canRun(state: RowState): boolean {
 		return this.busy !== false && state.run === this.run;
+	}
+
+	/** canRun() for a call by its id; a call no row has drawn yet can run while the agent works. */
+	canRunCall(toolCallId: string): boolean {
+		const run = this.callRuns.get(toolCallId);
+		return this.busy !== false && (run === undefined || run === this.run);
 	}
 
 	syncIndicator(toolCallId: string, running: boolean, invalidate: () => void): number {
@@ -155,7 +167,11 @@ export class ToolRuntime {
 
 	syncRow(ctx: RenderContext, finished = false): RowState {
 		const state = ctx.state;
-		state.run ??= this.busy === false ? -1 : this.run;
+		if (state.run === undefined) {
+			state.run = this.busy === false ? -1 : this.run;
+			this.callRuns.set(ctx.toolCallId, state.run);
+			if (this.callRuns.size > MAX_TRACKED_ROWS) this.callRuns.delete(this.callRuns.keys().next().value!);
+		}
 		this.restoreTiming(state, ctx.toolCallId);
 		// A row is timed from when it runs, as Pi times its own: the model writing the
 		// arguments is not the tool's time. A restored row never ran in front of the

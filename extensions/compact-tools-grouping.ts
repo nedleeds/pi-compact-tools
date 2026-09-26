@@ -40,8 +40,18 @@ export interface ToolRowLike {
 	invalidate(): void;
 }
 
-export function memberStatus(row: ToolRowLike): RowStatus {
-	if (!row.result || row.isPartial) return "running";
+/** Whether a call without its result can still get one; the row itself answers the same way. */
+export type CanRun = (row: ToolRowLike) => boolean;
+
+const ALWAYS_RUNS: CanRun = () => true;
+
+/**
+ * A call with no result yet runs, unless it can no longer get one: restored from
+ * the session without it, or left without it when its run ended. Then it waits,
+ * as its row shows.
+ */
+export function memberStatus(row: ToolRowLike, canRun: CanRun = ALWAYS_RUNS): RowStatus {
+	if (!row.result || row.isPartial) return canRun(row) ? "running" : "pending";
 	return row.result.isError ? "error" : "success";
 }
 
@@ -61,9 +71,9 @@ function kindOf(row: ToolRowLike): LookKind | undefined {
 	return kind;
 }
 
-function lastRunning(rows: readonly ToolRowLike[]): ToolRowLike | undefined {
+function lastRunning(rows: readonly ToolRowLike[], canRun: CanRun): ToolRowLike | undefined {
 	for (let index = rows.length - 1; index >= 0; index--) {
-		if (memberStatus(rows[index]!) === "running") return rows[index];
+		if (memberStatus(rows[index]!, canRun) === "running") return rows[index];
 	}
 	return undefined;
 }
@@ -90,9 +100,13 @@ export function countGroup(rows: readonly ToolRowLike[]): Record<LookKind, numbe
  * "Searched for 2 patterns, read 3 files". While any call in the group still runs,
  * every verb reads in progress. `bold` marks the counts, as Claude Code does.
  */
-export function summarizeGroup(rows: readonly ToolRowLike[], bold: (text: string) => string = (text) => text): string {
+export function summarizeGroup(
+	rows: readonly ToolRowLike[],
+	bold: (text: string) => string = (text) => text,
+	canRun: CanRun = ALWAYS_RUNS,
+): string {
 	const counts = countGroup(rows);
-	const running = lastRunning(rows) !== undefined;
+	const running = lastRunning(rows, canRun) !== undefined;
 	const text = PHRASES.filter((phrase) => counts[phrase.kind] > 0)
 		.map((phrase) => {
 			const count = counts[phrase.kind];
@@ -103,8 +117,8 @@ export function summarizeGroup(rows: readonly ToolRowLike[], bold: (text: string
 }
 
 /** While a call runs, the line under its group names what it looks at. */
-export function groupHint(rows: readonly ToolRowLike[]): string | undefined {
-	const running = lastRunning(rows);
+export function groupHint(rows: readonly ToolRowLike[], canRun: CanRun = ALWAYS_RUNS): string | undefined {
+	const running = lastRunning(rows, canRun);
 	if (!running) return undefined;
 	return lookHint(running.toolName, argsOf(running)) || undefined;
 }
@@ -241,6 +255,8 @@ export class ToolGroupController {
 	private readonly states = new WeakMap<object, GroupState>();
 	/** This frame's colors, set as the chat starts drawing. */
 	private paint: Paint | undefined;
+	/** Asks the runtime, which knows which run each call belongs to, as the call's own row does. */
+	private readonly canRun: CanRun = (row) => this.runtime.canRunCall(row.toolCallId);
 
 	constructor(private readonly runtime: ToolRuntime) {}
 
@@ -301,7 +317,7 @@ export class ToolGroupController {
 	private drawCached(rows: readonly ToolRowLike[], width: number, expanded: boolean, state: GroupState): string[] {
 		const paint = this.paint ?? this.resolvePaint();
 		if (!paint) return [];
-		if (lastRunning(rows)) return this.draw(rows, width, expanded, paint);
+		if (lastRunning(rows, this.canRun)) return this.draw(rows, width, expanded, paint);
 		if (state.header && headerStill(state.header, rows, paint.key, width, expanded)) return state.header.lines;
 		const lines = this.draw(rows, width, expanded, paint);
 		state.header = {
@@ -324,10 +340,13 @@ export class ToolGroupController {
 	private draw(rows: readonly ToolRowLike[], width: number, expanded: boolean, paint: Paint): string[] {
 		const { theme, chrome } = paint;
 		const fit = (line: string) => truncateToWidth(line, Math.max(1, width), "…");
-		const running = lastRunning(rows);
-		const failed = rows.some((row) => memberStatus(row) === "error");
-		const status: RowStatus = running ? "running" : failed ? "error" : "success";
-		let title = `${paintIndicator(theme, status, this.runtime.frame)} ${theme.fg("toolTitle", theme.bold(summarizeGroup(rows)))}`;
+		const running = lastRunning(rows, this.canRun);
+		const statuses = rows.map((row) => memberStatus(row, this.canRun));
+		// A call that waits for a result it will never get leaves the group waiting too.
+		const status: RowStatus = running ? "running" : statuses.includes("error") ? "error"
+			: statuses.includes("pending") ? "pending" : "success";
+		const summary = summarizeGroup(rows, undefined, this.canRun);
+		let title = `${paintIndicator(theme, status, this.runtime.frame)} ${theme.fg("toolTitle", theme.bold(summary))}`;
 		if (running) {
 			// The folded row is not drawn, so the line that pulses for it keeps the clock going.
 			this.runtime.keepAnimating(running.toolCallId);
@@ -337,7 +356,7 @@ export class ToolGroupController {
 		}
 		if (!expanded) title += chrome(` ${EXPAND_HINT}`);
 		const lines = ["", fit(` ${title}`)];
-		const hintText = groupHint(rows);
+		const hintText = groupHint(rows, this.canRun);
 		if (hintText) lines.push(fit(chrome(` └ ${hintText}`)));
 		if (!expanded) for (const failure of groupFailures(rows)) lines.push(fit(chrome(" └ ") + theme.fg("error", failure)));
 		return lines;
