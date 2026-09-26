@@ -37,6 +37,10 @@ export interface RowState {
 	hasResult?: boolean;
 	lastHostExpanded?: boolean;
 	configRevision?: object;
+	/** The agent run the row was first drawn in; -1 when drawn while idle, restored from the session. */
+	run?: number;
+	/** The row has its final result, whether or not it was timed. */
+	finished?: boolean;
 	startedAt?: number;
 	endedAt?: number;
 	resultLineSummary?: string;

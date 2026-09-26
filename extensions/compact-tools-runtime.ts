@@ -12,9 +12,16 @@ import {
 
 const MAX_TRACKED_ROWS = 2_000;
 const INDICATOR_INTERVAL_MS = 45;
+/**
+ * How long a running row may go undrawn before it stops asking for frames. Pi draws
+ * every row it shows on every frame, so only a row that left the transcript, or
+ * never got its result, goes this long; it asks again the next time it is drawn.
+ */
+const UNDRAWN_ROW_MS = 1_500;
 const EXECUTION_TIMINGS_KEY = Symbol.for("pi.compact-tools.execution-timings");
 
 type ExecutionTiming = { startedAt: number; endedAt?: number };
+type Indicator = { invalidate: () => void; drawnAt: number };
 type TimedExecute = (...args: any[]) => Promise<AgentToolResult<unknown>>;
 type SharedState = typeof globalThis & {
 	[EXECUTION_TIMINGS_KEY]?: Map<string, ExecutionTiming>;
@@ -24,11 +31,17 @@ export class ToolRuntime {
 	private configValue = DEFAULT_CONFIG;
 	private configRevision: object = {};
 	private readonly executionTimings: Map<string, ExecutionTiming>;
-	private readonly indicatorInvalidators = new Map<string, () => void>();
+	private readonly indicators = new Map<string, Indicator>();
 	private indicatorFrame = 0;
 	private indicatorTimer: ReturnType<typeof setInterval> | undefined;
+	/** Pi's frame request, once bound to its terminal; rows then repaint without being rebuilt. */
+	private requestRender: (() => void) | undefined;
+	/** Whether the agent is working; undefined until the host says, which counts as working. */
+	private busy: boolean | undefined;
+	/** Counts the agent's runs, so a row knows whether the run it belongs to is still going. */
+	private run = 0;
 
-	constructor() {
+	constructor(private readonly clock: () => number = () => performance.now()) {
 		const shared = globalThis as SharedState;
 		this.executionTimings = shared[EXECUTION_TIMINGS_KEY] ?? new Map<string, ExecutionTiming>();
 		shared[EXECUTION_TIMINGS_KEY] = this.executionTimings;
@@ -62,22 +75,64 @@ export class ToolRuntime {
 		if (clearTimings) this.clearTimings();
 	}
 
+	/**
+	 * Bind the animation to Pi's frame requests. A running dot is painted when its
+	 * row is drawn, so a frame only has to be asked for, once, however many rows
+	 * run. Unbound, each running row is rebuilt to repaint, as Pi does on its own.
+	 */
+	bindRenderer(requestRender: (() => void) | undefined): void {
+		this.requestRender = requestRender;
+	}
+
+	/**
+	 * The agent started or stopped working. Once it stops nothing can still be
+	 * running, so a row that never got its result stops pulsing and waits instead.
+	 */
+	setBusy(busy: boolean): void {
+		if (busy && this.busy !== true) this.run++;
+		this.busy = busy;
+		if (busy) return;
+		const animating = this.indicators.size > 0;
+		this.stopIndicators();
+		if (animating) this.requestRender?.();
+	}
+
+	/**
+	 * Whether a row can be running: only while the run it was first drawn in goes
+	 * on. A row first drawn while the agent is idle was restored from the session,
+	 * and one left without a result when its run ended will never get one; either
+	 * way, whatever it did is over.
+	 */
+	canRun(state: RowState): boolean {
+		return this.busy !== false && state.run === this.run;
+	}
+
 	syncIndicator(toolCallId: string, running: boolean, invalidate: () => void): number {
 		if (!running) {
 			this.removeIndicator(toolCallId);
 			return 0;
 		}
-		this.indicatorInvalidators.set(toolCallId, invalidate);
+		const indicator = this.indicators.get(toolCallId);
+		if (indicator) {
+			indicator.invalidate = invalidate;
+			indicator.drawnAt = this.clock();
+		} else {
+			this.indicators.set(toolCallId, { invalidate, drawnAt: this.clock() });
+		}
 		if (!this.indicatorTimer) {
-			this.indicatorTimer = setInterval(() => {
-				this.indicatorFrame++;
-				// Silent mode hides tool rows; repainting the screen for them would be pure cost.
-				if (isSilent()) return;
-				for (const requestRender of this.indicatorInvalidators.values()) requestRender();
-			}, INDICATOR_INTERVAL_MS);
+			this.indicatorTimer = setInterval(() => this.tick(), INDICATOR_INTERVAL_MS);
 			this.indicatorTimer.unref?.();
 		}
 		return this.indicatorFrame;
+	}
+
+	/**
+	 * A running row that is out of sight but still counts, such as one folded into
+	 * a group whose line pulses for it, keeps the animation going.
+	 */
+	keepAnimating(toolCallId: string): void {
+		const indicator = this.indicators.get(toolCallId);
+		if (indicator) indicator.drawnAt = this.clock();
 	}
 
 	syncExpansion(state: RowState, hostExpanded: boolean, name: string): boolean {
@@ -104,9 +159,13 @@ export class ToolRuntime {
 		finished = false,
 	): RowState {
 		const state = ctx.state;
+		state.run ??= this.busy === false ? -1 : this.run;
 		if (this.restoreTiming(state, ctx.toolCallId)) running = false;
-		const started = !ctx.argsComplete || ctx.executionStarted || running;
+		// A restored row never ran in front of the reader, so it has no time to measure
+		// unless this process timed it before a /reload.
+		const started = this.canRun(state) && (!ctx.argsComplete || ctx.executionStarted || running);
 		if (started && state.startedAt === undefined) state.startedAt = Date.now();
+		if (finished) state.finished = true;
 		if (finished && state.startedAt !== undefined && state.endedAt === undefined) state.endedAt = Date.now();
 		if (finished) this.removeIndicator(ctx.toolCallId);
 		this.persistTiming(state, ctx.toolCallId);
@@ -146,9 +205,28 @@ export class ToolRuntime {
 		};
 	}
 
+	private tick(): void {
+		this.indicatorFrame++;
+		const requestRender = this.requestRender;
+		if (requestRender) {
+			const oldest = this.clock() - UNDRAWN_ROW_MS;
+			for (const [toolCallId, indicator] of this.indicators) {
+				if (indicator.drawnAt < oldest) this.removeIndicator(toolCallId);
+			}
+			if (this.indicators.size === 0) return;
+		}
+		// Silent mode hides tool rows; repainting the screen for them would be pure cost.
+		if (isSilent()) return;
+		if (requestRender) {
+			requestRender();
+			return;
+		}
+		for (const { invalidate } of this.indicators.values()) invalidate();
+	}
+
 	private removeIndicator(toolCallId: string): void {
-		this.indicatorInvalidators.delete(toolCallId);
-		if (this.indicatorInvalidators.size > 0 || !this.indicatorTimer) return;
+		this.indicators.delete(toolCallId);
+		if (this.indicators.size > 0 || !this.indicatorTimer) return;
 		clearInterval(this.indicatorTimer);
 		this.indicatorTimer = undefined;
 		this.indicatorFrame = 0;
@@ -157,7 +235,7 @@ export class ToolRuntime {
 	private stopIndicators(): void {
 		if (this.indicatorTimer) clearInterval(this.indicatorTimer);
 		this.indicatorTimer = undefined;
-		this.indicatorInvalidators.clear();
+		this.indicators.clear();
 		this.indicatorFrame = 0;
 	}
 

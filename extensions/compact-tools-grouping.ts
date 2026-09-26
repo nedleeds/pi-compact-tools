@@ -268,6 +268,8 @@ export class ToolGroupController {
 		const status: RowStatus = running ? "running" : failed ? "error" : "success";
 		let title = `${paintIndicator(theme, status, this.runtime.frame)} ${theme.fg("toolTitle", theme.bold(summarizeGroup(rows)))}`;
 		if (running) {
+			// The folded row is not drawn, so the line that pulses for it keeps the clock going.
+			this.runtime.keepAnimating(running.toolCallId);
 			const started = this.runtime.timing(running.toolCallId)?.startedAt;
 			const elapsed = started === undefined ? 0 : Date.now() - started;
 			title += `${elapsed >= 2000 ? chrome(` · ${formatDurationMs(elapsed)}`) : ""}…`;

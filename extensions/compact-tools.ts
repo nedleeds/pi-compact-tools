@@ -1,6 +1,7 @@
 import type {
 	AgentToolResult,
 	ExtensionAPI,
+	ExtensionContext,
 	Theme,
 	ToolDefinition,
 	ToolRenderResultOptions,
@@ -37,6 +38,7 @@ import {
 import {
 	CachedContainer,
 	claudeRows,
+	LiveCallContainer,
 	limitComponentLines,
 	prefixedLines,
 	prefixedText,
@@ -72,6 +74,7 @@ const PREVIEW_DIFF_CONTEXT_LINES = 1;
 const CLAUDE_INDENT = "   ";
 
 const runtime = new ToolRuntime();
+const RENDER_WIDGET_KEY = "compact-tools-render";
 const registeredTools = new Set<CompactToolName>();
 let registeredConfiguration: string | undefined;
 
@@ -95,13 +98,25 @@ function callStatus(ctx: RenderContext, state: RowState): RowStatus {
 	// write/edit arguments can stream for much longer than their eventual filesystem
 	// operation. Treat that active tool-call phase as running so every built-in row
 	// animates consistently instead of waiting for execute() to begin.
-	const active = ctx.executionStarted || !ctx.argsComplete;
-	return classifyCallStatus(ctx.isError, active, state.endedAt !== undefined);
+	const active = runtime.canRun(state) && (ctx.executionStarted || !ctx.argsComplete);
+	return classifyCallStatus(ctx.isError, active, state.finished === true || state.endedAt !== undefined);
 }
 
-function renderIndicator(theme: Theme, ctx: RenderContext, state: RowState): string {
-	const status = callStatus(ctx, state);
-	return paintIndicator(theme, status, runtime.syncIndicator(ctx.toolCallId, status === "running", () => ctx.invalidate()));
+/**
+ * The status dot, painted each time the row is drawn. Pi draws a call before its
+ * result, so a dot painted with the call would miss the result that arrived with
+ * it; reading the row's state at draw time sees it. A settled dot never changes.
+ */
+function liveIndicator(theme: Theme, ctx: RenderContext, state: RowState): () => string {
+	let settled: string | undefined;
+	return () => {
+		if (settled !== undefined) return settled;
+		const status = callStatus(ctx, state);
+		const indicator = paintIndicator(theme, status,
+			runtime.syncIndicator(ctx.toolCallId, status === "running", () => ctx.invalidate()));
+		if (status === "success" || status === "error") settled = indicator;
+		return indicator;
+	};
 }
 
 function formatDuration(state: RowState): string | undefined {
@@ -173,19 +188,21 @@ function renderRowCall(name: string, args: ToolArgs, theme: Theme, ctx: RenderCo
 	const state = runtime.syncRow(ctx, ctx.state.endedAt === undefined);
 	runtime.syncExpansion(state, ctx.expanded, name);
 	const kind = rowKind(name);
-	const container = new CachedContainer();
+	const indicator = liveIndicator(theme, ctx, state);
+	// Painted once now as well, so a row that starts running starts the animation clock.
+	indicator();
 	if (isClaude()) {
 		// Claude Code's call line: `⦁ Bash(npm test)`, `⦁ Update(src/app.ts)`.
 		const { label, argument } = claudeTitle(name, args, state.expanded === true);
-		const title = `${renderIndicator(theme, ctx, state)} ${theme.fg("toolTitle", theme.bold(label))}`
+		const title = ` ${theme.fg("toolTitle", theme.bold(label))}`
 			+ (argument ? styleMultiline(`(${argument})`, (line) => theme.fg("toolOutput", line)) : "");
 		// The title wraps rather than being cut to the row; only a very long command is shortened.
-		container.addChild(renderToolCall(title, undefined, theme));
+		const container = new LiveCallContainer(indicator, (dot) => renderToolCall(dot + title, undefined, theme));
 		// The title already lists plain arguments; only nested ones need the full view.
 		if (kind === "custom" && state.expanded && hasNestedArguments(args)) container.addChild(renderArguments(args, theme));
 		return container;
 	}
-	const title = `${renderIndicator(theme, ctx, state)} ${theme.fg("toolTitle", theme.bold(name))}`;
+	const title = ` ${theme.fg("toolTitle", theme.bold(name))}`;
 	let details: string | undefined;
 	if (kind === "shell") {
 		const command = normalizeLineEndings(typeof args.command === "string" ? args.command : "");
@@ -196,7 +213,7 @@ function renderRowCall(name: string, args: ToolArgs, theme: Theme, ctx: RenderCo
 		const summary = kind === "file" ? getCallDetails(name, args) : summarizeCustomArguments(args);
 		details = summary ? styleMultiline(summary, (line) => theme.fg("toolOutput", line)) : undefined;
 	}
-	container.addChild(renderToolCall(title, details, theme));
+	const container = new LiveCallContainer(indicator, (dot) => renderToolCall(dot + title, details, theme));
 	const extra = kind === "file" ? getArgumentDetails(name, args) : kind === "custom" && state.expanded ? args : {};
 	if (Object.keys(extra).length > 0) container.addChild(renderArguments(extra, theme));
 	return container;
@@ -474,6 +491,19 @@ function configure(pi: ExtensionAPI, cwd?: string, projectTrusted = false): void
 	registeredConfiguration = signature;
 }
 
+/** Hand the animation Pi's frame request, reached through an invisible widget as the extension API allows. */
+function bindRenderer(ctx: ExtensionContext): void {
+	ctx.ui.setWidget(RENDER_WIDGET_KEY, (tui) => {
+		runtime.bindRenderer(() => tui.requestRender());
+		return { render: () => [], invalidate() {} };
+	}, { placement: "belowEditor" });
+}
+
+function unbindRenderer(ctx: ExtensionContext | undefined): void {
+	runtime.bindRenderer(undefined);
+	ctx?.ui.setWidget(RENDER_WIDGET_KEY, undefined, { placement: "belowEditor" });
+}
+
 export default function compactTools(pi: ExtensionAPI): void {
 	// Pi caches this factory and re-invokes it with a fresh `pi` for every session
 	// replacement (/resume, /new, /fork) as well as /reload, each time starting from
@@ -491,13 +521,20 @@ export default function compactTools(pi: ExtensionAPI): void {
 	const customRowsAvailable = installToolRowPatch();
 	setRowResolver(resolveCustomRow);
 	let customRowsWarned = false;
+	let renderContext: ExtensionContext | undefined;
 	// Register once while the extension runtime is being built. In particular, this
 	// makes the overrides available before Pi restores the active tool set on /reload.
 	configure(pi, process.cwd());
 	pi.on("session_start", (event, ctx) => {
 		if (event.reason !== "reload") runtime.clearTimings();
+		// Rows restored from the session are drawn next; while idle none of them is running.
+		if (typeof ctx.isIdle === "function") runtime.setBusy(!ctx.isIdle());
 		configure(pi, ctx.cwd, ctx.isProjectTrusted());
+		unbindRenderer(renderContext);
+		renderContext = undefined;
 		if (ctx.mode === "tui" && runtime.config.style !== "off") {
+			renderContext = ctx;
+			bindRenderer(ctx);
 			// First, so its input listener sees relayout keys before the thinking controller consumes them.
 			viewport.bind(ctx);
 			progress.bind(ctx);
@@ -517,6 +554,8 @@ export default function compactTools(pi: ExtensionAPI): void {
 			groups.dispose();
 		}
 	});
+	pi.on("agent_start", () => runtime.setBusy(true));
+	pi.on("agent_end", () => runtime.setBusy(false));
 	pi.on("tool_execution_start", (event) => runtime.noteExecutionStart(event.toolCallId));
 	pi.on("tool_execution_end", (event) => runtime.noteExecutionEnd(event.toolCallId));
 	pi.on("session_shutdown", (event) => {
@@ -525,6 +564,8 @@ export default function compactTools(pi: ExtensionAPI): void {
 		silent.dispose();
 		groups.dispose();
 		viewport.dispose();
+		unbindRenderer(renderContext);
+		renderContext = undefined;
 		runtime.reset(event.reason !== "reload");
 	});
 }

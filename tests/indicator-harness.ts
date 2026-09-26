@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { mock } from "node:test";
 import { initTheme, ToolExecutionComponent, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
+import { theme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 
 export const INDICATOR_INTERVAL_MS = 45;
 /** One whole pulse and a frame past it, so the wrap back to the first frame is pinned too. */
@@ -21,6 +22,15 @@ mock.timers.enable({ apis: ["setInterval"] });
 let now = 2_000_000;
 const realNow = Date.now;
 Date.now = () => now;
+
+// The monotonic clock tells a row that is still drawn from one that left the screen.
+let monotonic = 1_000;
+performance.now = () => monotonic;
+
+/** Move the monotonic clock, which tells how long ago a row was last drawn. */
+export function elapse(ms: number): void {
+	monotonic += ms;
+}
 
 /** Move the pinned wall clock, which durations are measured by. */
 export function advance(ms: number): void {
@@ -43,19 +53,32 @@ export interface Harness {
 	definitions: Map<string, Definition>;
 	handlers: Map<string, Handler>;
 	requestRenders: () => number;
+	/** Pi's chat, where grouping looks for rows in the Claude style. */
+	chat: { children: unknown[]; render(width: number): string[] };
 }
 
 /** Load the extension as Pi does; `tui` binds it to a terminal the way interactive mode would. */
-export async function loadExtension(config: object, options: { tui?: boolean; idle?: boolean } = {}): Promise<Harness> {
+export async function loadExtension(
+	config: object,
+	options: { tui?: boolean; idle?: boolean; reason?: string } = {},
+): Promise<Harness> {
+	const { Container } = await import("@earendil-works/pi-tui");
 	writeFileSync(join(process.env.PI_CODING_AGENT_DIR!, "compact-tools.json"), JSON.stringify({
 		tools: ["read", "write", "edit", "bash", "powershell", "grep", "find", "ls"],
 		...config,
 	}));
 	const compactTools = (await import("../extensions/compact-tools.ts")).default;
 	const definitions = new Map<string, Definition>();
+	// Every handler an event has, as Pi calls them all.
+	const listeners = new Map<string, Handler[]>();
 	const handlers = new Map<string, Handler>();
 	compactTools({
-		on: (name: string, handler: Handler) => handlers.set(name, handler),
+		on: (name: string, handler: Handler) => {
+			const list = listeners.get(name) ?? [];
+			list.push(handler);
+			listeners.set(name, list);
+			handlers.set(name, (event, ctx) => { for (const listener of list) listener(event, ctx); });
+		},
 		registerTool: (definition: Definition) => definitions.set(definition.name, definition),
 		registerMarkdownTransformer: () => {},
 		registerCommand: () => {},
@@ -63,7 +86,8 @@ export async function loadExtension(config: object, options: { tui?: boolean; id
 		getThinkingLevel: () => "medium",
 	} as unknown as ExtensionAPI);
 	let renders = 0;
-	const tui = { children: [], requestRender: () => { renders++; } };
+	const chat = new Container();
+	const tui = { children: [{ children: [chat] }], requestRender: () => { renders++; } };
 	const ui = new Proxy({} as Record<string, unknown>, {
 		get: (_target, key) => {
 			if (key === "setWidget") {
@@ -71,7 +95,7 @@ export async function loadExtension(config: object, options: { tui?: boolean; id
 					if (typeof factory === "function") factory(tui);
 				};
 			}
-			if (key === "theme") return undefined;
+			if (key === "theme") return theme;
 			return () => () => {};
 		},
 	});
@@ -82,8 +106,8 @@ export async function loadExtension(config: object, options: { tui?: boolean; id
 		ui,
 	};
 	if (options.idle !== undefined) ctx.isIdle = () => options.idle;
-	handlers.get("session_start")!({ reason: "startup" }, ctx as unknown as ExtensionContext);
-	return { definitions, handlers, requestRenders: () => renders };
+	handlers.get("session_start")!({ reason: options.reason ?? "startup" }, ctx as unknown as ExtensionContext);
+	return { definitions, handlers, requestRenders: () => renders, chat };
 }
 
 export function shutdown(harness: Harness): void {

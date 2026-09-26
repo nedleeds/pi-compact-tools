@@ -78,6 +78,70 @@ export class CachedContainer extends Container {
 	}
 }
 
+/**
+ * A call line whose status dot is painted when the row is drawn rather than when
+ * it was built. The dot follows the row's state and the animation frame without
+ * Pi rebuilding the row, and a line is laid out once for each dot it has shown.
+ */
+export class LiveCallContainer extends Container {
+	private readonly titles = new Map<string, Component>();
+	private indicator = "";
+	private cachedWidth?: number;
+	private cachedIndicator?: string;
+	private cachedLines?: string[];
+
+	constructor(
+		private readonly paintIndicator: () => string,
+		private readonly renderTitle: (indicator: string) => Component,
+	) {
+		super();
+		super.addChild({
+			render: (width) => this.title().render(width),
+			invalidate: () => this.titles.clear(),
+		});
+	}
+
+	private title(): Component {
+		let title = this.titles.get(this.indicator);
+		if (!title) {
+			title = this.renderTitle(this.indicator);
+			this.titles.set(this.indicator, title);
+		}
+		return title;
+	}
+
+	private clearRenderCache(): void {
+		this.cachedWidth = undefined;
+		this.cachedIndicator = undefined;
+		this.cachedLines = undefined;
+	}
+
+	override addChild(component: Component): void {
+		super.addChild(component);
+		this.clearRenderCache();
+	}
+
+	override removeChild(component: Component): void {
+		super.removeChild(component);
+		this.clearRenderCache();
+	}
+
+	override render(width: number): string[] {
+		this.indicator = this.paintIndicator();
+		if (this.cachedWidth !== width || this.cachedIndicator !== this.indicator || !this.cachedLines) {
+			this.cachedWidth = width;
+			this.cachedIndicator = this.indicator;
+			this.cachedLines = super.render(width);
+		}
+		return this.cachedLines;
+	}
+
+	override invalidate(): void {
+		super.invalidate();
+		this.clearRenderCache();
+	}
+}
+
 export function prefixedText(text: string, firstPrefix: string, continuationPrefix = firstPrefix): Component {
 	const prefixWidth = Math.max(visibleWidth(firstPrefix), visibleWidth(continuationPrefix));
 	const normalized = text.replace(/\t/g, "   ");
