@@ -98,7 +98,7 @@ function callStatus(ctx: RenderContext, state: RowState): RowStatus {
 	// write/edit arguments can stream for much longer than their eventual filesystem
 	// operation. Treat that active tool-call phase as running so every built-in row
 	// animates consistently instead of waiting for execute() to begin.
-	const active = runtime.canRun(state) && (ctx.executionStarted || !ctx.argsComplete);
+	const active = runtime.canRun(ctx.toolCallId) && (ctx.executionStarted || !ctx.argsComplete);
 	return classifyCallStatus(ctx.isError, active, state.finished === true || state.endedAt !== undefined);
 }
 
@@ -433,9 +433,6 @@ function createCustomRenderers(name: string, author: ToolDefinition<any, any, an
 }
 
 function resolveCustomRow(row: ToolRow): RowRenderers | undefined {
-	// Pi asks once per row, as it builds it, whichever renderer draws it: the moment
-	// that tells a row of the current run from one restored from the session.
-	if (typeof row.toolCallId === "string") runtime.noteCall(row.toolCallId);
 	const customTools = runtime.config.custom_tools;
 	// Built-ins are governed by `tools`: ones left out keep Pi's own renderer.
 	if (runtime.config.style === "off" || !customTools.enabled || SUPPORTED_TOOL_SET.has(row.toolName)) return undefined;
@@ -492,6 +489,18 @@ function configure(pi: ExtensionAPI, cwd?: string, projectTrusted = false): void
 	runtime.configure(config);
 	registerTools(pi, resolvedCwd);
 	registeredConfiguration = signature;
+}
+
+/** Note the calls an assistant message makes, as Pi reads them to make their rows. */
+function noteCalls(message: unknown): void {
+	// Only a run's own updates announce calls; the check is cheap enough for every update.
+	const content = (message as { role?: string; content?: unknown }).role === "assistant"
+		? (message as { content?: unknown }).content
+		: undefined;
+	if (!Array.isArray(content)) return;
+	for (const block of content) {
+		if (block?.type === "toolCall" && typeof block.id === "string") runtime.noteCall(block.id);
+	}
 }
 
 /** Hand the animation Pi's frame request, reached through an invisible widget as the extension API allows. */
@@ -559,7 +568,13 @@ export default function compactTools(pi: ExtensionAPI): void {
 	});
 	pi.on("agent_start", () => runtime.setBusy(true));
 	pi.on("agent_end", () => runtime.setBusy(false));
-	pi.on("tool_execution_start", (event) => runtime.noteExecutionStart(event.toolCallId));
+	// The calls of the run going on, read from each update as Pi reads them to make
+	// their rows, and told to extensions before Pi makes them.
+	pi.on("message_update", (event) => noteCalls(event.message));
+	pi.on("tool_execution_start", (event) => {
+		runtime.noteCall(event.toolCallId);
+		runtime.noteExecutionStart(event.toolCallId);
+	});
 	pi.on("tool_execution_end", (event) => runtime.noteExecutionEnd(event.toolCallId));
 	pi.on("session_shutdown", (event) => {
 		thinkingCycle.dispose();

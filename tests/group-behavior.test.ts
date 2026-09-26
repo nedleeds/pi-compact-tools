@@ -11,7 +11,7 @@ import { ToolGroupController } from "../extensions/compact-tools-grouping.ts";
 import { paintIndicator } from "../extensions/compact-tools-palette.ts";
 import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
 import { theme as piTheme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
-import { loadExtension, makeRow, restoreClocks, shutdown, text } from "./indicator-harness.ts";
+import { announce, loadExtension, makeRow, restoreClocks, shutdown, text } from "./indicator-harness.ts";
 
 const strip = (lines: string[]) => lines.map((line) => line.replace(/\x1b\[[0-9;]*m/gu, ""));
 
@@ -80,7 +80,9 @@ test("a running group line is drawn every frame, and cached once it finishes", a
 	const harness = await loadExtension({ style: "claude" }, { tui: true, idle: false });
 	const { theme, calls } = countingTheme();
 	const { chat, controller } = groupedChat(theme);
-	const row = makeRow("read", `g-${++sequence}`, { path: "src/x.ts" }, harness.definitions.get("read"));
+	const id = `g-${++sequence}`;
+	announce(harness, id, "read");
+	const row = makeRow("read", id, { path: "src/x.ts" }, harness.definitions.get("read"));
 	row.setArgsComplete();
 	row.markExecutionStarted();
 	chat.children = [row] as unknown as Component[];
@@ -194,7 +196,9 @@ test("a group whose call was restored without its result waits, as its row does"
 test("when the run ends, a group whose call got no result stops running with it", async () => {
 	const harness = await loadExtension({ style: "claude" }, { tui: true, idle: true });
 	harness.handlers.get("agent_start")!({});
-	const row = makeRow("read", `g-${++sequence}`, { path: "src/a.ts" }, harness.definitions.get("read"));
+	const id = `g-${++sequence}`;
+	announce(harness, id, "read");
+	const row = makeRow("read", id, { path: "src/a.ts" }, harness.definitions.get("read"));
 	row.setArgsComplete();
 	harness.handlers.get("tool_execution_start")!({ toolCallId: (row as unknown as { toolCallId: string }).toolCallId, toolName: "read", args: {} });
 	row.markExecutionStarted();
@@ -278,8 +282,11 @@ test("a restored call is known as restored even if no group drew it before the n
 test("a call Pi draws itself runs with its run, and waits once the run ends without its result", async () => {
 	const harness = await loadExtension(PI_DRAWS_READ, { tui: true, idle: true });
 	harness.handlers.get("agent_start")!({});
-	const running = piRead(`pi-${++sequence}`);
-	const finished = piRead(`pi-${++sequence}`);
+	const [runningId, finishedId] = [`pi-${++sequence}`, `pi-${++sequence}`];
+	announce(harness, runningId, "read");
+	announce(harness, finishedId, "read");
+	const running = piRead(runningId);
+	const finished = piRead(finishedId);
 	harness.chat.children = [running, finished];
 	assert.deepEqual(lines(harness), [" ⦁ Reading 1 file… (ctrl+o to expand)", " └ src/a.ts"]);
 	finished.updateResult({ ...text("a"), isError: false } as never);
@@ -301,17 +308,25 @@ test("rebuilt mid-run, an old call's new row still waits and a running call's ne
 			harness.handlers.get("tool_execution_start")!({ toolCallId: id, toolName: "read", args: {} });
 			row.markExecutionStarted();
 		};
+		// A rebuilt row is marked as running as Pi marks it, without announcing the call again.
+		const rebuiltRunning = (row: ReturnType<typeof makeRow>) => {
+			row.setArgsComplete();
+			row.markExecutionStarted();
+		};
 		const old = `old-${++sequence}`;
 		const live = `live-${++sequence}`;
 		harness.handlers.get("agent_start")!({});
+		announce(harness, old, "read");
 		start(read(old, "src/old.ts"), old);
 		harness.handlers.get("agent_end")!({ messages: [] });
 		harness.handlers.get("agent_start")!({});
+		announce(harness, live, "read");
 		start(read(live, "src/live.ts"), live);
+		// Pi announces nothing for rows it makes again for calls it already has.
 		// Pi rebuilds the transcript, compacting between turns: new rows for the same calls.
 		const oldAgain = read(old, "src/old.ts");
 		const liveAgain = read(live, "src/live.ts");
-		start(liveAgain, live);
+		rebuiltRunning(liveAgain);
 		harness.chat.children = [oldAgain, new AssistantMessageComponent({ content: [{ type: "text", text: "Next." }], stopReason: "stop" } as never), liveAgain];
 		const drawn = lines(harness);
 		assert.equal(drawn[0], " ⦁ Read 1 file (ctrl+o to expand)", JSON.stringify(config));
@@ -341,21 +356,73 @@ test("rebuilt mid-run, an old call's new row still waits and a running call's ne
 	}
 });
 
-test("without Pi's row hook, a call belongs to the run in which it is first asked about", () => {
+test("in a long session, a call an early run left without its result is not revived by a later run", async () => {
+	const harness = await loadExtension({ style: "claude" }, { tui: true, idle: true });
+	const read = (id: string) => makeRow("read", id, { path: `src/${id}.ts` }, harness.definitions.get("read"));
+	harness.handlers.get("agent_start")!({});
+	announce(harness, "early", "read");
+	const early = read("early");
+	harness.handlers.get("agent_end")!({ messages: [] });
+	// Thousands of calls since, more than any bounded memory of calls would keep.
+	for (let run = 0; run < 3; run++) {
+		harness.handlers.get("agent_start")!({});
+		for (let call = 0; call < 1_000; call++) {
+			const id = `later-${run}-${call}`;
+			announce(harness, id, "read");
+			read(id).updateResult({ ...text("x"), isError: false } as never);
+		}
+		harness.handlers.get("agent_end")!({ messages: [] });
+	}
+	harness.handlers.get("agent_start")!({});
+	harness.chat.children = [early];
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	shutdown(harness);
+});
+
+test("a call is known from any update that carries it, or from its execution", async () => {
+	const harness = await loadExtension({ style: "claude" }, { tui: true, idle: true });
+	harness.handlers.get("agent_start")!({});
+	// An update of any kind carries the message's calls; Pi makes rows from any of them.
+	harness.handlers.get("message_update")!({
+		message: { role: "assistant", content: [{ type: "text", text: "…" }, { type: "toolCall", id: "from-update", name: "read", arguments: {} }] },
+		assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "…" },
+	});
+	// A call Pi first hears of as it runs gets its row then.
+	harness.handlers.get("tool_execution_start")!({ toolCallId: "from-execution", toolName: "read", args: {} });
+	// A user's message, or an update carrying no calls, announces nothing.
+	harness.handlers.get("message_update")!({ message: { role: "user", content: [{ type: "toolCall", id: "not-a-call" }] }, assistantMessageEvent: {} });
+	for (const [id, expected] of [["from-update", "Reading"], ["from-execution", "Reading"], ["not-a-call", "Read"]] as const) {
+		const row = makeRow("read", id, { path: "src/a.ts" }, harness.definitions.get("read"));
+		harness.chat.children = [row];
+		assert.match(lines(harness)[0]!, new RegExp(`⦁ ${expected} 1 file`, "u"), id);
+	}
+	shutdown(harness);
+});
+
+test("only calls Pi announced in the run going on can run, however many calls came before", () => {
 	const runtime = new ToolRuntime();
+	assert.equal(runtime.canRun("anything"), true, "until the host says whether the agent works, as before");
 	runtime.setBusy(false);
-	assert.equal(runtime.canRunCall("restored"), false, "first asked while idle");
+	assert.equal(runtime.canRun("restored"), false, "restored while idle");
 	runtime.setBusy(true);
-	assert.equal(runtime.canRunCall("restored"), false, "still restored once a run starts");
-	assert.equal(runtime.canRunCall("live"), true, "first asked during the run");
+	assert.equal(runtime.canRun("restored"), false, "a run does not revive it");
+	runtime.noteCall("old");
+	assert.equal(runtime.canRun("old"), true, "announced in this run");
 	runtime.setBusy(false);
-	assert.equal(runtime.canRunCall("live"), false, "its run ended");
+	assert.equal(runtime.canRun("old"), false, "its run ended without its result");
+	// A long session: thousands of calls in later runs.
+	for (let run = 0; run < 3; run++) {
+		runtime.setBusy(true);
+		for (let call = 0; call < 1_000; call++) runtime.noteCall(`later-${run}-${call}`);
+		runtime.setBusy(false);
+	}
 	runtime.setBusy(true);
-	assert.equal(runtime.canRunCall("live"), false, "a new run does not revive it");
-	runtime.noteCall("made");
-	runtime.setBusy(false);
+	assert.equal(runtime.canRun("old"), false, "still not running, however many calls came since");
+	assert.equal(runtime.canRun("later-2-999"), false, "nor any call of an earlier run");
+	runtime.noteCall("now");
+	assert.equal(runtime.canRun("now"), true);
 	runtime.setBusy(true);
-	assert.equal(runtime.canRunCall("made"), false, "noted as made, in the run that ended");
+	assert.equal(runtime.canRun("now"), true, "the same run going on keeps its calls");
 	runtime.reset(true);
 });
 

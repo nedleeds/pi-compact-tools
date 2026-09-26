@@ -38,13 +38,12 @@ export class ToolRuntime {
 	private requestRender: (() => void) | undefined;
 	/** Whether the agent is working; undefined until the host says, which counts as working. */
 	private busy: boolean | undefined;
-	/** Counts the agent's runs, so a row knows whether the run it belongs to is still going. */
-	private run = 0;
 	/**
-	 * The run each call's row was first drawn in, for what draws a call without its
-	 * row state, such as the group a row is folded into.
+	 * The calls Pi announced in the run going on. Only these can be running, so
+	 * nothing about earlier calls has to be remembered, and the set never holds
+	 * more than one run's calls.
 	 */
-	private readonly callRuns = new Map<string, number>();
+	private readonly currentCalls = new Set<string>();
 
 	constructor(private readonly clock: () => number = () => performance.now()) {
 		const shared = globalThis as SharedState;
@@ -73,7 +72,6 @@ export class ToolRuntime {
 
 	clearTimings(): void {
 		this.executionTimings.clear();
-		this.callRuns.clear();
 	}
 
 	reset(clearTimings: boolean): void {
@@ -95,7 +93,7 @@ export class ToolRuntime {
 	 * running, so a row that never got its result stops pulsing and waits instead.
 	 */
 	setBusy(busy: boolean): void {
-		if (busy && this.busy !== true) this.run++;
+		if (busy && this.busy !== true) this.currentCalls.clear();
 		this.busy = busy;
 		if (busy) return;
 		const animating = this.indicators.size > 0;
@@ -104,45 +102,23 @@ export class ToolRuntime {
 	}
 
 	/**
-	 * Whether a row can be running: only while the run its call was first seen in
-	 * goes on. A row first drawn while the agent is idle was restored from the
-	 * session, and one left without a result when its run ended will never get one;
-	 * either way, whatever it did is over.
+	 * Pi announced a call of the run going on: its arguments began to stream, or it
+	 * began to run. Pi tells extensions before it makes the call's row. The set is
+	 * emptied as each run starts, so it holds one run's calls at most.
 	 */
-	canRun(state: RowState): boolean {
-		return this.busy !== false && state.run === this.run;
-	}
-
-	/**
-	 * canRun() for a call by its id. Every row's call is noted as Pi makes the row;
-	 * where Pi offers no such hook, a call whose row this extension does not draw,
-	 * such as a built-in left to Pi's own renderer, belongs to the run in which it
-	 * is first asked about, which is when a group first draws it.
-	 */
-	canRunCall(toolCallId: string): boolean {
-		// Looked up first, so a call first asked about while idle is remembered as restored.
-		const run = this.runOf(toolCallId);
-		return this.busy !== false && run === this.run;
-	}
-
-	/** Record the run a call belongs to as its row is made, unless it already has one. */
 	noteCall(toolCallId: string): void {
-		this.runOf(toolCallId);
+		this.currentCalls.add(toolCallId);
 	}
 
 	/**
-	 * The run a call belongs to: the one going on, or the last one, when it was first
-	 * seen. A call first seen while idle was restored from the session; the next run
-	 * is a new one, so it never runs.
+	 * Whether a call can be running: only one Pi announced in the run going on. A
+	 * row restored from the session, one left without a result when its run ended,
+	 * and one Pi made again for an old call when it rebuilt the transcript were
+	 * never announced in this run; whatever they did is over. Until the host says
+	 * whether the agent works, every call can run, as before.
 	 */
-	private runOf(toolCallId: string): number {
-		let run = this.callRuns.get(toolCallId);
-		if (run === undefined) {
-			run = this.run;
-			this.callRuns.set(toolCallId, run);
-			if (this.callRuns.size > MAX_TRACKED_ROWS) this.callRuns.delete(this.callRuns.keys().next().value!);
-		}
-		return run;
+	canRun(toolCallId: string): boolean {
+		return this.busy === undefined || (this.busy && this.currentCalls.has(toolCallId));
 	}
 
 	syncIndicator(toolCallId: string, running: boolean, invalidate: () => void): number {
@@ -195,13 +171,12 @@ export class ToolRuntime {
 		const state = ctx.state;
 		// Pi can rebuild the transcript mid-run, making new rows for old calls; a call
 		// keeps the run its first row was made in.
-		if (state.run === undefined) state.run = this.runOf(ctx.toolCallId);
 		this.restoreTiming(state, ctx.toolCallId);
 		// A row is timed from when it runs, as Pi times its own: the model writing the
 		// arguments is not the tool's time. A restored row never ran in front of the
 		// reader, so it has no time to measure unless this process timed it before a
 		// /reload, and a call that never ran has none either.
-		const started = this.canRun(state) && ctx.executionStarted;
+		const started = this.canRun(ctx.toolCallId) && ctx.executionStarted;
 		if (started && state.startedAt === undefined) state.startedAt = Date.now();
 		if (finished) state.finished = true;
 		if (finished && state.startedAt !== undefined && state.endedAt === undefined) state.endedAt = Date.now();

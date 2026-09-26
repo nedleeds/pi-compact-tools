@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { advance, animate, CASES, elapse, INDICATOR_INTERVAL_MS, loadExtension, makeRow, restoreClocks, shutdown, text } from "./indicator-harness.ts";
+import { advance, animate, announce, CASES, elapse, INDICATOR_INTERVAL_MS, loadExtension, makeRow, restoreClocks, shutdown, text } from "./indicator-harness.ts";
 import { mock } from "node:test";
 
 const plain = (lines: string[]) => lines.map((line) => line.replace(/\x1b\[[0-9;]*m/gu, "")).join("\n");
@@ -14,6 +14,7 @@ let sequence = 0;
 test("a long-streamed call is timed from when it runs", async () => {
 	const harness = await loadExtension({ style: "compact", auto_compact: { write: true } }, { tui: true, idle: false });
 	const id = `write-${++sequence}`;
+	announce(harness, id, "write");
 	const row = makeRow("write", id, {}, harness.definitions.get("write"));
 	// The model spends five seconds writing the file's content.
 	for (let chunk = 1; chunk <= 5; chunk++) {
@@ -36,7 +37,9 @@ test("a long-streamed call is timed from when it runs", async () => {
 test("a call that never ran has no time to show", async () => {
 	for (const [name, outcome] of Object.entries(CASES)) {
 		const harness = await loadExtension({ style: "compact" }, { tui: true, idle: false });
-		const row = makeRow(name, `aborted-${++sequence}`, {}, harness.definitions.get(name));
+		const id = `aborted-${++sequence}`;
+		announce(harness, id, name);
+		const row = makeRow(name, id, {}, harness.definitions.get(name));
 		row.updateArgs(outcome.args);
 		advance(3_000);
 		// Pi fails every call still streaming when the turn is aborted.
@@ -53,6 +56,7 @@ test("a call that never ran has no time to show", async () => {
 test("a custom tool is timed from when it runs", async () => {
 	const harness = await loadExtension({ style: "compact" }, { tui: true, idle: false });
 	const id = `custom-${++sequence}`;
+	announce(harness, id, "web_search");
 	const row = makeRow("web_search", id, {}, undefined);
 	row.updateArgs({ query: "pi" });
 	advance(4_000);
@@ -70,6 +74,7 @@ test("parallel calls are each timed from their own start", async () => {
 	const harness = await loadExtension({ style: "compact" }, { tui: true, idle: false });
 	const rows = ["read", "grep"].map((name) => {
 		const id = `parallel-${++sequence}`;
+		announce(harness, id, name);
 		const row = makeRow(name, id, CASES[name]!.args, harness.definitions.get(name));
 		row.setArgsComplete();
 		return { id, row, name };
@@ -97,6 +102,7 @@ test("parallel calls are each timed from their own start", async () => {
 test("a Claude group counts the time its running call has run, not how long it was written", async () => {
 	const harness = await loadExtension({ style: "claude" }, { tui: true, idle: false });
 	const id = `group-${++sequence}`;
+	announce(harness, id, "grep");
 	const row = makeRow("grep", id, {}, harness.definitions.get("grep"));
 	harness.chat.children = [row];
 	row.updateArgs({ pattern: "TODO", path: "src" });

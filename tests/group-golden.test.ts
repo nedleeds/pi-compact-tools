@@ -10,7 +10,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { AssistantMessageComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { advance, elapse, INDICATOR_INTERVAL_MS, loadExtension, makeRow, readable, restoreClocks, shutdown, text, type Harness } from "./indicator-harness.ts";
+import { advance, announce, elapse, INDICATOR_INTERVAL_MS, loadExtension, makeRow, readable, restoreClocks, shutdown, text, type Harness } from "./indicator-harness.ts";
 import { mock } from "node:test";
 
 const GOLDEN_PATH = join(import.meta.dirname, "golden", "groups.json");
@@ -61,7 +61,9 @@ export class Transcript {
 	}
 
 	stream(name: string): Row {
-		const row = makeRow(name, `${this.label}-${name}-${++this.sequence}`, {}, this.harness.definitions.get(name));
+		const id = `${this.label}-${name}-${++this.sequence}`;
+		announce(this.harness, id, name);
+		const row = makeRow(name, id, {}, this.harness.definitions.get(name));
 		this.add(row);
 		return row;
 	}

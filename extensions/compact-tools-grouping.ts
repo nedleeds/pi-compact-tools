@@ -256,7 +256,7 @@ export class ToolGroupController {
 	/** This frame's colors, set as the chat starts drawing. */
 	private paint: Paint | undefined;
 	/** Asks the runtime, which knows which run each call belongs to, as the call's own row does. */
-	private readonly canRun: CanRun = (row) => this.runtime.canRunCall(row.toolCallId);
+	private readonly canRun: CanRun = (row) => this.runtime.canRun(row.toolCallId);
 
 	constructor(private readonly runtime: ToolRuntime) {}
 

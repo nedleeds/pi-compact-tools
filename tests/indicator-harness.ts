@@ -119,6 +119,19 @@ export function makeRow(name: string, id: string, args: object, definition: obje
 	return new ToolExecutionComponent(name, id, args, {}, definition as never, ui as never, "/project");
 }
 
+/**
+ * Pi announces a call to extensions as its arguments begin to stream, before it
+ * makes the call's row; a row made without this, as Pi restores or rebuilds the
+ * transcript, belongs to no run going on.
+ */
+export function announce(harness: Harness, id: string, name: string, args: object = {}): void {
+	harness.handlers.get("message_update")?.({
+		type: "message_update",
+		message: { role: "assistant", content: [{ type: "toolCall", id, name, arguments: args }] },
+		assistantMessageEvent: { type: "toolcall_start", contentIndex: 0 },
+	});
+}
+
 export const text = (value: string, details?: unknown) => ({ content: [{ type: "text" as const, text: value }], details });
 const lines = (count: number, label = "line") => Array.from({ length: count }, (_, index) => `${label} ${index + 1}`).join("\n");
 
@@ -203,6 +216,7 @@ export function lifecycle(
 ): string[][] {
 	const frames: string[][] = [];
 	const snap = (row: Component) => frames.push(row.render(width));
+	announce(harness, id, name);
 	const row = makeRow(name, id, {}, definition);
 	row.setExpanded(expanded);
 	snap(row);

@@ -12,7 +12,6 @@ type AnyToolDefinition = ToolDefinition<any, any, any>;
 /** The fields of Pi's tool row that decide which renderer is used. */
 export interface ToolRow {
 	toolName: string;
-	toolCallId?: string;
 	toolDefinition?: AnyToolDefinition;
 }
 

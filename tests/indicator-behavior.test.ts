@@ -13,7 +13,7 @@ import { LiveCallContainer } from "../extensions/compact-tools-layout.ts";
 import { paintIndicator } from "../extensions/compact-tools-palette.ts";
 import { theme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import {
-	advance, animate, CASES, CUSTOM_CASES, elapse, INDICATOR_INTERVAL_MS, lifecycle, loadExtension, makeRow, MODE_CONFIGS,
+	advance, animate, announce, CASES, CUSTOM_CASES, elapse, INDICATOR_INTERVAL_MS, lifecycle, loadExtension, makeRow, MODE_CONFIGS,
 	readable, restoreClocks, shutdown, text, type Case, type Harness,
 } from "./indicator-harness.ts";
 
@@ -67,6 +67,7 @@ function tick(frames = 1): void {
 
 function running(harness: Harness, name: string, definition: object | undefined, args: object = CASES[name]?.args ?? {}) {
 	const id = nextId(name);
+	announce(harness, id, name, args);
 	const row = makeRow(name, id, args, definition);
 	row.setArgsComplete();
 	harness.handlers.get("tool_execution_start")?.({ toolCallId: id, toolName: name, args });
