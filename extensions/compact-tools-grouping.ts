@@ -3,6 +3,7 @@ import {
 	ToolExecutionComponent,
 	type AgentToolResult,
 	type ExtensionContext,
+	type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import { claudeFailure, lookHint, lookKind, pathOf, type LookKind } from "./compact-tools-claude.ts";
@@ -114,7 +115,33 @@ export function groupFailures(rows: readonly ToolRowLike[]): string[] {
 		.map((row) => claudeFailure(row.toolName, getTextResult(row.result!)).headline);
 }
 
-type GroupState = { expanded: boolean; lastHostExpanded: boolean };
+/**
+ * A finished group's lines, and everything they were drawn from. Only a group with
+ * no running row is kept, so every row in it has its final result.
+ */
+type HeaderCache = {
+	paint: string;
+	width: number;
+	expanded: boolean;
+	rows: readonly ToolRowLike[];
+	args: unknown[];
+	results: unknown[];
+	lines: string[];
+};
+
+type GroupState = { expanded: boolean; lastHostExpanded: boolean; header?: HeaderCache };
+
+/** The colors a group line is drawn in, resolved once per frame rather than once per group. */
+type Paint = { theme: Theme; chrome: (text: string) => string; key: string };
+
+/** Theme colors a group line uses; a theme that changes any of them draws the lines anew. */
+const PAINT_COLORS = ["toolTitle", "error", "success", "muted", "dim", "text", "borderMuted"] as const;
+
+function headerStill(cache: HeaderCache, rows: readonly ToolRowLike[], paint: string, width: number, expanded: boolean): boolean {
+	if (cache.paint !== paint || cache.width !== width || cache.expanded !== expanded || cache.rows.length !== rows.length) return false;
+	return rows.every((row, index) => row === cache.rows[index] && row.args === cache.args[index]
+		&& row.result === cache.results[index]);
+}
 
 /** A run of tool rows drawn as one summary line, which a click or Ctrl+O opens into the rows themselves. */
 export class ToolGroupComponent extends Container {
@@ -212,6 +239,8 @@ export function groupChildren(
 export class ToolGroupController {
 	private context: ExtensionContext | undefined;
 	private readonly states = new WeakMap<object, GroupState>();
+	/** This frame's colors, set as the chat starts drawing. */
+	private paint: Paint | undefined;
 
 	constructor(private readonly runtime: ToolRuntime) {}
 
@@ -225,11 +254,13 @@ export class ToolGroupController {
 				hookMethod(chat, "render", "claude.groups", (self, args, original) => {
 					if (!this.context || isSilent() || this.runtime.config.style !== "claude") return original.apply(self, args);
 					const children = self.children as unknown[];
+					this.paint = this.resolvePaint();
 					self.children = groupChildren(children, (rows, members) => this.makeGroup(rows, members, tui));
 					try {
 						return original.apply(self, args);
 					} finally {
 						self.children = children;
+						this.paint = undefined;
 					}
 				});
 			}
@@ -249,8 +280,40 @@ export class ToolGroupController {
 			state = { expanded: key.expanded, lastHostExpanded: key.expanded };
 			this.states.set(key, state);
 		}
-		return new ToolGroupComponent(rows, members, state, (group, width, expanded) => this.draw(group, width, expanded),
-			() => tui.requestRender());
+		const groupState = state;
+		return new ToolGroupComponent(rows, members, state,
+			(group, width, expanded) => this.drawCached(group, width, expanded, groupState), () => tui.requestRender());
+	}
+
+	private resolvePaint(): Paint | undefined {
+		const theme = this.context?.ui.theme;
+		if (!theme) return undefined;
+		const chrome = chromePainter(theme);
+		const key = PAINT_COLORS.map((color) => theme.fg(color, "x")).join("") + theme.bold("x") + chrome("x");
+		return { theme, chrome, key };
+	}
+
+	/**
+	 * A finished group draws the same lines until one of its rows, the width, the
+	 * expansion, or the theme changes, so those lines are kept. A running group's
+	 * line pulses and counts time, so it is drawn every frame.
+	 */
+	private drawCached(rows: readonly ToolRowLike[], width: number, expanded: boolean, state: GroupState): string[] {
+		const paint = this.paint ?? this.resolvePaint();
+		if (!paint) return [];
+		if (lastRunning(rows)) return this.draw(rows, width, expanded, paint);
+		if (state.header && headerStill(state.header, rows, paint.key, width, expanded)) return state.header.lines;
+		const lines = this.draw(rows, width, expanded, paint);
+		state.header = {
+			paint: paint.key,
+			width,
+			expanded,
+			rows: [...rows],
+			args: rows.map((row) => row.args),
+			results: rows.map((row) => row.result),
+			lines,
+		};
+		return lines;
 	}
 
 	/**
@@ -258,10 +321,8 @@ export class ToolGroupController {
 	 * the title style. While it runs the dot pulses and the line below names what it
 	 * looks at.
 	 */
-	private draw(rows: readonly ToolRowLike[], width: number, expanded: boolean): string[] {
-		const theme = this.context?.ui.theme;
-		if (!theme) return [];
-		const chrome = chromePainter(theme);
+	private draw(rows: readonly ToolRowLike[], width: number, expanded: boolean, paint: Paint): string[] {
+		const { theme, chrome } = paint;
 		const fit = (line: string) => truncateToWidth(line, Math.max(1, width), "…");
 		const running = lastRunning(rows);
 		const failed = rows.some((row) => memberStatus(row) === "error");
