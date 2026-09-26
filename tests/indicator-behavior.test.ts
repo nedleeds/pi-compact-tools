@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test, { mock } from "node:test";
 import type { Component } from "@earendil-works/pi-tui";
-import { LiveCallContainer } from "../extensions/compact-tools-layout.ts";
+import { CachedContainer, LiveCallContainer } from "../extensions/compact-tools-layout.ts";
 import { paintIndicator } from "../extensions/compact-tools-palette.ts";
 import { theme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import {
@@ -393,6 +393,32 @@ test("a live call lays out each dot it shows once, and reflows on width", () => 
 	container.invalidate();
 	container.render(20);
 	assert.deepEqual(built, ["A", "B", "A"], "invalidating lays the title out again");
+	// Clearing drops the arguments, keeps the call line, and draws anew.
+	const cleared = container.render(20);
+	container.clear();
+	assert.deepEqual(container.render(20), ["A title 20"]);
+	assert.notEqual(container.render(20), cleared);
+	container.addChild({ render: () => ["arg 3"], invalidate() {} });
+	assert.deepEqual(container.render(20), ["A title 20", "arg 3"], "a child added after clearing shows");
+	container.removeChild(container.children.at(-1)!);
+	assert.deepEqual(container.render(20), ["A title 20"], "and one removed goes");
+});
+
+test("a cached container keeps its lines until a child changes, and draws anew after clearing", () => {
+	let draws = 0;
+	const child = (label: string): Component => ({ render: () => { draws++; return [label]; }, invalidate() {} });
+	const container = new CachedContainer();
+	container.addChild(child("one"));
+	const first = container.render(30);
+	assert.equal(container.render(30), first);
+	assert.equal(draws, 1);
+	container.clear();
+	assert.deepEqual(container.render(30), [], "clearing empties it, not the old lines");
+	const second = child("two");
+	container.addChild(second);
+	assert.deepEqual(container.render(30), ["two"]);
+	container.removeChild(second);
+	assert.deepEqual(container.render(30), []);
 });
 
 test.after(restoreClocks);

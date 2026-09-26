@@ -39,13 +39,24 @@ class CachedComponent implements Component {
 	}
 }
 
-/** A Container that does not re-copy all child lines on every fullscreen scroll frame. */
+/**
+ * A Container that does not re-copy all child lines on every fullscreen scroll
+ * frame. Its lines are kept for a width, and for whatever else `cacheKey()`
+ * says they depend on, until a child is added, removed, or invalidated.
+ */
 export class CachedContainer extends Container {
 	private cachedWidth?: number;
+	private cachedKey?: unknown;
 	private cachedLines?: string[];
+
+	/** What besides the width the lines depend on, read as each frame is drawn. */
+	protected cacheKey(): unknown {
+		return undefined;
+	}
 
 	private clearRenderCache(): void {
 		this.cachedWidth = undefined;
+		this.cachedKey = undefined;
 		this.cachedLines = undefined;
 	}
 
@@ -65,8 +76,10 @@ export class CachedContainer extends Container {
 	}
 
 	override render(width: number): string[] {
-		if (this.cachedWidth !== width || !this.cachedLines) {
+		const key = this.cacheKey();
+		if (this.cachedWidth !== width || this.cachedKey !== key || !this.cachedLines) {
 			this.cachedWidth = width;
+			this.cachedKey = key;
 			this.cachedLines = super.render(width);
 		}
 		return this.cachedLines;
@@ -83,22 +96,32 @@ export class CachedContainer extends Container {
  * it was built. The dot follows the row's state and the animation frame without
  * Pi rebuilding the row, and a line is laid out once for each dot it has shown.
  */
-export class LiveCallContainer extends Container {
+export class LiveCallContainer extends CachedContainer {
 	private readonly titles = new Map<string, Component>();
 	private indicator = "";
-	private cachedWidth?: number;
-	private cachedIndicator?: string;
-	private cachedLines?: string[];
+	private readonly titleLine: Component = {
+		render: (width) => this.title().render(width),
+		invalidate: () => this.titles.clear(),
+	};
 
 	constructor(
 		private readonly paintIndicator: () => string,
 		private readonly renderTitle: (indicator: string) => Component,
 	) {
 		super();
-		super.addChild({
-			render: (width) => this.title().render(width),
-			invalidate: () => this.titles.clear(),
-		});
+		super.addChild(this.titleLine);
+	}
+
+	/** Clearing removes what was added beneath the call line; the line itself stays. */
+	override clear(): void {
+		super.clear();
+		super.addChild(this.titleLine);
+	}
+
+	/** The dot, painted now; the title drawn beneath it follows. */
+	protected override cacheKey(): string {
+		this.indicator = this.paintIndicator();
+		return this.indicator;
 	}
 
 	private title(): Component {
@@ -108,37 +131,6 @@ export class LiveCallContainer extends Container {
 			this.titles.set(this.indicator, title);
 		}
 		return title;
-	}
-
-	private clearRenderCache(): void {
-		this.cachedWidth = undefined;
-		this.cachedIndicator = undefined;
-		this.cachedLines = undefined;
-	}
-
-	override addChild(component: Component): void {
-		super.addChild(component);
-		this.clearRenderCache();
-	}
-
-	override removeChild(component: Component): void {
-		super.removeChild(component);
-		this.clearRenderCache();
-	}
-
-	override render(width: number): string[] {
-		this.indicator = this.paintIndicator();
-		if (this.cachedWidth !== width || this.cachedIndicator !== this.indicator || !this.cachedLines) {
-			this.cachedWidth = width;
-			this.cachedIndicator = this.indicator;
-			this.cachedLines = super.render(width);
-		}
-		return this.cachedLines;
-	}
-
-	override invalidate(): void {
-		super.invalidate();
-		this.clearRenderCache();
 	}
 }
 
