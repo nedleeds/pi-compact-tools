@@ -433,6 +433,9 @@ function createCustomRenderers(name: string, author: ToolDefinition<any, any, an
 }
 
 function resolveCustomRow(row: ToolRow): RowRenderers | undefined {
+	// Pi asks once per row, as it builds it, whichever renderer draws it: the moment
+	// that tells a row of the current run from one restored from the session.
+	if (typeof row.toolCallId === "string") runtime.noteCall(row.toolCallId);
 	const customTools = runtime.config.custom_tools;
 	// Built-ins are governed by `tools`: ones left out keep Pi's own renderer.
 	if (runtime.config.style === "off" || !customTools.enabled || SUPPORTED_TOOL_SET.has(row.toolName)) return undefined;

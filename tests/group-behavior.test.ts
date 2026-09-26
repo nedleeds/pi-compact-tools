@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
-import { AssistantMessageComponent, initTheme, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
+import { AssistantMessageComponent, createReadToolDefinition, initTheme, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, type Component } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../extensions/compact-tools-config.ts";
 import { ToolGroupController } from "../extensions/compact-tools-grouping.ts";
@@ -238,6 +238,125 @@ test("a waiting call leaves a finished group waiting, and a failure still shows 
 	assert.equal(dotOf([withFailure.find((line) => line.includes("⦁"))!]), ERROR_DOT);
 	assert.match(strip(withFailure).join("\n"), /Error: ENOENT: gone/u);
 	shutdown(harness);
+});
+
+/** Claude style with read left to Pi's own renderer, as `tools` allows. */
+const PI_DRAWS_READ = { style: "claude", tools: ["write", "edit", "bash", "grep", "find", "ls"] };
+const piRead = (id: string) => makeRow("read", id, { path: "src/a.ts" }, createReadToolDefinition("/project"));
+const lines = (harness: Awaited<ReturnType<typeof loadExtension>>) => strip(harness.chat.render(100)).filter((line) => line.trim());
+
+test("a call Pi draws itself, restored without its result, is not revived by the next run", async () => {
+	const harness = await loadExtension(PI_DRAWS_READ, { tui: true, idle: true });
+	assert.equal(harness.definitions.has("read"), false, "read keeps Pi's renderer");
+	harness.chat.children = [piRead(`pi-${++sequence}`)];
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	harness.handlers.get("agent_start")!({});
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	harness.handlers.get("agent_end")!({ messages: [] });
+	harness.handlers.get("agent_start")!({});
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	shutdown(harness);
+});
+
+test("a restored call is known as restored even if no group drew it before the next run", async () => {
+	const harness = await loadExtension(PI_DRAWS_READ, { tui: true, idle: true });
+	const silent = (globalThis as Record<symbol, { active: boolean; enabled: boolean }>)[Symbol.for("pi-compact-tools.silent.state")]!;
+	silent.active = true;
+	silent.enabled = true;
+	try {
+		// Silent mode hides the transcript, so the group never draws while idle.
+		harness.chat.children = [piRead(`pi-${++sequence}`)];
+		harness.chat.render(100);
+		harness.handlers.get("agent_start")!({});
+	} finally {
+		silent.enabled = false;
+	}
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	shutdown(harness);
+});
+
+test("a call Pi draws itself runs with its run, and waits once the run ends without its result", async () => {
+	const harness = await loadExtension(PI_DRAWS_READ, { tui: true, idle: true });
+	harness.handlers.get("agent_start")!({});
+	const running = piRead(`pi-${++sequence}`);
+	const finished = piRead(`pi-${++sequence}`);
+	harness.chat.children = [running, finished];
+	assert.deepEqual(lines(harness), [" ⦁ Reading 1 file… (ctrl+o to expand)", " └ src/a.ts"]);
+	finished.updateResult({ ...text("a"), isError: false } as never);
+	assert.deepEqual(lines(harness), [" ⦁ Reading 1 file… (ctrl+o to expand)", " └ src/a.ts"]);
+	harness.handlers.get("agent_end")!({ messages: [] });
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	harness.handlers.get("agent_start")!({});
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	shutdown(harness);
+});
+
+test("rebuilt mid-run, an old call's new row still waits and a running call's new row still runs", async () => {
+	for (const config of [{ style: "claude" }, PI_DRAWS_READ]) {
+		const harness = await loadExtension(config, { tui: true, idle: true });
+		const read = (id: string, path: string) =>
+			makeRow("read", id, { path }, harness.definitions.get("read") ?? createReadToolDefinition("/project"));
+		const start = (row: ReturnType<typeof makeRow>, id: string) => {
+			row.setArgsComplete();
+			harness.handlers.get("tool_execution_start")!({ toolCallId: id, toolName: "read", args: {} });
+			row.markExecutionStarted();
+		};
+		const old = `old-${++sequence}`;
+		const live = `live-${++sequence}`;
+		harness.handlers.get("agent_start")!({});
+		start(read(old, "src/old.ts"), old);
+		harness.handlers.get("agent_end")!({ messages: [] });
+		harness.handlers.get("agent_start")!({});
+		start(read(live, "src/live.ts"), live);
+		// Pi rebuilds the transcript, compacting between turns: new rows for the same calls.
+		const oldAgain = read(old, "src/old.ts");
+		const liveAgain = read(live, "src/live.ts");
+		start(liveAgain, live);
+		harness.chat.children = [oldAgain, new AssistantMessageComponent({ content: [{ type: "text", text: "Next." }], stopReason: "stop" } as never), liveAgain];
+		const drawn = lines(harness);
+		assert.equal(drawn[0], " ⦁ Read 1 file (ctrl+o to expand)", JSON.stringify(config));
+		assert.equal(drawn.at(-2), " ⦁ Reading 1 file… (ctrl+o to expand)", JSON.stringify(config));
+		assert.equal(drawn.at(-1), " └ src/live.ts", JSON.stringify(config));
+		if (harness.definitions.has("read")) {
+			// The rows themselves agree: only the running one asks for frames.
+			const asked = harness.requestRenders();
+			for (let frame = 0; frame < 5; frame++) {
+				mock.timers.tick(45);
+				oldAgain.render(100);
+			}
+			const oldAsked = harness.requestRenders() - asked;
+			liveAgain.render(100);
+			mock.timers.tick(45);
+			assert.ok(harness.requestRenders() - asked > oldAsked, "the running row animates");
+			harness.handlers.get("tool_execution_end")!({ toolCallId: live, isError: false });
+			liveAgain.updateResult({ ...text("x"), isError: false } as never, false);
+			const settled = harness.requestRenders();
+			for (let frame = 0; frame < 5; frame++) {
+				mock.timers.tick(45);
+				oldAgain.render(100);
+			}
+			assert.equal(harness.requestRenders(), settled, "the old call's new row never animates");
+		}
+		shutdown(harness);
+	}
+});
+
+test("without Pi's row hook, a call belongs to the run in which it is first asked about", () => {
+	const runtime = new ToolRuntime();
+	runtime.setBusy(false);
+	assert.equal(runtime.canRunCall("restored"), false, "first asked while idle");
+	runtime.setBusy(true);
+	assert.equal(runtime.canRunCall("restored"), false, "still restored once a run starts");
+	assert.equal(runtime.canRunCall("live"), true, "first asked during the run");
+	runtime.setBusy(false);
+	assert.equal(runtime.canRunCall("live"), false, "its run ended");
+	runtime.setBusy(true);
+	assert.equal(runtime.canRunCall("live"), false, "a new run does not revive it");
+	runtime.noteCall("made");
+	runtime.setBusy(false);
+	runtime.setBusy(true);
+	assert.equal(runtime.canRunCall("made"), false, "noted as made, in the run that ended");
+	runtime.reset(true);
 });
 
 test.after(restoreClocks);
