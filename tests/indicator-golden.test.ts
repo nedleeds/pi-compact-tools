@@ -96,7 +96,7 @@ for (const [mode, config] of Object.entries(MODE_CONFIGS)) {
 		const frames: string[][] = [row.render(100)];
 		const click = { type: "click", button: "left", x: 3, y: 1, width: 100, height: frames[0]!.length };
 		const handled = row.handleMouse(click as never);
-		frames.push([`handled: ${JSON.stringify(handled ?? null)}`, `expanded: ${(row as unknown as { expanded: boolean }).expanded}`]);
+		frames.push([`handled: ${handled?.handled === true}`, `expanded: ${(row as unknown as { expanded: boolean }).expanded}`]);
 		animate([row], 2, 100, (frame) => frames.push(frame));
 		check(`${mode}/click`, frames);
 		shutdown(harness);
