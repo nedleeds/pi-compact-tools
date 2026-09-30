@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent, initTheme, type ExtensionAPI, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { MouseRegion, Spacer, stripTerminalSequences, Text, visibleWidth } from "@earendil-works/pi-tui";
+import { backgroundAnsi, foregroundAnsi, MouseRegion, rgbColor, Spacer, stripTerminalSequences, Text, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	classifyCallStatus,
 	formatDurationMs,
@@ -67,6 +67,7 @@ import {
 	type ThinkingPhase,
 } from "../extensions/compact-tools-thinking.ts";
 import { SUPPORTED_TOOLS, type BuiltInDefinition, type RowState } from "../extensions/compact-tools-types.ts";
+import { fakeTheme } from "./theme-fixture.ts";
 
 // Tests must never read the developer's real ~/.pi/agent: its settings.json
 // (thinking visibility) and compact-tools.json would change what they see.
@@ -122,7 +123,7 @@ test("parses display mode and keeps the previous value when invalid", () => {
 test("shows what changed once, like Pi's own What's New, and only as a conversation starts", () => {
 	const dir = mkdtempSync(join(tmpdir(), "compact-tools-notices-"));
 	const notes = { "0.9.0": ["Older"], "0.10.0": ["Silent mode", "Custom tools"], "0.11.0": ["Next"] };
-	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
+	const theme = fakeTheme({ fg: (_color: string, text: string) => text, bold: (text: string) => text });
 	const chat = { children: [] as unknown[], addChild(component: unknown) { this.children.push(component); } };
 	const tui = { children: [{ children: [{}, {}, chat] }] };
 	const notices: string[] = [];
@@ -353,7 +354,7 @@ test("restores hidden rows when silent mode is disposed and preserves the choice
 });
 
 test("runs a light along a line beneath the submitted prompt and removes it after the turn", async () => {
-	const theme = { fg: (_color: string, text: string) => text } as Theme;
+	const theme = fakeTheme({ fg: (_color: string, text: string) => text });
 	const brightest = (frame: number) => {
 		const intensities = dotIntensities(frame);
 		return intensities.indexOf(Math.max(...intensities));
@@ -598,11 +599,11 @@ const DIFF_ANSI: Record<string, string> = {
 	toolDiffRemoved: "\x1b[38;2;229;83;75m",
 };
 
-const diffTheme = {
+const diffTheme = fakeTheme({
 	fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
 	getFgAnsi: (color: string) => DIFF_ANSI[color] ?? "",
 	getColorMode: () => "truecolor",
-} as unknown as Theme;
+});
 
 test("keeps only changed edit lines for the result line summary", () => {
 	const result = {
@@ -650,11 +651,11 @@ test("plain-text files keep the output color instead of guessing a language", ()
 });
 
 test("highlights Markdown prose and fenced code while keeping every source character", () => {
-	const theme = {
+	const theme = fakeTheme({
 		fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
 		bold: (text: string) => `<b>${text}</b>`,
 		italic: (text: string) => `<i>${text}</i>`,
-	} as unknown as Theme;
+	});
 	const source = [
 		"# Title",
 		"See `x` and [docs](https://x.dev) with **bold**.",
@@ -680,7 +681,7 @@ test("highlights Markdown prose and fenced code while keeping every source chara
 });
 
 test("highlights a fenced block with its declared language and survives an unclosed fence", () => {
-	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text, italic: (text: string) => text } as unknown as Theme;
+	const theme = fakeTheme({ fg: (_color: string, text: string) => text, bold: (text: string) => text, italic: (text: string) => text });
 	const rendered = highlightMarkdown(["```ts", "const a = 1;"], theme).map(stripTerminalSequences);
 	assert.deepEqual(rendered, ["```ts", "const a = 1;"]);
 });
@@ -860,11 +861,11 @@ test("classifies calls and smoothly fades one shared tool indicator glyph", () =
 });
 
 test("frames every rail in one chrome tone, quieter than the theme's own dim", () => {
-	const theme = {
+	const theme = fakeTheme({
 		fg: (color: string, text: string) => `${THEME_RAMP_ANSI[color] ?? ""}${text}\x1b[39m`,
 		getFgAnsi: (color: string) => THEME_RAMP_ANSI[color] ?? "",
 		getColorMode: () => "truecolor",
-	} as unknown as Theme;
+	});
 	const railColor = (line: string) => line.match(/38;2;\d+;\d+;\d+/u)?.[0];
 	const chrome = railColor(paintChrome(theme, " │ "));
 	const patch = ["@@ -1,2 +1,2 @@", "-const value = old();", "+const value = next();"].join("\n");
@@ -902,7 +903,7 @@ test("limits previews without modifying the full result component", () => {
 		render: () => ["one", "two", "three", "four"],
 		invalidate() {},
 	};
-	const theme = { fg: (_color: string, text: string) => text } as Theme;
+	const theme = fakeTheme({ fg: (_color: string, text: string) => text });
 	assert.deepEqual(limitComponentLines(source, 2, theme).render(80), ["one", "two", " │ … 2 more lines"]);
 	assert.deepEqual(source.render(80), ["one", "two", "three", "four"]);
 });
@@ -936,14 +937,14 @@ test("animates every built-in, restores reload renderers, and reuses unchanged l
 	assert.deepEqual(registered.map(({ name }) => name), [...SUPPORTED_TOOLS]);
 	assert.ok(registered.every(({ renderCall, renderResult }) => renderCall && renderResult));
 
-	const renderTheme = {
+	const renderTheme = fakeTheme({
 		fg: (_color: string, text: string) => text,
 		bg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 		italic: (text: string) => text,
 		getFgAnsi: (color: string) => THEME_RAMP_ANSI[color] ?? "\x1b[38;2;20;30;40m",
 		getColorMode: () => "truecolor",
-	} as unknown as Theme;
+	});
 	const callArguments: Record<string, Record<string, unknown>> = {
 		read: { path: "file.ts" },
 		write: { path: "file.ts", content: "streaming content" },
@@ -1080,7 +1081,7 @@ test("animates every built-in, restores reload renderers, and reuses unchanged l
 
 	// A successful edit reports its change like a diff: lines added and removed,
 	// each in the theme's diff color.
-	const diffTheme = { ...renderTheme, fg: (color: string, text: string) => `<${color}>${text}</${color}>` } as unknown as Theme;
+	const diffTheme = fakeTheme({ ...renderTheme, fg: (color: string, text: string) => `<${color}>${text}</${color}>` });
 	const editDiff = "     ...\n  57 context\n- 58 old line\n+ 58 new line\n+ 59 added line\n  60 context";
 	const editedStatus = renderEditResult(
 		{ content: [{ type: "text", text: "Successfully replaced 1 block(s) in file.ts." }], details: { diff: editDiff, patch: "" } },
@@ -1201,11 +1202,11 @@ test("keeps the progress controller inert until it is bound to a TUI", () => {
 	handlers.get("agent_settled")?.({});
 	assert.equal(messages.length, 0, "an unbound controller must not touch the working row");
 
-	const theme = {
+	const theme = fakeTheme({
 		fg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 		getColorMode: () => "truecolor",
-	} as unknown as Theme;
+	});
 	controller.bind({
 		ui: {
 			theme,
@@ -1241,11 +1242,11 @@ test("uses semantic progress labels without exposing invocation details", () => 
 });
 
 test("uses indexed ANSI colors for the glow in 256-color mode", () => {
-	const theme = {
+	const theme = fakeTheme({
 		fg: (_color: string, text: string) => text,
 		getFgAnsi: () => "\x1b[38;5;110m",
 		getColorMode: () => "256color",
-	} as unknown as Theme;
+	});
 	const rendered = glowProgressMessage("Glow", 2, theme, "high");
 	assert.match(rendered, /\x1b\[38;5;\d+mG\x1b\[39m/u);
 	assert.doesNotMatch(rendered, /\x1b\[38;2;/u);
@@ -1310,60 +1311,88 @@ test("prefers the path over a shebang and only consults a real first line", () =
 	assert.equal(resolveLanguage("bin/release", "  echo hello"), undefined);
 });
 
-test("memoized 256-color conversion matches an independent nearest-color search", () => {
-	const theme = { getColorMode: () => "256color" } as unknown as Theme;
-	const channel = (part: number) => (part === 0 ? 0 : 55 + part * 40);
-	const basic = [
-		[0, 0, 0], [128, 0, 0], [0, 128, 0], [128, 128, 0], [0, 0, 128], [128, 0, 128], [0, 128, 128],
-		[192, 192, 192], [128, 128, 128], [255, 0, 0], [0, 255, 0], [255, 255, 0], [0, 0, 255],
-		[255, 0, 255], [0, 255, 255], [255, 255, 255],
-	];
-	const nearest = (r: number, g: number, b: number) => {
-		let best = 0;
-		let bestDistance = Number.POSITIVE_INFINITY;
-		for (let index = 0; index < 256; index++) {
-			let candidate: number[];
-			if (index < 16) candidate = basic[index]!;
-			else if (index < 232) {
-				const value = index - 16;
-				candidate = [channel(Math.floor(value / 36)), channel(Math.floor((value % 36) / 6)), channel(value % 6)];
-			} else {
-				const gray = 8 + Math.min(23, index - 232) * 10;
-				candidate = [gray, gray, gray];
-			}
-			const distance = (r - candidate[0]!) ** 2 + (g - candidate[1]!) ** 2 + (b - candidate[2]!) ** 2;
-			if (distance >= bestDistance) continue;
-			best = index;
-			bestDistance = distance;
-		}
-		return String(best);
+/**
+ * Pi's system theme leaves tokens to the terminal's own colors, whose escape sequence
+ * names no color at all. Pi still resolves them in `theme.colors`, and the theme's
+ * appearance, not a guess from its text color, says which way contrast runs.
+ */
+test("chrome derives from a token the terminal colors, and follows the theme's appearance", () => {
+	const brightness = (painted: string) => {
+		const [r, g, b] = painted.match(/38;2;(\d+);(\d+);(\d+)m/u)!.slice(1).map(Number) as [number, number, number];
+		return (r * 0.299 + g * 0.587 + b * 0.114) / 255;
 	};
-	const indexOf = (rendered: string) => rendered.match(/\d+;5;(\d+)m/u)?.[1];
-	for (let r = 0; r < 256; r += 37) {
-		for (let g = 0; g < 256; g += 41) {
-			for (let b = 0; b < 256; b += 43) {
-				const expected = nearest(r, g, b);
-				const rgb = { r, g, b };
-				assert.equal(indexOf(colorizeRgb(theme, rgb, "x")), expected, `fg rgb(${r},${g},${b})`);
-				// Second call must come from the memo and agree with the cold result.
-				assert.equal(indexOf(colorizeRgb(theme, rgb, "x")), expected, `memoized fg rgb(${r},${g},${b})`);
-				assert.equal(indexOf(fillRgb(theme, rgb, "x")), expected, `bg rgb(${r},${g},${b})`);
+	const systemTheme = (appearance: "dark" | "light") => ({
+		// What Pi writes for a token set to the terminal default.
+		getFgAnsi: () => "\x1b[39m",
+		getColorMode: () => "truecolor",
+		fg: (_color: string, text: string) => `<default>${text}`,
+		style: (text: string, options: { fg?: Parameters<typeof foregroundAnsi>[0] }) =>
+			`${options.fg ? foregroundAnsi(options.fg, "truecolor") : ""}${text}\x1b[39m`,
+		// Neither text nor dim has a color of its own; Pi fills them from the terminal.
+		colors: { text: rgbColor(128, 128, 128), dim: rgbColor(128, 128, 128) },
+		appearance,
+	}) as unknown as Theme;
+	const dark = paintChrome(systemTheme("dark"), "x");
+	const light = paintChrome(systemTheme("light"), "x");
+	assert.doesNotMatch(dark, /<default>/u, "the chrome tone is derived, not left to the terminal");
+	assert.ok(brightness(dark) >= 0.21 && brightness(dark) <= 0.29, `dark: ${brightness(dark)}`);
+	assert.ok(brightness(light) >= 0.71 && brightness(light) <= 0.79, `light: ${brightness(light)}`);
+});
+
+/**
+ * Pi before 0.99 has no `theme.colors`, `theme.appearance`, or `theme.style()`: its
+ * theme only writes escape sequences. The same palette must derive the same colors
+ * there, and a palette swapped behind the same Theme, as `/theme` does, must show.
+ */
+test("a theme from Pi before 0.99 derives the same colors and follows a theme switch", () => {
+	let palette: Record<string, string> = { ...THEME_RAMP_ANSI, thinkingHigh: "\x1b[38;2;210;168;255m" };
+	const legacy = {
+		fg: (color: string, text: string) => `<${color}>${text}`,
+		getFgAnsi: (color: string) => palette[color] ?? "",
+		getColorMode: () => "truecolor",
+	} as unknown as Theme;
+	const modern = fakeTheme({ ...legacy as unknown as Record<string, unknown> });
+	const drawings = (theme: Theme) => [
+		paintChrome(theme, " │ "),
+		glowProgressMessage("Working", 3, theme, "high"),
+		renderActivityDots(5, 40, theme, "high")[0],
+	];
+	const before = drawings(legacy);
+	assert.deepEqual(before, drawings(modern), "the same palette draws the same, with or without theme.colors");
+	assert.ok(before.every((drawn) => /38;2;/u.test(drawn!)), "every drawing is derived, none falls back");
+
+	palette = { ...palette, dim: "\x1b[38;2;200;60;60m", thinkingHigh: "\x1b[38;2;30;200;90m" };
+	const after = drawings(legacy);
+	assert.notDeepEqual(after, before, "a palette swapped behind the same Theme repaints");
+});
+
+test("derived colors are written as Pi writes colors, for the terminal's color mode", () => {
+	for (const mode of ["truecolor", "256color"] as const) {
+		const theme = fakeTheme({ getColorMode: () => mode });
+		for (let r = 0; r < 256; r += 37) {
+			for (let g = 0; g < 256; g += 41) {
+				for (let b = 0; b < 256; b += 43) {
+					const color = rgbColor(r, g, b);
+					assert.equal(colorizeRgb(theme, { r, g, b }, "x"), `${foregroundAnsi(color, mode)}x\x1b[39m`, `fg rgb(${r},${g},${b}) ${mode}`);
+					assert.equal(fillRgb(theme, { r, g, b }, "x"), `${backgroundAnsi(color, mode)}x\x1b[49m`, `bg rgb(${r},${g},${b}) ${mode}`);
+				}
 			}
 		}
 	}
-	assert.match(colorizeRgb(theme, { r: 10, g: 20, b: 30 }, "x"), /^\x1b\[38;5;\d+mx\x1b\[39m$/u);
-	assert.match(fillRgb(theme, { r: 10, g: 20, b: 30 }, "x"), /^\x1b\[48;5;\d+mx\x1b\[49m$/u);
+	// The 256-color palette's first sixteen entries are whatever the terminal makes of them; Pi never picks them.
+	const indexed = colorizeRgb(fakeTheme({ getColorMode: () => "256color" }), { r: 128, g: 0, b: 0 }, "x");
+	assert.ok(Number(indexed.match(/38;5;(\d+)m/u)?.[1]) >= 16, indexed);
 });
 
 test("scales the working-label glow to its length and follows the theme's background", () => {
 	const requestedColors: string[] = [];
-	const rampTheme = (ansi: Record<string, string>) => ({
+	const rampTheme = (ansi: Record<string, string>) => fakeTheme({
 		fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
 		getFgAnsi: (color: string) => {
 			requestedColors.push(color);
 			return ansi[color] ?? "";
 		},
-	}) as unknown as Theme;
+	});
 	const luminance = (color: number[]) => color[0]! * 0.299 + color[1]! * 0.587 + color[2]! * 0.114;
 	const glowColors = (rendered: string) =>
 		[...rendered.matchAll(/38;2;(\d+);(\d+);(\d+)m/gu)].map((match) => match.slice(1).map(Number));
@@ -1405,7 +1434,7 @@ test("scales the working-label glow to its length and follows the theme's backgr
 });
 
 test("survives a theme that paints a level black or does not know it at all", () => {
-	const theme = {
+	const theme = fakeTheme({
 		fg: (color: string, text: string) => {
 			// Pi throws from fg() too, so a fallback must never name the color that just failed.
 			if (!THEME_RAMP_ANSI[color] && color !== "text" && color !== "muted") {
@@ -1419,7 +1448,7 @@ test("survives a theme that paints a level black or does not know it at all", ()
 			return THEME_RAMP_ANSI[color] ?? "";
 		},
 		getColorMode: () => "truecolor",
-	} as unknown as Theme;
+	});
 
 	// Pure black carries no ratio to scale, so the floor has to produce it from the poles.
 	const channels = [...glowProgressMessage("Working", 0, theme, "off").matchAll(/38;2;(\d+);(\d+);(\d+)/gu)]
@@ -1439,11 +1468,11 @@ test("repaints the working label in the session's thinking level", () => {
 		getThinkingLevel: () => "low",
 	} as unknown as ExtensionAPI;
 	const messages: Array<string | undefined> = [];
-	const theme = {
+	const theme = fakeTheme({
 		fg: (color: string, text: string) => `${THEME_RAMP_ANSI[color] ?? ""}${text}\x1b[39m`,
 		getFgAnsi: (color: string) => THEME_RAMP_ANSI[color] ?? "",
 		getColorMode: () => "truecolor",
-	} as unknown as Theme;
+	});
 	const controller = new ProgressController(pi);
 	controller.bind({
 		ui: {
@@ -1478,7 +1507,7 @@ test("keeps one glyph-free Pi working row across thinking and tool progress", ()
 	} as unknown as ExtensionAPI;
 	const messages: Array<string | undefined> = [];
 	let indicator: { frames: string[]; intervalMs?: number } | undefined;
-	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
+	const theme = fakeTheme({ fg: (_color: string, text: string) => text, bold: (text: string) => text });
 	const controller = new ProgressController(pi);
 	controller.bind({
 		ui: {
@@ -1550,12 +1579,12 @@ test("leaves Ctrl+T to Pi's visibility toggle when thinking has no detail", () =
 			transform = handler;
 		},
 	} as unknown as ExtensionAPI;
-	const theme = {
+	const theme = fakeTheme({
 		fg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 		italic: (text: string) => text,
 		getFgAnsi: () => "",
-	} as unknown as Theme;
+	});
 	const controller = new ThinkingCycleController(pi);
 	controller.bind({
 		ui: {
@@ -1721,14 +1750,14 @@ test("renders custom tools compactly and expands into the author's renderer", as
 		class Row extends FakeToolRow {}
 		assert.equal(patchToolRows(Row.prototype), true);
 
-		const theme = {
+		const theme = fakeTheme({
 			fg: (_color: string, text: string) => text,
 			bg: (_color: string, text: string) => text,
 			bold: (text: string) => text,
 			italic: (text: string) => text,
 			getFgAnsi: () => "\x1b[38;2;20;30;40m",
 			getColorMode: () => "truecolor",
-		} as unknown as Theme;
+		});
 		const authorState = { author: true };
 		const authorCalls: Array<{ expanded: boolean; state: unknown }> = [];
 		const renderAuthorResult = (_result: unknown, options: { expanded: boolean }, _theme: Theme, ctx: any) => {
@@ -1947,7 +1976,7 @@ test("marks a finished custom tool's row as done before its result is drawn", as
 	} as unknown as ExtensionAPI);
 	class Row extends FakeToolRow {}
 	assert.equal(patchToolRows(Row.prototype), true);
-	const theme = { fg: (color: string, text: string) => `<${color}>${text}</${color}>`, bold: (text: string) => text } as unknown as Theme;
+	const theme = fakeTheme({ fg: (color: string, text: string) => `<${color}>${text}</${color}>`, bold: (text: string) => text });
 	const row = new Row("web_search", {});
 	const renderCall = row.getCallRenderer() as (args: unknown, theme: Theme, ctx: unknown) => Component;
 	const context = {

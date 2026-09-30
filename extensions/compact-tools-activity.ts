@@ -1,9 +1,9 @@
 import { UserMessageComponent, type ExtensionAPI, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
 import { onTick } from "./compact-tools-clock.ts";
-import { colorizeRgb, interpolateRgb, type Rgb } from "./compact-tools-color.ts";
+import { colorizeRgb, interpolateRgb } from "./compact-tools-color.ts";
 import { hookMethod } from "./compact-tools-hook.ts";
-import { activityGlow, thinkingLevelColor, type ColorRamp, type ThinkingLevel } from "./compact-tools-palette.ts";
+import { activityGlow, perPalette, type ThinkingLevel } from "./compact-tools-palette.ts";
 
 const WIDGET_KEY = "compact-tools-silent-activity-render";
 const ACTIVITY_STATE = Symbol.for("pi-compact-tools.silent.activity.state");
@@ -109,26 +109,25 @@ export function frameChanges(frame: number): boolean {
 	return FRAME_CHANGED[frameIndex(frame)]!;
 }
 
+type PaintedBreath = readonly (readonly string[])[];
+
 /**
- * Resolving a ramp walks the theme's colors, so each level keeps its last one.
- * It is kept against the colors it is made from, the level's and the text's, not
- * against the theme: Pi's theme is one object whose palette /theme swaps.
+ * Every dot of every frame of a breath at a level, painted once per palette. A breath
+ * has a fixed number of frames, so each frame the line draws after that is a lookup.
  */
-const glowCache = new Map<ThinkingLevel, { colors: string; glow: ColorRamp | undefined }>();
-
-function cachedGlow(theme: Theme, level: ThinkingLevel): ColorRamp | undefined {
-	const colors = typeof theme.getFgAnsi === "function"
-		? theme.getFgAnsi(thinkingLevelColor(level)) + theme.getFgAnsi("text")
-		: "";
-	const cached = glowCache.get(level);
-	if (cached && cached.colors === colors) return cached.glow;
-	const glow = activityGlow(theme, level);
-	glowCache.set(level, { colors, glow });
-	return glow;
-}
-
-function toneColor(glow: ColorRamp, intensity: number): Rgb {
-	return interpolateRgb(glow.from, glow.to, intensity ** TONE_GAMMA);
+function paintedBreath(theme: Theme, level: ThinkingLevel): PaintedBreath {
+	const byLevel = perPalette(theme, "activity-breath", () => new Map<ThinkingLevel, PaintedBreath>());
+	let breath = byLevel.get(level);
+	if (!breath) {
+		const glow = activityGlow(theme, level);
+		const paint = (intensity: number) => glow
+			? colorizeRgb(theme, interpolateRgb(glow.from, glow.to, intensity ** TONE_GAMMA), DOT)
+			// Reached only when the theme's colors did not resolve.
+			: theme.fg(intensity > 0.5 ? "text" : "dim", DOT);
+		breath = FRAMES.map((cells) => cells.map(paint));
+		byLevel.set(level, breath);
+	}
+	return breath;
 }
 
 /** A line the light runs along with a fading afterimage, in the thinking level's color, fitted to the width. */
@@ -142,12 +141,7 @@ export function renderActivityDots(
 	if (width <= 0) return [];
 	const indent = Math.max(0, Math.min(column, width - 1));
 	const fitting = Math.min(DOT_COUNT, width - indent);
-	const glow = cachedGlow(theme, level);
-	const dots = FRAMES[frameIndex(frame)]!.slice(0, fitting).map((intensity) => glow
-		? colorizeRgb(theme, toneColor(glow, intensity), DOT)
-		// Reached only when the theme's colors did not resolve.
-		: theme.fg(intensity > 0.5 ? "text" : "dim", DOT));
-	return [" ".repeat(indent) + dots.join("")];
+	return [" ".repeat(indent) + paintedBreath(theme, level)[frameIndex(frame)]!.slice(0, fitting).join("")];
 }
 
 /** Add the activity row directly beneath the prompt, keeping Pi's padding inside its box. */

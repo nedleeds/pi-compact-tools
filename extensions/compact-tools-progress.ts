@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, truncateToWidth } from "@earendil-works/pi-tui";
 import { onTick } from "./compact-tools-clock.ts";
-import { colorizeRgb, interpolateRgb } from "./compact-tools-color.ts";
+import { colorizeRgb, interpolateRgb, paletteOf } from "./compact-tools-color.ts";
 import { progressGlow, type ColorRamp, type ThinkingLevel } from "./compact-tools-palette.ts";
 import type { ToolArgs } from "./compact-tools-types.ts";
 
@@ -88,6 +88,8 @@ export class ProgressController {
 	private readonly activeTools = new Map<string, string>();
 	private message: string | undefined;
 	private frames: string[] = [];
+	/** The palette `frames` were painted with. */
+	private paintedFor: object | undefined;
 	private frame = 0;
 	/** Stops this label's share of the animation clock. */
 	private stopTicking: (() => void) | undefined;
@@ -134,7 +136,7 @@ export class ProgressController {
 			if (!this.context || event.level === this.level) return;
 			this.level = event.level;
 			// Recolor in place: the label and its animation phase are unchanged.
-			this.frames = createGlowFrames(this.message ?? "", this.context.ui.theme, this.level);
+			this.frames = [];
 			this.renderMessage();
 		});
 	}
@@ -169,7 +171,7 @@ export class ProgressController {
 	private setMessage(message: string): void {
 		if (!this.context || (this.message === message && this.stopTicking)) return;
 		this.message = message;
-		this.frames = createGlowFrames(message, this.context.ui.theme, this.level);
+		this.frames = [];
 		this.frame = 0;
 		this.renderMessage();
 		if (this.stopTicking) return;
@@ -180,7 +182,15 @@ export class ProgressController {
 	}
 
 	private renderMessage(): void {
-		if (!this.message || !this.context || this.frames.length === 0) return;
+		if (!this.message || !this.context) return;
+		// Painted once per label, level, and palette: a theme switch, or the system theme
+		// following the terminal from dark to light, repaints on the next frame.
+		const theme = this.context.ui.theme;
+		const palette = paletteOf(theme);
+		if (this.frames.length === 0 || this.paintedFor !== palette) {
+			this.frames = createGlowFrames(this.message, theme, this.level);
+			this.paintedFor = palette;
+		}
 		this.context.ui.setWorkingMessage(this.frames[this.frame % this.frames.length]);
 	}
 

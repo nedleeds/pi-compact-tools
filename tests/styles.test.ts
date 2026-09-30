@@ -8,12 +8,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import * as piModule from "@earendil-works/pi-coding-agent";
-import { initTheme, type ExtensionAPI, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
+import { initTheme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Container, stripTerminalSequences, type Component } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../extensions/compact-tools-config.ts";
 import { groupChildren, ToolGroupController, type ToolRowLike } from "../extensions/compact-tools-grouping.ts";
 import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
 import { SUPPORTED_TOOLS } from "../extensions/compact-tools-types.ts";
+import { fakeTheme } from "./theme-fixture.ts";
 
 process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "compact-tools-styles-"));
 // Syntax highlighting follows the terminal's color support; pin it so every
@@ -21,14 +22,14 @@ process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "compact-tools-styl
 process.env.COLORTERM = "truecolor";
 initTheme("dark", false);
 
-const plainTheme = {
+const plainTheme = fakeTheme({
 	fg: (_color: string, text: string) => text,
 	bg: (_color: string, text: string) => text,
 	bold: (text: string) => text,
 	italic: (text: string) => text,
 	getFgAnsi: () => "\x1b[38;2;120;120;120m",
 	getColorMode: () => "truecolor",
-} as unknown as Theme;
+});
 
 type Registered = { name: string; renderCall?: Function; renderResult?: Function };
 

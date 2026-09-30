@@ -15,6 +15,7 @@ import { generateDiffString, generateUnifiedPatch } from "../node_modules/@earen
 import { DEFAULT_CONFIG } from "../extensions/compact-tools-config.ts";
 import { ToolGroupController } from "../extensions/compact-tools-grouping.ts";
 import { ToolRuntime } from "../extensions/compact-tools-runtime.ts";
+import { fakeTheme } from "./theme-fixture.ts";
 
 const GOLDEN_PATH = join(import.meta.dirname, "golden", "render.json");
 const WIDTHS = [100, 44];
@@ -38,14 +39,14 @@ const rgbOf = (name: string): string => {
 	return `${(seed * 7) % 256};${(seed * 13 + 50) % 256};${(seed * 29 + 90) % 256}`;
 };
 const colorByRgb = new Map(COLOR_NAMES.map((name) => [rgbOf(name), name]));
-const theme = {
+const theme = fakeTheme({
 	fg: (color: string, text: string) => `\x1b[38;2;${rgbOf(color)}m${text}\x1b[39m`,
 	bg: (color: string, text: string) => `\x1b[48;2;${rgbOf(color)}m${text}\x1b[49m`,
 	bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
 	italic: (text: string) => `\x1b[3m${text}\x1b[23m`,
 	getFgAnsi: (color: string) => `\x1b[38;2;${rgbOf(color)}m`,
 	getColorMode: () => "truecolor",
-} as unknown as Theme;
+});
 
 /** Escape sequences as short readable marks; a color the theme names reads as `{name}`. */
 function readable(line: string): string {

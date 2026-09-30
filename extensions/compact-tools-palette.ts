@@ -1,10 +1,18 @@
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { indicatorGlyph, indicatorStrength, indicatorTone, type RowStatus } from "./compact-tools-core.ts";
+import type { ExtensionAPI, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import {
+	indicatorGlyph,
+	indicatorStrength,
+	indicatorTone,
+	RUNNING_INDICATOR_FRAME_COUNT,
+	type RowStatus,
+} from "./compact-tools-core.ts";
 import {
 	colorizeRgb,
 	interpolateRgb,
 	liftContrast,
 	neutralizeRgb,
+	paletteOf,
+	rgbPainter,
 	themeColorRgb,
 	withContrast,
 	type Rgb,
@@ -24,9 +32,7 @@ import {
  * background the moves invert, and standing out means going darker.
  */
 
-type ThemeForeground = Parameters<Theme["getFgAnsi"]>[0];
-
-type ContrastBand = { color: ThemeForeground; keepHue: number; minimum: number; maximum: number };
+type ContrastBand = { color: ThemeColor; keepHue: number; minimum: number; maximum: number };
 
 /** A band with no color attached, for a derivation that supplies its own source. */
 type ContrastRange = { minimum: number; maximum: number };
@@ -63,32 +69,40 @@ const THINKING_LEVEL_COLOR = {
 	high: "thinkingHigh",
 	xhigh: "thinkingXhigh",
 	max: "thinkingMax",
-} as const satisfies Record<ThinkingLevel, ThemeForeground>;
+} as const satisfies Record<ThinkingLevel, ThemeColor>;
 
 /** The theme color a thinking level is painted with. */
-export function thinkingLevelColor(level: ThinkingLevel): ThemeForeground {
+export function thinkingLevelColor(level: ThinkingLevel): ThemeColor {
 	return THINKING_LEVEL_COLOR[level] ?? "thinkingMedium";
 }
 
 /**
- * Derivation is deliberately not cached against the Theme: `/theme` can swap a palette behind
- * the same instance, and a stale entry would outlive the switch. Callers that redraw per line
- * hold the derived value themselves instead.
+ * Derived colors, kept for as long as the palette they came from. `/theme` swaps the
+ * palette behind the same Theme, so the palette rather than the Theme is the key: a
+ * switch misses the cache by itself, and every frame in between is a lookup.
  */
+const derivedByPalette = new WeakMap<object, Map<string, unknown>>();
+
+export function perPalette<T>(theme: Theme, key: string, derive: () => T): T {
+	const palette = paletteOf(theme);
+	let cache = derivedByPalette.get(palette);
+	if (!cache) derivedByPalette.set(palette, cache = new Map());
+	if (!cache.has(key)) cache.set(key, derive());
+	return cache.get(key) as T;
+}
+
 function bandedRgb(theme: Theme, band: ContrastBand): Rgb | undefined {
 	const rgb = themeColorRgb(theme, band.color);
 	if (!rgb) return undefined;
 	return withContrast(theme, neutralizeRgb(rgb, band.keepHue), band.minimum, band.maximum);
 }
 
-/**
- * A chrome painter bound to one theme. Deriving the tone costs a parse and a dozen floating
- * point operations, and the frame is drawn once per line of tool output or thinking detail,
- * so callers in a loop take a painter once and callers with a single rail use `paintChrome`.
- */
+/** A painter for the chrome tone, derived once per palette however many rails a frame draws. */
 export function chromePainter(theme: Theme): (text: string) => string {
-	const chrome = bandedRgb(theme, CHROME);
-	return chrome ? (text) => colorizeRgb(theme, chrome, text) : (text) => theme.fg("dim", text);
+	return perPalette(theme, "chrome", () => {
+		const chrome = bandedRgb(theme, CHROME);
+		return chrome ? rgbPainter(theme, chrome) : (text: string) => theme.fg("dim", text);
+	});
 }
 
 /** Paint one rail, connector, or status line in the chrome tone. */
@@ -104,18 +118,27 @@ function ramp(theme: Theme, low: ContrastBand, high: ContrastBand): ColorRamp | 
 	return from && to ? { from, to } : undefined;
 }
 
-/** Fade endpoints for the running tool indicator, or undefined when the theme resolves no RGB. */
-export function indicatorPulse(theme: Theme): ColorRamp | undefined {
-	return ramp(theme, PULSE_LOW, PULSE_HIGH);
+/**
+ * A row's status dot; a running one pulses between the theme's endpoints as frames advance.
+ * Every running row repaints its dot on every frame, so the pulse is painted once per palette.
+ */
+export function paintIndicator(theme: Theme, status: RowStatus, frame: number): string {
+	if (status !== "running") return theme.fg(indicatorTone(status), indicatorGlyph(status));
+	const pulse = runningPulse(theme);
+	return pulse[((frame % pulse.length) + pulse.length) % pulse.length]!;
 }
 
-/** A row's status dot; a running one pulses between the theme's endpoints as frames advance. */
-export function paintIndicator(theme: Theme, status: RowStatus, frame: number): string {
-	const glyph = indicatorGlyph(status, frame);
-	const pulse = status === "running" ? indicatorPulse(theme) : undefined;
-	return pulse
-		? colorizeRgb(theme, interpolateRgb(pulse.from, pulse.to, indicatorStrength(status, frame)), glyph)
-		: theme.fg(indicatorTone(status, frame), glyph);
+/** Every step of the running dot's pulse, painted once per palette. */
+function runningPulse(theme: Theme): readonly string[] {
+	return perPalette(theme, "running-pulse", () => {
+		const pulse = ramp(theme, PULSE_LOW, PULSE_HIGH);
+		return Array.from({ length: RUNNING_INDICATOR_FRAME_COUNT }, (_, step) => {
+			const glyph = indicatorGlyph("running", step);
+			return pulse
+				? colorizeRgb(theme, interpolateRgb(pulse.from, pulse.to, indicatorStrength("running", step)), glyph)
+				: theme.fg(indicatorTone("running", step), glyph);
+		});
+	});
 }
 
 /** How far the brightest activity dot moves from the level's color toward the label's crest. */
@@ -129,17 +152,21 @@ const ACTIVITY_UNLIT = 0.05;
  * label's full crest washes every level toward the same near-white.
  */
 export function activityGlow(theme: Theme, level: ThinkingLevel): ColorRamp | undefined {
-	const glow = progressGlow(theme, level);
-	if (!glow) return undefined;
-	const lit = interpolateRgb(glow.from, glow.to, ACTIVITY_CREST_MIX);
-	return { from: withContrast(theme, lit, ACTIVITY_UNLIT, ACTIVITY_UNLIT), to: lit };
+	return perPalette(theme, `activity:${level}`, () => {
+		const glow = progressGlow(theme, level);
+		if (!glow) return undefined;
+		const lit = interpolateRgb(glow.from, glow.to, ACTIVITY_CREST_MIX);
+		return { from: withContrast(theme, lit, ACTIVITY_UNLIT, ACTIVITY_UNLIT), to: lit };
+	});
 }
 
 /** Sweep endpoints for the working label at a thinking level, resting color to crest. */
 export function progressGlow(theme: Theme, level: ThinkingLevel): ColorRamp | undefined {
-	const raw = themeColorRgb(theme, thinkingLevelColor(level));
-	if (!raw) return undefined;
-	const lifted = liftContrast(theme, raw, GLOW_REST_LIFT);
-	const from = withContrast(theme, lifted, GLOW_FLOOR.minimum, GLOW_FLOOR.maximum);
-	return { from, to: liftContrast(theme, from, GLOW_CREST_LIFT) };
+	return perPalette(theme, `progress:${level}`, () => {
+		const raw = themeColorRgb(theme, thinkingLevelColor(level));
+		if (!raw) return undefined;
+		const lifted = liftContrast(theme, raw, GLOW_REST_LIFT);
+		const from = withContrast(theme, lifted, GLOW_FLOOR.minimum, GLOW_FLOOR.maximum);
+		return { from, to: liftContrast(theme, from, GLOW_CREST_LIFT) };
+	});
 }
