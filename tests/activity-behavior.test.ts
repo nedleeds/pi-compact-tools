@@ -5,13 +5,15 @@
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
 import {
+	BranchSummaryMessageComponent,
+	CompactionSummaryMessageComponent,
 	initTheme,
 	UserMessageComponent,
 	type Theme,
 	type ThemeAppearance,
 	type ThemeColor,
 } from "@earendil-works/pi-coding-agent";
-import { rgbColor, type Color } from "@earendil-works/pi-tui";
+import { rgbColor, Spacer, type Color } from "@earendil-works/pi-tui";
 import { renderActivityDots } from "../extensions/compact-tools-activity.ts";
 import { loadExtension, restoreClocks, shutdown } from "./indicator-harness.ts";
 import { theme as piTheme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
@@ -73,6 +75,44 @@ test("the line under a silent prompt follows the thinking level and the theme on
 		assert.equal(activity(), medium, "and the old theme comes back exactly");
 	} finally {
 		initTheme("dark", false);
+		silentState().enabled = false;
+		shutdown(harness);
+	}
+});
+
+/**
+ * Pi compacts between turns and writes the summary straight into the chat, after
+ * a spacer of its own. In silent mode that row would land under the prompt the
+ * line animates beneath, pushing the line up and away from the editor.
+ */
+test("a summary Pi writes mid-turn leaves the silent line where it was, at the foot of the chat", async () => {
+	initTheme("dark", false);
+	const harness = await loadExtension({ style: "compact", mode: "silent" }, { tui: true, idle: false });
+	try {
+		harness.handlers.get("agent_start")!({});
+		const prompt = new UserMessageComponent("Look around");
+		harness.chat.children = [prompt];
+		// The line attaches to the latest prompt once a render pass settles.
+		harness.chat.render(80);
+		await Promise.resolve();
+		mock.timers.tick(80 * 7);
+		const settled = harness.chat.render(80);
+		assert.ok(settled.at(-1)?.includes("━"), "the line is the chat's last row");
+
+		for (const summary of [
+			new CompactionSummaryMessageComponent({ role: "compactionSummary", tokensBefore: 257_586, summary: "## Goal\nLook around" } as never),
+			new BranchSummaryMessageComponent({ role: "branchSummary", summary: "## Goal\nLook around" } as never),
+		]) {
+			harness.chat.children = [prompt, new Spacer(1), summary];
+			assert.deepEqual(harness.chat.render(80), settled, `${summary.constructor.name} and its spacer are hidden`);
+		}
+
+		// Out of silent mode the summary is the reader's again, spacer included.
+		silentState().enabled = false;
+		const visible = harness.chat.render(80);
+		assert.ok(visible.length > settled.length, "the summary comes back");
+		assert.ok(visible.some((line) => line.includes("[compaction]")) || visible.some((line) => line.includes("Branch summary")));
+	} finally {
 		silentState().enabled = false;
 		shutdown(harness);
 	}

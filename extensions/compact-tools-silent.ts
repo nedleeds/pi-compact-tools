@@ -1,5 +1,7 @@
 import {
 	AssistantMessageComponent,
+	BranchSummaryMessageComponent,
+	CompactionSummaryMessageComponent,
 	CustomMessageComponent,
 	DynamicBorder,
 	ToolExecutionComponent,
@@ -119,11 +121,24 @@ export function renderAnswerOnly(component: AssistantLike, width: number, render
 }
 
 /**
+ * A summary Pi writes into the chat of its own accord: the context it compacted
+ * away, or the /tree branch it left behind. Both are bookkeeping rather than a
+ * prompt or an answer, and compaction arrives mid-turn, where a visible row
+ * would come between the animating activity line and the editor below it.
+ * Read through `typeof` so an older Pi without the export keeps its own rows.
+ */
+function isSummary(child: unknown): boolean {
+	return (typeof CompactionSummaryMessageComponent === "function" && isKind(child, CompactionSummaryMessageComponent))
+		|| (typeof BranchSummaryMessageComponent === "function" && isKind(child, BranchSummaryMessageComponent));
+}
+
+/**
  * A row Pi (or this extension) adds to the chat directly rather than as a message:
- * status lines are Text, and "What's New" blocks add borders and Markdown too.
+ * status lines are Text, "What's New" blocks add borders and Markdown too, and
+ * compaction and branch summaries come as components of their own.
  */
 function isNotice(child: unknown): boolean {
-	return isKind(child, Text) || isKind(child, DynamicBorder) || isKind(child, Markdown);
+	return isKind(child, Text) || isKind(child, DynamicBorder) || isKind(child, Markdown) || isSummary(child);
 }
 
 /**
