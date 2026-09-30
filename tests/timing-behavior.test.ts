@@ -121,4 +121,27 @@ test("a Claude group counts the time its running call has run, not how long it w
 	shutdown(harness);
 });
 
+/**
+ * A codemode script runs tools through `ctx.executeTool()`. Pi marks those calls with
+ * `parentToolCallId`; they never get a row, so nothing is timed or kept for them,
+ * while the call that made them is timed as any other.
+ */
+test("calls another tool makes are neither timed nor remembered", async () => {
+	const harness = await loadExtension({ style: "compact" }, { tui: true, idle: false });
+	const timings = (globalThis as Record<symbol, Map<string, unknown>>)[Symbol.for("pi.compact-tools.execution-timings")]!;
+	const parent = `codemode-${++sequence}`;
+	const nested = `${parent}/1`;
+	announce(harness, parent, "codemode");
+	harness.handlers.get("tool_execution_start")!({ toolCallId: parent, toolName: "codemode", args: {} });
+	harness.handlers.get("tool_execution_start")!({ toolCallId: nested, toolName: "ls", args: { path: "." }, parentToolCallId: parent });
+	const ls = harness.definitions.get("ls") as unknown as { execute: (...args: unknown[]) => Promise<unknown> };
+	// The harness has no real working directory; only the timing around the run matters.
+	await ls.execute(nested, { path: "." }, undefined, undefined, undefined).catch(() => undefined);
+	harness.handlers.get("tool_execution_end")!({ toolCallId: nested, toolName: "ls", isError: false, parentToolCallId: parent });
+	harness.handlers.get("tool_execution_end")!({ toolCallId: parent, toolName: "codemode", isError: false });
+	assert.equal(timings.has(nested), false, "the nested call left no timing behind");
+	assert.equal(timings.has(parent), true, "the calling tool is timed");
+	shutdown(harness);
+});
+
 test.after(restoreClocks);

@@ -44,6 +44,11 @@ export class ToolRuntime {
 	 * more than one run's calls.
 	 */
 	private readonly currentCalls = new Set<string>();
+	/**
+	 * Calls a tool is making through `ctx.executeTool()`, as codemode scripts do. They
+	 * never get a row of their own, so nothing is timed or remembered for them.
+	 */
+	private readonly nestedCalls = new Set<string>();
 
 	constructor(private readonly clock: () => number = () => performance.now()) {
 		const shared = globalThis as SharedState;
@@ -93,7 +98,10 @@ export class ToolRuntime {
 	 * running, so a row that never got its result stops pulsing and waits instead.
 	 */
 	setBusy(busy: boolean): void {
-		if (busy && this.busy !== true) this.currentCalls.clear();
+		if (busy && this.busy !== true) {
+			this.currentCalls.clear();
+			this.nestedCalls.clear();
+		}
 		this.busy = busy;
 		if (busy) return;
 		const animating = this.indicators.size > 0;
@@ -108,6 +116,12 @@ export class ToolRuntime {
 	 */
 	noteCall(toolCallId: string): void {
 		this.currentCalls.add(toolCallId);
+	}
+
+	/** A call another tool made began (`running`) or finished; Pi says so with `parentToolCallId`. */
+	noteNestedCall(toolCallId: string, running: boolean): void {
+		if (running) this.nestedCalls.add(toolCallId);
+		else this.nestedCalls.delete(toolCallId);
 	}
 
 	/**
@@ -204,7 +218,7 @@ export class ToolRuntime {
 	createTimedExecute(definition: BuiltInDefinition): TimedExecute {
 		const execute = definition.execute as TimedExecute;
 		return async (...args: any[]) => {
-			const toolCallId = typeof args[0] === "string" ? args[0] : undefined;
+			const toolCallId = typeof args[0] === "string" && !this.nestedCalls.has(args[0]) ? args[0] : undefined;
 			const startedAt = (toolCallId ? this.executionTimings.get(toolCallId)?.startedAt : undefined) ?? Date.now();
 			if (toolCallId && !this.executionTimings.has(toolCallId)) {
 				this.executionTimings.set(toolCallId, { startedAt });

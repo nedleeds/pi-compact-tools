@@ -572,10 +572,14 @@ export default function compactTools(pi: ExtensionAPI): void {
 	// their rows, and told to extensions before Pi makes them.
 	pi.on("message_update", (event) => noteCalls(event.message));
 	pi.on("tool_execution_start", (event) => {
+		if (event.parentToolCallId) return runtime.noteNestedCall(event.toolCallId, true);
 		runtime.noteCall(event.toolCallId);
 		runtime.noteExecutionStart(event.toolCallId);
 	});
-	pi.on("tool_execution_end", (event) => runtime.noteExecutionEnd(event.toolCallId));
+	pi.on("tool_execution_end", (event) => {
+		if (event.parentToolCallId) return runtime.noteNestedCall(event.toolCallId, false);
+		runtime.noteExecutionEnd(event.toolCallId);
+	});
 	pi.on("session_shutdown", (event) => {
 		thinkingCycle.dispose();
 		progress.dispose();
