@@ -6,14 +6,18 @@ import * as tui from "@earendil-works/pi-tui";
 export type Rgb = { r: number; g: number; b: number };
 
 /**
- * What Pi 0.99 added to its Theme for extensions. Older Pi has none of it, so each
- * piece is read as optional and the few lines below stand in when it is missing.
+ * What Pi 0.99 added to its Theme for extensions, and what Pi 0.85 to 0.87 keep on
+ * theirs. Each piece is read as optional, and typed here rather than taken from Pi,
+ * so the extension builds and runs against every Pi it supports.
  */
-type HostTheme = Theme & {
-	colors?: Readonly<Record<string, tui.Color | undefined>>;
+type HostColor = object;
+type HostTheme = {
+	colors?: Readonly<Record<string, HostColor | undefined>>;
 	appearance?: "dark" | "light";
+	fgColors?: unknown;
 };
-const colorToRgb = (tui as Partial<typeof tui>).colorToRgb;
+const host = (theme: Theme) => theme as unknown as HostTheme;
+const colorToRgb = (tui as unknown as { colorToRgb?: (color: HostColor) => Rgb }).colorToRgb;
 
 /**
  * A theme token's concrete color. Pi 0.99 resolves every token, including one set
@@ -22,7 +26,7 @@ const colorToRgb = (tui as Partial<typeof tui>).colorToRgb;
  * nothing rather than throwing, since callers compute names from host state.
  */
 export function themeColorRgb(theme: Theme, color: ThemeColor): Rgb | undefined {
-	const { colors } = theme as HostTheme;
+	const { colors } = host(theme);
 	if (colors && colorToRgb) {
 		const concrete = colors[color];
 		if (!concrete) return undefined;
@@ -119,7 +123,7 @@ export function rgbPainter(theme: Theme, color: Rgb): (text: string) => string {
  * neither is told apart by the escape sequences of the colors derived from.
  */
 export function paletteOf(theme: Theme): object {
-	const { colors, fgColors } = theme as HostTheme & { fgColors?: unknown };
+	const { colors, fgColors } = host(theme);
 	if (colors) return colors;
 	if (fgColors instanceof Map) return fgColors;
 	let key = theme.getColorMode?.() ?? "";
@@ -164,7 +168,7 @@ const WHITE: Rgb = { r: 255, g: 255, b: 255 };
 
 /** The theme's declared appearance; before Pi 0.99, a theme with light text is a dark one. */
 function isDark(theme: Theme): boolean {
-	const { appearance } = theme as HostTheme;
+	const { appearance } = host(theme);
 	if (appearance) return appearance === "dark";
 	const text = themeColorRgb(theme, "text");
 	return !text || luminanceRgb(text) > 128;

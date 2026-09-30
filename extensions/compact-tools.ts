@@ -503,6 +503,14 @@ function noteCalls(message: unknown): void {
 	}
 }
 
+/**
+ * Whether another tool made the call through `ctx.executeTool()`, as codemode scripts
+ * do. Pi 0.99 marks such calls with `parentToolCallId`; older Pi never makes them.
+ */
+function madeByTool(event: object): boolean {
+	return typeof (event as { parentToolCallId?: unknown }).parentToolCallId === "string";
+}
+
 /** Hand the animation Pi's frame request, reached through an invisible widget as the extension API allows. */
 function bindRenderer(ctx: ExtensionContext): void {
 	ctx.ui.setWidget(RENDER_WIDGET_KEY, (tui) => {
@@ -572,12 +580,12 @@ export default function compactTools(pi: ExtensionAPI): void {
 	// their rows, and told to extensions before Pi makes them.
 	pi.on("message_update", (event) => noteCalls(event.message));
 	pi.on("tool_execution_start", (event) => {
-		if (event.parentToolCallId) return runtime.noteNestedCall(event.toolCallId, true);
+		if (madeByTool(event)) return runtime.noteNestedCall(event.toolCallId, true);
 		runtime.noteCall(event.toolCallId);
 		runtime.noteExecutionStart(event.toolCallId);
 	});
 	pi.on("tool_execution_end", (event) => {
-		if (event.parentToolCallId) return runtime.noteNestedCall(event.toolCallId, false);
+		if (madeByTool(event)) return runtime.noteNestedCall(event.toolCallId, false);
 		runtime.noteExecutionEnd(event.toolCallId);
 	});
 	pi.on("session_shutdown", (event) => {
