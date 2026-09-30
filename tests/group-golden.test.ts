@@ -4,6 +4,7 @@
  * built or cached cannot change what they draw. Rerun with UPDATE_GOLDEN=1 only
  * when a change to the output is intended.
  */
+import "./pinned-themes.ts";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

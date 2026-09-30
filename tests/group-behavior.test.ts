@@ -2,6 +2,7 @@
  * Claude-style group lines are kept once drawn: a finished group is not drawn
  * again until something it shows changes, and every such change is drawn.
  */
+import "./pinned-themes.ts";
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
 import { AssistantMessageComponent, createReadToolDefinition, initTheme, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";

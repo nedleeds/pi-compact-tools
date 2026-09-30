@@ -2,6 +2,7 @@
  * Drives rows through Pi's own ToolExecutionComponent in the order Pi drives them,
  * with the animation clock under the test's control.
  */
+import "./pinned-themes.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

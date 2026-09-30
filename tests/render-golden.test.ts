@@ -4,6 +4,7 @@
  * each row draws; every later run must draw exactly the same. Rerun with
  * UPDATE_GOLDEN=1 only when a change to the output is intended.
  */
+import "./pinned-themes.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

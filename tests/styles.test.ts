@@ -2,6 +2,7 @@
  * Display styles end to end: what `off`, `compact`, and `claude` install, how a
  * switch between them lands, and the guarantees the claude style's grouping keeps.
  */
+import "./pinned-themes.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

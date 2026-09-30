@@ -2,6 +2,7 @@
  * Silent mode's activity line follows the thinking level and the theme on the
  * next frame, and resolves its colors once for each, not on every frame.
  */
+import "./pinned-themes.ts";
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
 import {
@@ -10,33 +11,48 @@ import {
 	initTheme,
 	UserMessageComponent,
 	type Theme,
-	type ThemeAppearance,
-	type ThemeColor,
 } from "@earendil-works/pi-coding-agent";
-import { rgbColor, Spacer, type Color } from "@earendil-works/pi-tui";
+import { Spacer } from "@earendil-works/pi-tui";
 import { renderActivityDots } from "../extensions/compact-tools-activity.ts";
 import { loadExtension, restoreClocks, shutdown } from "./indicator-harness.ts";
+import { hostResolvesColors, rgb } from "./theme-fixture.ts";
 import { theme as piTheme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 
 const colorsOf = (line: string) => [...line.matchAll(/38;2;([0-9;]+)m━/gu)].map((match) => match[1]);
 const silentState = () =>
 	(globalThis as Record<symbol, { active: boolean; enabled: boolean }>)[Symbol.for("pi-compact-tools.silent.state")]!;
 
-/** Pi's theme as a palette of its own, with some colors or its appearance overridden and every color lookup counted. */
-function variantTheme(overrides: Partial<Record<ThemeColor, Color>>, appearance?: ThemeAppearance) {
+type Channels = readonly [number, number, number];
+
+/**
+ * Pi's theme as a palette of its own, with some colors or its appearance overridden and
+ * every color lookup counted. Pi 0.99 reads colors from `theme.colors`; before it, from
+ * each theme's map of escape sequences, which `getFgAnsi` reads through the same Theme.
+ */
+function variantTheme(overrides: Record<string, Channels>, appearance?: "dark" | "light") {
 	let lookups = 0;
-	// A copy: Pi freezes its palette, and a proxy may not answer differently for a frozen property.
-	const colors = new Proxy({ ...(piTheme as Theme).colors }, {
+	const real = piTheme as unknown as { colors?: Record<string, unknown>; fgColors?: Map<string, string> };
+	// Copies: Pi freezes its palette, and a proxy may not answer differently for a frozen property.
+	const colors = real.colors && new Proxy({ ...real.colors }, {
 		get(target, token) {
 			lookups++;
-			return overrides[token as ThemeColor] ?? Reflect.get(target, token);
+			const channels = overrides[token as string];
+			return channels ? rgb(...channels) : Reflect.get(target, token);
 		},
 	});
+	const fgColors = real.fgColors && new Map([...real.fgColors,
+		...Object.entries(overrides).map(([token, [r, g, b]]) => [token, `\x1b[38;2;${r};${g};${b}m`] as const)]);
 	const theme = new Proxy(piTheme as Theme, {
 		get(target, key) {
-			if (key === "colors") return colors;
+			if (key === "colors" && colors) return colors;
+			if (key === "fgColors" && fgColors) return fgColors;
 			if (key === "appearance" && appearance) return appearance;
-			return Reflect.get(target, key);
+			const value = Reflect.get(target, key);
+			if (key !== "getFgAnsi" || typeof value !== "function") return value;
+			return (...args: unknown[]) => {
+				lookups++;
+				return value.apply(theme, args);
+			};
 		},
 	});
 	return { theme, lookups: () => lookups };
@@ -133,8 +149,9 @@ test("a palette that changes only the level's color, or only its appearance, rep
 	const base = variantTheme({});
 	const plain = draw(base.theme);
 	for (const [label, variant] of [
-		["thinkingHigh", variantTheme({ thinkingHigh: rgbColor(255, 120, 0) })],
-		["appearance", variantTheme({}, "light")],
+		["thinkingHigh", variantTheme({ thinkingHigh: [255, 120, 0] })],
+		// Before Pi 0.99 a theme's appearance is read from its text color.
+		["appearance", hostResolvesColors ? variantTheme({}, "light") : variantTheme({ text: [40, 40, 40] })],
 	] as const) {
 		assert.notDeepEqual(draw(variant.theme), plain, `${label} alone`);
 		assert.deepEqual(draw(base.theme), plain, `${label}: the unchanged theme draws as before`);

@@ -1,3 +1,4 @@
+import "./pinned-themes.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -5,7 +6,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { AssistantMessageComponent, CustomMessageComponent, UserMessageComponent, initTheme, type ExtensionAPI, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { backgroundAnsi, foregroundAnsi, MouseRegion, rgbColor, Spacer, stripTerminalSequences, Text, visibleWidth } from "@earendil-works/pi-tui";
+import * as tui from "@earendil-works/pi-tui";
+import { MouseRegion, Spacer, stripTerminalSequences, Text, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	classifyCallStatus,
 	formatDurationMs,
@@ -67,7 +69,7 @@ import {
 	type ThinkingPhase,
 } from "../extensions/compact-tools-thinking.ts";
 import { SUPPORTED_TOOLS, type BuiltInDefinition, type RowState } from "../extensions/compact-tools-types.ts";
-import { fakeTheme } from "./theme-fixture.ts";
+import { fakeTheme, hostResolvesColors, rgb } from "./theme-fixture.ts";
 
 // Tests must never read the developer's real ~/.pi/agent: its settings.json
 // (thinking visibility) and compact-tools.json would change what they see.
@@ -1313,10 +1315,10 @@ test("prefers the path over a shebang and only consults a real first line", () =
 
 /**
  * Pi's system theme leaves tokens to the terminal's own colors, whose escape sequence
- * names no color at all. Pi still resolves them in `theme.colors`, and the theme's
+ * names no color at all. Pi 0.99 still resolves them in `theme.colors`, and the theme's
  * appearance, not a guess from its text color, says which way contrast runs.
  */
-test("chrome derives from a token the terminal colors, and follows the theme's appearance", () => {
+test("chrome derives from a token the terminal colors, and follows the theme's appearance", { skip: !hostResolvesColors && "Pi 0.99 and later" }, () => {
 	const brightness = (painted: string) => {
 		const [r, g, b] = painted.match(/38;2;(\d+);(\d+);(\d+)m/u)!.slice(1).map(Number) as [number, number, number];
 		return (r * 0.299 + g * 0.587 + b * 0.114) / 255;
@@ -1326,10 +1328,8 @@ test("chrome derives from a token the terminal colors, and follows the theme's a
 		getFgAnsi: () => "\x1b[39m",
 		getColorMode: () => "truecolor",
 		fg: (_color: string, text: string) => `<default>${text}`,
-		style: (text: string, options: { fg?: Parameters<typeof foregroundAnsi>[0] }) =>
-			`${options.fg ? foregroundAnsi(options.fg, "truecolor") : ""}${text}\x1b[39m`,
 		// Neither text nor dim has a color of its own; Pi fills them from the terminal.
-		colors: { text: rgbColor(128, 128, 128), dim: rgbColor(128, 128, 128) },
+		colors: { text: rgb(128, 128, 128), dim: rgb(128, 128, 128) },
 		appearance,
 	}) as unknown as Theme;
 	const dark = paintChrome(systemTheme("dark"), "x");
@@ -1366,22 +1366,31 @@ test("a theme from Pi before 0.99 derives the same colors and follows a theme sw
 	assert.notDeepEqual(after, before, "a palette swapped behind the same Theme repaints");
 });
 
-test("derived colors are written as Pi writes colors, for the terminal's color mode", () => {
-	for (const mode of ["truecolor", "256color"] as const) {
-		const theme = fakeTheme({ getColorMode: () => mode });
+test("derived colors are written as Pi 0.99 writes colors, for the terminal's color mode", () => {
+	const truecolor = fakeTheme({ getColorMode: () => "truecolor" });
+	const palette256 = fakeTheme({ getColorMode: () => "256color" });
+	assert.equal(colorizeRgb(truecolor, { r: 10, g: 20, b: 30 }, "x"), "\x1b[38;2;10;20;30mx\x1b[39m");
+	assert.equal(fillRgb(truecolor, { r: 10, g: 20, b: 30 }, "x"), "\x1b[48;2;10;20;30mx\x1b[49m");
+	// Recorded from Pi 0.99's own conversion: the nearest cube or gray step, never the
+	// first sixteen entries, which are whatever the terminal makes of them.
+	const recorded = [[128, 0, 0, 88], [10, 20, 30, 16], [200, 200, 205, 251], [255, 128, 0, 208],
+		[74, 74, 74, 239], [0, 0, 0, 16], [255, 255, 255, 231], [95, 135, 175, 67]] as const;
+	for (const [r, g, b, index] of recorded) {
+		assert.equal(colorizeRgb(palette256, { r, g, b }, "x"), `\x1b[38;5;${index}mx\x1b[39m`, `fg rgb(${r},${g},${b})`);
+		assert.equal(fillRgb(palette256, { r, g, b }, "x"), `\x1b[48;5;${index}mx\x1b[49m`, `bg rgb(${r},${g},${b})`);
+	}
+	// Where Pi can write colors itself, every color agrees with it.
+	const pi = tui as unknown as { foregroundAnsi?: (color: object, mode: string) => string; rgbColor?: (r: number, g: number, b: number) => object };
+	if (!pi.foregroundAnsi || !pi.rgbColor) return;
+	for (const [mode, theme] of [["truecolor", truecolor], ["256color", palette256]] as const) {
 		for (let r = 0; r < 256; r += 37) {
 			for (let g = 0; g < 256; g += 41) {
 				for (let b = 0; b < 256; b += 43) {
-					const color = rgbColor(r, g, b);
-					assert.equal(colorizeRgb(theme, { r, g, b }, "x"), `${foregroundAnsi(color, mode)}x\x1b[39m`, `fg rgb(${r},${g},${b}) ${mode}`);
-					assert.equal(fillRgb(theme, { r, g, b }, "x"), `${backgroundAnsi(color, mode)}x\x1b[49m`, `bg rgb(${r},${g},${b}) ${mode}`);
+					assert.equal(colorizeRgb(theme, { r, g, b }, "x"), `${pi.foregroundAnsi(pi.rgbColor(r, g, b), mode)}x\x1b[39m`, `rgb(${r},${g},${b}) ${mode}`);
 				}
 			}
 		}
 	}
-	// The 256-color palette's first sixteen entries are whatever the terminal makes of them; Pi never picks them.
-	const indexed = colorizeRgb(fakeTheme({ getColorMode: () => "256color" }), { r: 128, g: 0, b: 0 }, "x");
-	assert.ok(Number(indexed.match(/38;5;(\d+)m/u)?.[1]) >= 16, indexed);
 });
 
 test("scales the working-label glow to its length and follows the theme's background", () => {
