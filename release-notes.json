@@ -1,4 +1,5 @@
 {
+  "0.13.1": [],
   "0.13.0": [
     "Follows Pi 0.99's system theme and light terminals: rails, dots, and the working label take their colors from the theme itself",
     "Running dots, rails, and silent mode's activity line are painted once per theme instead of every frame",
