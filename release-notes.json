@@ -1,4 +1,11 @@
 {
+  "0.13.0": [
+    "Follows Pi 0.99's system theme and light terminals: rails, dots, and the working label take their colors from the theme itself",
+    "Running dots, rails, and silent mode's activity line are painted once per theme instead of every frame",
+    "The working label repaints when the theme changes, including when the terminal switches between dark and light",
+    "Tools a codemode script calls leave nothing behind in the rows' timings",
+    "Silent mode hides compaction and branch summaries that Pi writes mid-turn"
+  ],
   "0.12.0": [
     "Running rows animate without being rebuilt: one repaint per frame, however many tools run",
     "A tool's time counts from when it runs, not from when the model began writing its call",
