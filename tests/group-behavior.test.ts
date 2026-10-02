@@ -4,7 +4,8 @@
  */
 import "./pinned-themes.ts";
 import assert from "node:assert/strict";
-import test, { mock } from "node:test";
+import test from "node:test";
+import { timerClock } from "./indicator-harness.ts";
 import { AssistantMessageComponent, createReadToolDefinition, initTheme, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, type Component } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../extensions/compact-tools-config.ts";
@@ -184,7 +185,7 @@ test("a group whose call was restored without its result waits, as its row does"
 	assert.deepEqual(strip(collapsed).filter((line) => line.trim()), [" ⦁ Read 1 file (ctrl+o to expand)"]);
 	assert.equal(dotOf([header]), PENDING_DOT);
 	assert.equal(dotOf([rowLine]), PENDING_DOT, "the group and its row agree");
-	mock.timers.tick(45 * 20);
+	timerClock.tick(45 * 20);
 	assert.equal(harness.requestRenders(), 0, "nothing animates");
 	// A new run does not revive it. The dot alone cannot tell: a pulse starts in the waiting shade.
 	harness.handlers.get("agent_start")!({});
@@ -206,7 +207,7 @@ test("when the run ends, a group whose call got no result stops running with it"
 	harness.chat.children = [row];
 	const running = strip(harness.chat.render(100)).filter((line) => line.trim());
 	assert.deepEqual(running, [" ⦁ Reading 1 file… (ctrl+o to expand)", " └ src/a.ts"]);
-	mock.timers.tick(45 * 3);
+	timerClock.tick(45 * 3);
 	harness.chat.render(100);
 	const asked = harness.requestRenders();
 	assert.ok(asked > 0, "it pulsed while the run went on");
@@ -217,7 +218,7 @@ test("when the run ends, a group whose call got no result stops running with it"
 	assert.equal(dotOf([rowLine]), PENDING_DOT, "the group and its row agree");
 	const after = harness.requestRenders();
 	for (let frame = 0; frame < 20; frame++) {
-		mock.timers.tick(45);
+		timerClock.tick(45);
 		harness.chat.render(100);
 	}
 	assert.equal(harness.requestRenders(), after, "and it asks for no more frames");
@@ -337,18 +338,18 @@ test("rebuilt mid-run, an old call's new row still waits and a running call's ne
 			// The rows themselves agree: only the running one asks for frames.
 			const asked = harness.requestRenders();
 			for (let frame = 0; frame < 5; frame++) {
-				mock.timers.tick(45);
+				timerClock.tick(45);
 				oldAgain.render(100);
 			}
 			const oldAsked = harness.requestRenders() - asked;
 			liveAgain.render(100);
-			mock.timers.tick(45);
+			timerClock.tick(45);
 			assert.ok(harness.requestRenders() - asked > oldAsked, "the running row animates");
 			harness.handlers.get("tool_execution_end")!({ toolCallId: live, isError: false });
 			liveAgain.updateResult({ ...text("x"), isError: false } as never, false);
 			const settled = harness.requestRenders();
 			for (let frame = 0; frame < 5; frame++) {
-				mock.timers.tick(45);
+				timerClock.tick(45);
 				oldAgain.render(100);
 			}
 			assert.equal(harness.requestRenders(), settled, "the old call's new row never animates");

@@ -475,8 +475,10 @@ test("runs a light along a line beneath the submitted prompt and removes it afte
 	assert.equal(typeof currentWidget, "function", "a new turn brings the dots back");
 	(currentWidget as unknown as (tui: any, theme: Theme) => Component)(tui, theme);
 	handlers.get("agent_end")?.();
+	assert.equal(typeof currentWidget, "function", "the activity survives a low-level run ending");
+	handlers.get("agent_settled")?.();
 	assert.equal(currentWidget, undefined);
-	assert.equal(gap.render(80).length, 1, "the editor spacing returns after the turn");
+	assert.equal(gap.render(80).length, 1, "the editor spacing returns after settlement");
 	assert.deepEqual(document.render(80), ["prompt", "sweep"]);
 	assert.notEqual(latest.render(80).at(-1), renderActivityDots(0, 80, theme)[0]);
 	activity.dispose();
@@ -1951,19 +1953,27 @@ test("hides Pi's own notice lines from the chat and restores its children", () =
 });
 
 test("shares one animation clock that stops when nothing listens", async () => {
+	const { install } = await import("@sinonjs/fake-timers");
+	const clock = install({ toFake: ["setInterval", "clearInterval"] });
 	const { onTick, TICK_MS } = await import("../extensions/compact-tools-clock.ts");
 	let label = 0;
 	let line = 0;
 	const stopLabel = onTick(() => label++);
 	const stopLine = onTick(() => line++);
-	await new Promise((resolve) => setTimeout(resolve, TICK_MS * 2 + 30));
-	stopLabel();
-	stopLine();
-	// Both animations advanced on the same ticks, so Pi repaints once per tick for both.
-	assert.ok(label >= 2 && label === line, `label ${label}, line ${line}`);
-	const settled = label;
-	await new Promise((resolve) => setTimeout(resolve, TICK_MS + 20));
-	assert.equal(label, settled, "the clock stops once idle");
+	try {
+		clock.tick(TICK_MS * 2 + 30);
+		stopLabel();
+		stopLine();
+		// Both animations advanced on the same ticks, so Pi repaints once per tick for both.
+		assert.ok(label >= 2 && label === line, `label ${label}, line ${line}`);
+		const settled = label;
+		clock.tick(TICK_MS + 20);
+		assert.equal(label, settled, "the clock stops once idle");
+	} finally {
+		stopLabel();
+		stopLine();
+		clock.uninstall();
+	}
 });
 
 test("counts the lines an edit added and removed from Pi's diff", () => {

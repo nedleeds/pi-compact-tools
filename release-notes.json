@@ -1,4 +1,13 @@
 {
+  "0.13.2": [
+    "Verified on Pi 1.0.0 while keeping compatibility with Pi 0.85.1 and later",
+    "Silent activity keeps animating through retries and follow-up turns until final settlement",
+    "Hidden file results defer syntax highlighting until their code is actually shown",
+    "Completed tool results repaint correctly when the theme changes",
+    "Large file views render without exceeding JavaScript argument limits",
+    "Fullscreen viewport anchoring and code-row layout allocate less work",
+    "Execution timing history stays bounded even when tool rows are not drawn"
+  ],
   "0.13.1": [],
   "0.13.0": [
     "Follows Pi 0.99's system theme and light terminals: rails, dots, and the working label take their colors from the theme itself",

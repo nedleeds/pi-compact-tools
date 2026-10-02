@@ -50,6 +50,7 @@ export interface RowState {
 	lastResultPreview?: boolean;
 	lastResultError?: boolean;
 	lastResultConfigRevision?: object;
+	lastResultPalette?: object;
 }
 
 type BaseRenderContext = Parameters<NonNullable<BuiltInDefinition["renderCall"]>>[2];

@@ -358,14 +358,11 @@ function highlightCodeLines(lines: CodeDiffLine[], language: string | undefined,
 		}
 		let end = index;
 		while (end < lines.length && lines[end]!.kind !== "separator") end++;
-		const block = lines.slice(index, end);
-		const contents = block.map((line) => line.content);
+		const contents = lines.slice(index, end).map((line) => line.content);
 		const highlighted = language === "markdown"
 			? highlightMarkdown(contents, theme)
 			: highlightCode(contents.join("\n"), language);
-		block.forEach((line, offset) => {
-			rendered[index + offset] = highlighted[offset] ?? line.content;
-		});
+		for (let offset = 0; offset < contents.length; offset++) rendered[index + offset] = highlighted[offset] ?? contents[offset]!;
 		index = end;
 	}
 	return rendered;
@@ -411,14 +408,18 @@ function renderCodeRows(lines: CodeDiffLine[], path: string, theme: Theme, optio
 	// read at an offset or a diff hunk never reads one out of a comment.
 	const first = lines[0];
 	const shebangLine = first?.lineNumber === 1 && first.kind !== "separator" ? first.content : undefined;
-	const highlighted = highlightCodeLines(lines, resolveLanguage(path, shebangLine), theme);
-	const numberWidth = Math.max(1, ...lines.map((line) => String(line.lineNumber ?? "").length));
+	// ToolExecutionComponent builds result components even when silent mode hides
+	// the row. Defer syntax work until the code is actually drawn, and keep it
+	// across width changes so resize does not highlight the same source again.
+	let highlighted: string[] | undefined;
+	const numberWidth = lines.reduce((maximum, line) => Math.max(maximum, String(line.lineNumber ?? "").length), 1);
 	const prefix = options.rail ?? paintChrome(theme, " \u2502 ");
 	const prefixWidth = visibleWidth(prefix);
 	const gutterWidth = numberWidth + (options.signs ? 3 : 2);
 	const addedTint = options.signs ? diffTintRgb(theme, "toolDiffAdded") : undefined;
 	const removedTint = options.signs ? diffTintRgb(theme, "toolDiffRemoved") : undefined;
 	return new CachedComponent((width) => {
+		highlighted ??= highlightCodeLines(lines, resolveLanguage(path, shebangLine), theme);
 		const bodyWidth = Math.max(1, width - prefixWidth);
 		const codeWidth = Math.max(1, bodyWidth - gutterWidth);
 		const output: string[] = [];
@@ -428,7 +429,7 @@ function renderCodeRows(lines: CodeDiffLine[], path: string, theme: Theme, optio
 				return;
 			}
 			const tint = line.kind === "add" ? addedTint : line.kind === "remove" ? removedTint : undefined;
-			for (const [chunkIndex, chunk] of hardSliceAnsi(highlighted[index] ?? line.content, codeWidth).entries()) {
+			for (const [chunkIndex, chunk] of hardSliceAnsi(highlighted![index] ?? line.content, codeWidth).entries()) {
 				const gutter = codeGutter(
 					line.kind,
 					chunkIndex === 0 ? line.lineNumber : undefined,

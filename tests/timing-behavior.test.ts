@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { advance, animate, announce, CASES, elapse, INDICATOR_INTERVAL_MS, loadExtension, makeRow, restoreClocks, shutdown, text } from "./indicator-harness.ts";
-import { mock } from "node:test";
+import { timerClock } from "./indicator-harness.ts";
 
 const plain = (lines: string[]) => lines.map((line) => line.replace(/\x1b\[[0-9;]*m/gu, "")).join("\n");
 let sequence = 0;
@@ -112,7 +112,7 @@ test("a Claude group counts the time its running call has run, not how long it w
 	row.markExecutionStarted();
 	const tick = () => {
 		elapse(INDICATOR_INTERVAL_MS);
-		mock.timers.tick(INDICATOR_INTERVAL_MS);
+		timerClock.tick(INDICATOR_INTERVAL_MS);
 		return plain(harness.chat.render(100));
 	};
 	assert.doesNotMatch(tick(), /·/u, "under two seconds of running shows no time");

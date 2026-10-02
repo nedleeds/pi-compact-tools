@@ -7,7 +7,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import test, { mock } from "node:test";
+import test from "node:test";
+import { timerClock } from "./indicator-harness.ts";
 import type { Component } from "@earendil-works/pi-tui";
 import { CachedContainer, LiveCallContainer } from "../extensions/compact-tools-layout.ts";
 import { paintIndicator } from "../extensions/compact-tools-palette.ts";
@@ -62,7 +63,7 @@ function counted(harness: Harness, name: string): { definition: object; calls: (
 }
 
 function tick(frames = 1): void {
-	for (let frame = 0; frame < frames; frame++) mock.timers.tick(INDICATOR_INTERVAL_MS);
+	for (let frame = 0; frame < frames; frame++) timerClock.tick(INDICATOR_INTERVAL_MS);
 }
 
 function running(harness: Harness, name: string, definition: object | undefined, args: object = CASES[name]?.args ?? {}) {

@@ -1,6 +1,6 @@
 {
   "name": "pi-compact-tools",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "description": "Compact, expandable tool rows for Pi in its own compact style or Claude Code's, with a silent mode and a GitHub Dark theme.",
   "type": "module",
   "license": "MIT",
@@ -24,14 +24,13 @@
     "extensions",
     "themes",
     "examples",
-    "scripts",
     "schemas",
     "release-notes.json",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --test tests/*.test.ts && tsx --test tests/resources.validation.ts",
     "check": "tsc --noEmit && npm test && npm run check:resources",
     "check:resources": "node scripts/check-resources.mjs",
     "prepublishOnly": "npm run check"
@@ -50,9 +49,12 @@
     "@earendil-works/pi-tui": ">=0.85.1"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.99.1",
-    "@earendil-works/pi-tui": "0.99.1",
+    "@earendil-works/pi-coding-agent": "1.0.0",
+    "@earendil-works/pi-tui": "1.0.0",
+    "@sinonjs/fake-timers": "15.0.0",
     "@types/node": "^24.0.0",
+    "@types/sinonjs__fake-timers": "15.0.1",
+    "ajv": "8.20.0",
     "tsx": "^4.23.13",
     "typescript": "^5.9.0"
   },

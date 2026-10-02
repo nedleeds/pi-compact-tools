@@ -264,8 +264,16 @@ export class SilentActivityAnimator {
 			else if (type === "thinking_start" || type === "toolcall_start") this.setAnswering(false);
 		});
 		pi.on("tool_execution_start", () => this.setAnswering(false));
-		pi.on("turn_start", () => this.setAnswering(false));
-		pi.on("agent_end", () => {
+		pi.on("turn_start", () => {
+			if (!this.context) return;
+			this.running = true;
+			this.answering = false;
+			this.refresh();
+		});
+		// agent_end closes a low-level run, not retries/compaction/continuations.
+		// Keep the shared clock alive until Pi declares final settlement, as the
+		// working-label controller already does.
+		pi.on("agent_settled", () => {
 			if (!this.context) return;
 			this.running = false;
 			this.refresh();

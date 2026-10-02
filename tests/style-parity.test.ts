@@ -4,7 +4,8 @@
  * row in either style, then shows each exactly as it was, without rebuilding one.
  */
 import assert from "node:assert/strict";
-import test, { mock } from "node:test";
+import test from "node:test";
+import { timerClock } from "./indicator-harness.ts";
 import { AssistantMessageComponent } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import {
@@ -47,7 +48,7 @@ function pair(harness: Harness, failed: boolean, expanded: boolean) {
 }
 
 function tick(frames = 1): void {
-	for (let frame = 0; frame < frames; frame++) mock.timers.tick(INDICATOR_INTERVAL_MS);
+	for (let frame = 0; frame < frames; frame++) timerClock.tick(INDICATOR_INTERVAL_MS);
 }
 
 for (const [styleName, config] of Object.entries(STYLES)) {
@@ -161,7 +162,7 @@ for (const [styleName, config] of Object.entries(STYLES)) {
 			// Silent mode animates its own activity line while the agent works. Over one
 			// whole breath of it, that is every frame asked for with no rows at all.
 			const idle = harness.requestRenders();
-			mock.timers.tick(ACTIVITY_BREATH_MS);
+			timerClock.tick(ACTIVITY_BREATH_MS);
 			const activityOnly = harness.requestRenders() - idle;
 			assert.ok(activityOnly > 0, "the activity line animates");
 			const { rows } = transcript(harness);
@@ -175,7 +176,7 @@ for (const [styleName, config] of Object.entries(STYLES)) {
 
 			// Hidden rows ask for no frames of their own, however long the call runs.
 			const before = harness.requestRenders();
-			mock.timers.tick(ACTIVITY_BREATH_MS);
+			timerClock.tick(ACTIVITY_BREATH_MS);
 			assert.equal(harness.requestRenders() - before, activityOnly, "only the activity line's frames");
 
 			// Shown again: every row, in the style, with the running call pulsing again.

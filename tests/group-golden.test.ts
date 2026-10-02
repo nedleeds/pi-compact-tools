@@ -12,7 +12,7 @@ import test from "node:test";
 import { AssistantMessageComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { advance, announce, elapse, INDICATOR_INTERVAL_MS, loadExtension, makeRow, readable, restoreClocks, shutdown, text, type Harness } from "./indicator-harness.ts";
-import { mock } from "node:test";
+import { timerClock } from "./indicator-harness.ts";
 
 const GOLDEN_PATH = join(import.meta.dirname, "golden", "groups.json");
 const updating = process.env.UPDATE_GOLDEN === "1";
@@ -56,7 +56,7 @@ export class Transcript {
 	tick(frames: number): void {
 		for (let frame = 0; frame < frames; frame++) {
 			elapse(INDICATOR_INTERVAL_MS);
-			mock.timers.tick(INDICATOR_INTERVAL_MS);
+			timerClock.tick(INDICATOR_INTERVAL_MS);
 			this.snap();
 		}
 	}

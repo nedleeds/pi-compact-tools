@@ -79,6 +79,10 @@ npm run check
 pi -e .
 ```
 
+Development dependencies are pinned to Pi 1.0.0; the peer minimum remains Pi 0.85.1. CI checks Pi 0.85.1, 0.99.1, and 1.0.0 on Node 22.19.0 and 24. Schema validation and deterministic test clocks are development-only dependencies, not runtime dependencies. Development scripts and tests are not included in the published package. `npm test` runs the rendering tests first and the resource/packaging checks separately so their subprocesses do not disturb animation tests.
+
+For a local before/after performance comparison, run `npx tsx tests/benchmark.ts <clean-baseline-directory>` with the same host dependencies in both directories. Measurements are informational, not timing-sensitive test assertions.
+
 Renders are pinned in `tests/golden/render.json`. After an intended change to the output, record it with `UPDATE_GOLDEN=1 npm test` and review the diff. Before publishing, add the version's notes to `release-notes.json` (`[]` for none).
 
 ## License

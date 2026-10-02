@@ -30,7 +30,7 @@ jobs:
       # can lag behind that.
       - run: npm install -g npm@latest
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       - name: Verify the tag matches package.json
         run: |

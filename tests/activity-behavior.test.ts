@@ -4,7 +4,8 @@
  */
 import "./pinned-themes.ts";
 import assert from "node:assert/strict";
-import test, { mock } from "node:test";
+import test from "node:test";
+import { timerClock } from "./indicator-harness.ts";
 import {
 	BranchSummaryMessageComponent,
 	CompactionSummaryMessageComponent,
@@ -69,8 +70,8 @@ test("the line under a silent prompt follows the thinking level and the theme on
 		await Promise.resolve();
 		const activity = () => harness.chat.render(80).find((line) => line.includes("━")) ?? "";
 		/** One whole breath: the light is back where it was, so only its color can differ. */
-		const breath = () => mock.timers.tick(80 * 26);
-		mock.timers.tick(80 * 7);
+		const breath = () => timerClock.tick(80 * 26);
+		timerClock.tick(80 * 7);
 		const medium = activity();
 		assert.ok(colorsOf(medium).length > 0, "the line is drawn");
 
@@ -111,7 +112,7 @@ test("a summary Pi writes mid-turn leaves the silent line where it was, at the f
 		// The line attaches to the latest prompt once a render pass settles.
 		harness.chat.render(80);
 		await Promise.resolve();
-		mock.timers.tick(80 * 7);
+		timerClock.tick(80 * 7);
 		const settled = harness.chat.render(80);
 		assert.ok(settled.at(-1)?.includes("━"), "the line is the chat's last row");
 
@@ -132,6 +133,33 @@ test("a summary Pi writes mid-turn leaves the silent line where it was, at the f
 		silentState().enabled = false;
 		shutdown(harness);
 	}
+});
+
+for (const style of ["compact", "claude"] as const) test(`silent file-read animation survives low-level run end and a continuation (${style})`, async () => {
+	const harness = await loadExtension({ style, mode: "silent" }, { tui: true, idle: false });
+	try {
+		harness.handlers.get("agent_start")!({});
+		harness.chat.children = [new UserMessageComponent("Read several files")];
+		harness.chat.render(80);
+		await Promise.resolve();
+		const activity = () => harness.chat.render(80).find((line) => line.includes("━"));
+		harness.handlers.get("tool_execution_start")!({ toolCallId: "read-a", toolName: "read", args: { path: "a.ts" } });
+		timerClock.tick(80 * 7);
+		const reading = activity();
+		assert.ok(reading);
+		harness.handlers.get("agent_end")!({ messages: [] });
+		timerClock.tick(80 * 7);
+		assert.ok(activity(), "agent_end is not final settlement; do not remove the activity");
+		assert.notEqual(activity(), reading);
+		harness.handlers.get("turn_start")!({});
+		harness.handlers.get("tool_execution_start")!({ toolCallId: "read-b", toolName: "read", args: { path: "b.ts" } });
+		const resumed = activity();
+		timerClock.tick(80 * 7);
+		assert.ok(activity());
+		assert.notEqual(activity(), resumed, "continuation must keep advancing frames");
+		harness.handlers.get("agent_settled")!({});
+		assert.equal(activity(), undefined, "final settlement removes the activity");
+	} finally { silentState().enabled = false; shutdown(harness); }
 });
 
 test("the line's colors are resolved once for a palette and a level, not on every frame", () => {

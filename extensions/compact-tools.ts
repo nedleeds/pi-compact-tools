@@ -19,6 +19,7 @@ import {
 import type { Component } from "@earendil-works/pi-tui";
 import { classifyCallStatus, formatDurationMs, normalizeLineEndings, type RowStatus } from "./compact-tools-core.ts";
 import { loadConfig } from "./compact-tools-config.ts";
+import { paletteOf } from "./compact-tools-color.ts";
 import { installToolRowPatch, setRowResolver, type RowRenderers, type ToolRow } from "./compact-tools-custom.ts";
 import {
 	formatResultLineSummary,
@@ -128,6 +129,7 @@ function canReuseResult<TArgs>(
 	state: RowState,
 	result: AgentToolResult<unknown>,
 	options: ToolRenderResultOptions,
+	theme: Theme,
 	ctx: RenderContext<TArgs>,
 ): ctx is RenderContext<TArgs> & { lastComponent: Component } {
 	return ctx.lastComponent !== undefined
@@ -137,10 +139,11 @@ function canReuseResult<TArgs>(
 		&& state.lastResultExpanded === state.expanded
 		&& state.lastResultPreview === state.preview
 		&& state.lastResultError === ctx.isError
-		&& state.lastResultConfigRevision === state.configRevision;
+		&& state.lastResultConfigRevision === state.configRevision
+		&& state.lastResultPalette === paletteOf(theme);
 }
 
-function rememberResult(state: RowState, result: AgentToolResult<unknown>, options: ToolRenderResultOptions, isError: boolean): void {
+function rememberResult(state: RowState, result: AgentToolResult<unknown>, options: ToolRenderResultOptions, isError: boolean, theme: Theme): void {
 	state.lastResultContent = result.content;
 	state.lastResultDetails = result.details;
 	state.lastResultPartial = options.isPartial;
@@ -148,6 +151,7 @@ function rememberResult(state: RowState, result: AgentToolResult<unknown>, optio
 	state.lastResultPreview = state.preview;
 	state.lastResultError = isError;
 	state.lastResultConfigRevision = state.configRevision;
+	state.lastResultPalette = paletteOf(theme);
 }
 
 function renderControls(
@@ -376,7 +380,7 @@ function renderRowResult(
 ): Component {
 	const state = runtime.syncRow(ctx, !options.isPartial);
 	runtime.syncExpansion(state, ctx.expanded, name);
-	if (canReuseResult(state, result, options, ctx)) return ctx.lastComponent;
+	if (canReuseResult(state, result, options, theme, ctx)) return ctx.lastComponent;
 	const kind = rowKind(name);
 	const output = kind === "file" ? getFileOutput(name, ctx.args, result, ctx.isError) : getTextResult(result);
 	const hasEditDiff = name === "edit" && getEditDiff(result).length > 0;
@@ -402,7 +406,7 @@ function renderRowResult(
 			name === "edit" ? countEditChanges(result) : undefined));
 		component = container;
 	}
-	rememberResult(state, result, options, ctx.isError);
+	rememberResult(state, result, options, ctx.isError, theme);
 	return component;
 }
 

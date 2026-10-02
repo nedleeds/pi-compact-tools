@@ -89,17 +89,15 @@ export function findAnchorTop(
 		else starts.set(line, [index]);
 	});
 	const bottom = Math.min(before.length, top + Math.max(1, height));
-	const candidates: number[] = [];
-	for (let row = top; row < bottom; row++) candidates.push(row);
-	for (let row = top - 1; row >= 0; row--) candidates.push(row);
-	for (const row of candidates) {
-		const window = before.slice(row, row + ANCHOR_LINES);
-		if (window.length < ANCHOR_LINES || !window.some(hasText)) continue;
+	// Visit the viewport first, then preceding rows, without copying candidate windows.
+	for (let candidate = 0; candidate < bottom; candidate++) {
+		const row = candidate < bottom - top ? top + candidate : bottom - candidate - 1;
+		if (row + ANCHOR_LINES > before.length || (!hasText(before[row]) && !hasText(before[row + 1]))) continue;
 		// Several places can match a short window; the one that keeps matching for
 		// longest is the same text, and distance only breaks a remaining tie.
 		let best: number | undefined;
 		let bestRun = 0;
-		for (const start of starts.get(window[0]!) ?? []) {
+		for (const start of starts.get(before[row]!) ?? []) {
 			const run = matchingRun(before, row, after, start, TIE_BREAK_LINES);
 			if (run < ANCHOR_LINES) continue;
 			if (best === undefined || run > bestRun

@@ -10,6 +10,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { install } from "@sinonjs/fake-timers";
 import { AssistantMessageComponent, initTheme, type ExtensionAPI, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, type Component } from "@earendil-works/pi-tui";
 import { generateDiffString, generateUnifiedPatch } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/edit-diff.js";
@@ -65,6 +66,9 @@ function readable(line: string): string {
 }
 
 // Time stands still unless a scenario moves it, so durations are exact.
+// Freeze interval frames as well as wall time: async module loading must not
+// advance the running dot between golden scenarios on slower Node versions.
+const timerClock = install({ toFake: ["setInterval", "clearInterval"] });
 let now = 1_000_000;
 const realNow = Date.now;
 Date.now = () => now;
@@ -397,4 +401,5 @@ test("golden: nothing recorded is missing and nothing extra is left behind", () 
 
 test.after(() => {
 	Date.now = realNow;
+	timerClock.uninstall();
 });

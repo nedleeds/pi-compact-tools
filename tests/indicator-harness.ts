@@ -6,7 +6,7 @@ import "./pinned-themes.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mock } from "node:test";
+import { install } from "@sinonjs/fake-timers";
 import { initTheme, ToolExecutionComponent, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { theme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
@@ -18,7 +18,9 @@ export const PULSE_FRAMES = 15;
 process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "compact-tools-indicator-"));
 process.env.COLORTERM = "truecolor";
 initTheme("dark", false);
-mock.timers.enable({ apis: ["setInterval"] });
+// Node 22 MockTimers can resurrect an interval cleared inside its callback.
+// Use one stable dev-only clock across every supported Node version.
+export const timerClock = install({ toFake: ["setInterval", "clearInterval"] });
 
 let now = 2_000_000;
 const realNow = Date.now;
@@ -26,6 +28,7 @@ Date.now = () => now;
 
 // The monotonic clock tells a row that is still drawn from one that left the screen.
 let monotonic = 1_000;
+const realPerformanceNow = performance.now;
 performance.now = () => monotonic;
 
 /** Move the monotonic clock, which tells how long ago a row was last drawn. */
@@ -40,7 +43,8 @@ export function advance(ms: number): void {
 
 export function restoreClocks(): void {
 	Date.now = realNow;
-	mock.timers.reset();
+	performance.now = realPerformanceNow;
+	timerClock.uninstall();
 }
 
 export function readable(line: string): string {
@@ -204,7 +208,7 @@ export const MODE_CONFIGS: Record<string, object> = {
 /** Advance the animation clock one frame at a time, drawing the rows after each. */
 export function animate(rows: Component[], frames: number, width: number, draw: (frame: string[]) => void): void {
 	for (let frame = 0; frame < frames; frame++) {
-		mock.timers.tick(INDICATOR_INTERVAL_MS);
+		timerClock.tick(INDICATOR_INTERVAL_MS);
 		draw(rows.flatMap((row) => row.render(width)));
 	}
 }

@@ -207,12 +207,14 @@ export class ToolRuntime {
 	 */
 	noteExecutionStart(toolCallId: string): void {
 		if (!this.executionTimings.has(toolCallId)) this.executionTimings.set(toolCallId, { startedAt: Date.now() });
+		this.trimTimings();
 	}
 
 	noteExecutionEnd(toolCallId: string): void {
 		const timing = this.executionTimings.get(toolCallId) ?? { startedAt: Date.now() };
 		timing.endedAt ??= Date.now();
 		this.executionTimings.set(toolCallId, timing);
+		this.trimTimings();
 	}
 
 	createTimedExecute(definition: BuiltInDefinition): TimedExecute {
@@ -222,6 +224,7 @@ export class ToolRuntime {
 			const startedAt = (toolCallId ? this.executionTimings.get(toolCallId)?.startedAt : undefined) ?? Date.now();
 			if (toolCallId && !this.executionTimings.has(toolCallId)) {
 				this.executionTimings.set(toolCallId, { startedAt });
+				this.trimTimings();
 			}
 			try {
 				return await execute.apply(definition, args);
@@ -295,7 +298,20 @@ export class ToolRuntime {
 		timing.startedAt = state.startedAt;
 		if (state.endedAt !== undefined) timing.endedAt = state.endedAt;
 		this.executionTimings.set(toolCallId, timing);
+		this.trimTimings();
+	}
+
+	/** Bound every insertion, including calls never drawn (for example in silent mode). */
+	private trimTimings(): void {
 		if (this.executionTimings.size <= MAX_TRACKED_ROWS) return;
+		// Prefer settled calls so a long-running sibling keeps its start time. If all
+		// 2,001 calls are active, retain the original FIFO fallback to stay bounded.
+		for (const [id, timing] of this.executionTimings) {
+			if (timing.endedAt !== undefined) {
+				this.executionTimings.delete(id);
+				return;
+			}
+		}
 		const oldest = this.executionTimings.keys().next().value;
 		if (oldest !== undefined) this.executionTimings.delete(oldest);
 	}
