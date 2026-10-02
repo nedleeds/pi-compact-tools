@@ -42,8 +42,12 @@ test("npm publish includes every local runtime import and no host or development
 	assert.ok(process.env.npm_execpath, "run through npm test");
 	const result = spawnSync(process.execPath, [process.env.npm_execpath, "pack", "--dry-run", "--ignore-scripts", "--json"], { cwd: root, encoding: "utf8" });
 	assert.equal(result.status, 0, result.stderr);
-	const files = new Set<string>(JSON.parse(result.stdout)[0].files.map((file: { path: string }) => file.path));
 	const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+	const packed = JSON.parse(result.stdout);
+	// npm 11 returns an array; npm 12 keys the same documents by package name.
+	const document = Array.isArray(packed) ? packed[0] : packed[manifest.name];
+	assert.ok(Array.isArray(document?.files), `npm pack returned no file list: ${result.stdout}`);
+	const files = new Set<string>(document.files.map((file: { path: string }) => file.path));
 	for (const paths of Object.values(manifest.pi).filter(Array.isArray) as string[][]) {
 		for (const path of paths) assert.ok(files.has(path.replace(/^\.\//u, "")), `missing resource ${path}`);
 	}
