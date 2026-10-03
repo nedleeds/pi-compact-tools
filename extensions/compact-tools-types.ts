@@ -10,8 +10,8 @@ export type BuiltInDefinition = ToolDefinition<any, any, any>;
 
 export const DISPLAY_MODES = ["normal", "silent"] as const;
 export type DisplayMode = (typeof DISPLAY_MODES)[number];
-/** How tool rows are drawn: compactly, the way Claude Code draws them, or by Pi itself. */
-export const DISPLAY_STYLES = ["compact", "claude", "off"] as const;
+/** How tool rows are drawn: compactly, the way Claude Code or Codex draws them, or by Pi itself. */
+export const DISPLAY_STYLES = ["compact", "claude", "codex", "off"] as const;
 export type DisplayStyle = (typeof DISPLAY_STYLES)[number];
 
 export interface CustomToolsConfig {
@@ -51,6 +51,13 @@ export interface RowState {
 	lastResultError?: boolean;
 	lastResultConfigRevision?: object;
 	lastResultPalette?: object;
+	/** What a Codex row's head reads from its result: a command's exit code, an edit's counts. */
+	codex?: {
+		exitCode?: number;
+		changes?: { added: number; removed: number };
+		/** Whether the row draws opened at a width: Codex opens only a call whose preview leaves something out. */
+		opens?: (width: number) => boolean;
+	};
 }
 
 type BaseRenderContext = Parameters<NonNullable<BuiltInDefinition["renderCall"]>>[2];

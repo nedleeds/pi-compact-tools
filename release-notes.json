@@ -1,4 +1,18 @@
 {
+  "0.14.0": {
+    "New": [
+      "Codex style added.",
+      "`/compact-tools` command added. Try `/compact-tools codex`."
+    ],
+    "Fix": [
+      "Commands that write or run something, such as `tee`, `xargs`, or `find -delete`, keep their own row instead of folding into a group",
+      "`/compact-tools codex` without a scope saves where the style is decided, so a switch always takes effect",
+      "`/compact-tools` and `/silent` run on the first Enter",
+      "A trusted project's tools apply right after a style switch",
+      "Fixes for narrow panes, long error messages, and pipelines in Compact summaries"
+    ],
+    "Deprecated": []
+  },
   "0.13.2": [
     "Verified on Pi 1.0.0 while keeping compatibility with Pi 0.85.1 and later",
     "Silent activity keeps animating through retries and follow-up turns until final settlement",

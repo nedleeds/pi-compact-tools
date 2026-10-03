@@ -62,6 +62,10 @@ export interface Harness {
 	chat: { children: unknown[]; render(width: number): string[] };
 	/** Change the thinking level as Pi does. */
 	setThinkingLevel(level: string): void;
+	/** The slash commands the extension registered, by name. */
+	commands: Map<string, { handler(args: string, ctx: unknown): Promise<void> | void }>;
+	/** The TUI the extension was bound to, whose frame requests are counted. */
+	tui: { children: unknown[]; requestRender(): void };
 }
 
 /** Load the extension as Pi does; `tui` binds it to a terminal the way interactive mode would. */
@@ -77,6 +81,7 @@ export async function loadExtension(
 	}));
 	const compactTools = (await import("../extensions/compact-tools.ts")).default;
 	const definitions = new Map<string, Definition>();
+	const commands: Harness["commands"] = new Map();
 	// Every handler an event has, as Pi calls them all.
 	const listeners = new Map<string, Handler[]>();
 	const handlers = new Map<string, Handler>();
@@ -89,7 +94,7 @@ export async function loadExtension(
 		},
 		registerTool: (definition: Definition) => definitions.set(definition.name, definition),
 		registerMarkdownTransformer: () => {},
-		registerCommand: () => {},
+		registerCommand: (name: string, definition: { handler(args: string, ctx: unknown): Promise<void> | void }) => commands.set(name, definition),
 		registerShortcut: () => {},
 		getThinkingLevel: () => level,
 	} as unknown as ExtensionAPI);
@@ -121,7 +126,7 @@ export async function loadExtension(
 		// Pi tells extensions as it changes the level.
 		handlers.get("thinking_level_select")?.({ type: "thinking_level_select", level: next, previousLevel });
 	};
-	return { definitions, handlers, requestRenders: () => renders, chat, setThinkingLevel };
+	return { definitions, handlers, requestRenders: () => renders, chat, setThinkingLevel, commands, tui };
 }
 
 export function shutdown(harness: Harness): void {
@@ -203,6 +208,7 @@ export const MODE_CONFIGS: Record<string, object> = {
 		custom_tools: { auto_compact: false },
 	},
 	claude: { style: "claude" },
+	codex: { style: "codex" },
 };
 
 /** Advance the animation clock one frame at a time, drawing the rows after each. */

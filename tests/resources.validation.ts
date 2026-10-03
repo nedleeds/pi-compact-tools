@@ -23,6 +23,8 @@ test("resource validation rejects invalid examples, theme references, notes, and
 			["package.json", (value: any) => { value.pi.extensions = ["./missing.ts"]; }],
 			["package.json", (value: any) => { value.dependencies = { "@earendil-works/pi-tui": "*" }; }],
 			["release-notes.json", (value: any) => { const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")); value[manifest.version] = [""]; }],
+			["release-notes.json", (value: any) => { value["0.0.1"] = { New: ["ok"], Changed: ["not a section"] }; }],
+			["release-notes.json", (value: any) => { value["0.0.1"] = { Fix: [""] }; }],
 		] as const;
 		for (const [path, mutate] of cases) {
 			const target = join(directory, path);

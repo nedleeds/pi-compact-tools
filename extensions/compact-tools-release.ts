@@ -1,14 +1,36 @@
 import { closeSync, mkdirSync, openSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DynamicBorder, getAgentDir, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
-import { Spacer, Text } from "@earendil-works/pi-tui";
+import { DynamicBorder, getAgentDir, getMarkdownTheme, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
+import { Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 
 /** One marker file per version shown, so two Pi processes can't both show it. */
 const NOTICE_DIRECTORY = "compact-tools-notices";
 const WIDGET_KEY = "compact-tools-release-notes";
 const VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
 
-export type ReleaseNotes = Record<string, readonly string[]>;
+/** The headings a version's notes are grouped under, in the order they are shown. */
+export const RELEASE_SECTIONS = ["New", "Fix", "Deprecated"] as const;
+export type ReleaseSection = (typeof RELEASE_SECTIONS)[number];
+/** A version's notes: grouped under New, Fix, and Deprecated, or, as older versions have them, a plain list. */
+export type ReleaseEntry = readonly string[] | Partial<Record<ReleaseSection, readonly string[]>>;
+export type ReleaseNotes = Record<string, ReleaseEntry>;
+
+/**
+ * A version's notes as Markdown, the way Pi's own changelog reads: a `### New`
+ * heading over each group's `- ` items, or the items alone for a plain list.
+ */
+export function releaseMarkdown(entry: ReleaseEntry): string {
+	return releaseSections(entry)
+		.map(({ title, notes }) => [...(title ? [`### ${title}`, ""] : []), ...notes.map((note) => `- ${note}`)].join("\n"))
+		.join("\n\n");
+}
+
+/** A version's notes as the groups they are shown in: a heading for each section with notes, none for a plain list. */
+export function releaseSections(entry: ReleaseEntry): Array<{ title?: ReleaseSection; notes: readonly string[] }> {
+	if (Array.isArray(entry)) return entry.length > 0 ? [{ notes: entry }] : [];
+	const sections = entry as Partial<Record<ReleaseSection, readonly string[]>>;
+	return RELEASE_SECTIONS.flatMap((title) => sections[title]?.length ? [{ title, notes: sections[title]! }] : []);
+}
 
 type Chat = { children: unknown[]; addChild(component: unknown): void };
 
@@ -49,12 +71,12 @@ export function releasesToShow(
 	installed: string,
 	notes: ReleaseNotes,
 	lastShown: string | undefined,
-): Array<{ version: string; notes: readonly string[] }> {
+): Array<{ version: string; notes: ReleaseEntry }> {
 	const withNotes = Object.keys(notes)
 		.filter((version) =>
 			VERSION.test(version)
 			&& compareVersions(version, installed) <= 0
-			&& notes[version]!.length > 0)
+			&& releaseSections(notes[version]!).length > 0)
 		.sort((left, right) => compareVersions(right, left));
 	const versions = lastShown === undefined
 		? withNotes.slice(0, 1)
@@ -88,7 +110,8 @@ function addReleaseBlock(chat: Chat, theme: Theme, releases: ReturnType<typeof r
 		if (index > 0) chat.addChild(new Spacer(1));
 		chat.addChild(new Text(theme.bold(theme.fg("accent", `What's new in pi-compact-tools v${version}`)), 1, 0));
 		chat.addChild(new Spacer(1));
-		chat.addChild(new Text(notes.map((note) => theme.fg("dim", `• ${note}`)).join("\n"), 1, 0));
+		// Drawn as Pi draws its own changelog, so the headings and items look the same.
+		chat.addChild(new Markdown(releaseMarkdown(notes), 1, 0, getMarkdownTheme()));
 	});
 	chat.addChild(new DynamicBorder(border));
 }
@@ -131,7 +154,7 @@ export function showReleaseNotice(
 	ctx.ui.setWidget(WIDGET_KEY, undefined, { placement: "belowEditor" });
 	if (!shown) {
 		const text = releases.map(({ version: shownVersion, notes: shownNotes }) =>
-			`pi-compact-tools v${shownVersion}\n${shownNotes.map((note) => `  • ${note}`).join("\n")}`).join("\n");
+			`pi-compact-tools v${shownVersion}\n\n${releaseMarkdown(shownNotes)}`).join("\n\n");
 		ctx.ui.notify(text, "info");
 	}
 	return true;

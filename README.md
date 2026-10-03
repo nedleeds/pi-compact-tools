@@ -1,8 +1,8 @@
 # pi-compact-tools
 
-Compact, expandable tool rows for Pi in its own compact style or Claude Code's, with a silent mode and a GitHub Dark theme. Works with custom tools from other packages.
+Tool rows for Pi in three styles: **Claude**, **Codex**, and **Compact**. Pick the look you know from Claude Code or Codex CLI, or Pi's own compact rows, and switch any time with `/compact-tools`. Includes a silent mode and a GitHub Dark theme, and works with custom tools from other packages.
 
-![The compact style, then the Claude style, each switched to silent mode mid-run and back](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/overview.gif)
+![One conversation drawn in the Compact style, switched to the Claude style, then the Codex style, then silent mode](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/overview.gif)
 
 ## Install
 
@@ -10,46 +10,67 @@ Compact, expandable tool rows for Pi in its own compact style or Claude Code's, 
 pi install npm:pi-compact-tools
 ```
 
-Restart Pi or run `/reload`. For the bundled theme, set `"theme": "github-dark-pro"` in `~/.pi/agent/settings.json`.
+Restart Pi or run `/reload`, then run `/compact-tools` to choose a style. To try it for one session without installing: `pi -e npm:pi-compact-tools`.
 
-## Usage
+Requires Node.js 22.19+ and Pi 0.85.1+. It changes only how tool calls are drawn, not what they run or what the model sees.
 
-Pick a style. Silent mode works on top of either.
+## Styles
 
-| | Setting | Shows | How |
-|---|---|---|---|
-| **Compact** | Style | every tool call as its own compact, expandable row | `"style": "compact"` (default) |
-| **Claude** | Style | reads and searches folded into one line, like Claude Code | `"style": "claude"` |
-| **Silent** | Mode | only your prompts and the answers | `Ctrl+'` or `/silent` |
+| Style | Looks like | Set with |
+|---|---|---|
+| **Claude** | Claude Code: reads and searches fold into one line, `⎿` results | `/compact-tools claude` |
+| **Codex** | Codex CLI: `• Explored` groups, `• Ran` with the last output lines | `/compact-tools codex` |
+| **Compact** | one expandable row per call, with its status and time (default) | `/compact-tools compact` |
 
-Set `"style"` in the config below, then `/reload`. `"style": "off"` restores Pi's own rows.
+Silent mode (`Ctrl+'` or `/silent`) works on top of any style. `/compact-tools off` restores Pi's own rows.
 
-### Style: Compact
-
-![Compact style: searches, reads, a test run, and an edit with its diff, each call with its status](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/compact-workflow.gif)
-
-- Each call: what it ran, then its status, duration, and line count.
-- Edits show a highlighted diff with `(+3 -1)`; reads and writes show numbered code.
-
-### Style: Claude
+### Claude
 
 ![Claude style: reads and searches folded into one line, then Bash and Update rows](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/claude-style.gif)
 
 - Reads, searches, and listings fold into one line: `Searched for 2 patterns, read 3 files`.
-- `Bash`, `Update`, `Write`, and custom tools keep their own rows with short previews.
+- `Bash`, `Update`, `Write`, and custom tools keep their own rows with `⎿` results and short previews.
+- Matched against Claude Code 2.1.288 in a live terminal.
 
-### Mode: Silent
+### Codex
+
+![Codex style: an Explored group, Ran rows with their last output lines, and an Edited diff](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/codex-style.gif)
+
+- Reads, searches, and listings fold into `• Explored`: `Read a.ts, b.ts`, `Search TODO in src`.
+- Commands read `Ran` or `Failed (exit 2)` with their last three output lines; opened, `$ cmd`, all its output, and `✓ • 1.23s`.
+- Edits preview their changed lines; custom tools read `• Called name`.
+- Matched against Codex CLI 0.160.0 in a live terminal.
+
+### Compact
+
+![Compact style: searches, reads, a test run, and an edit with its diff, each call with its status](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/compact-workflow.gif)
+
+- One row per call: what it ran, its status, duration, and line count.
+- Edits show a highlighted diff with `(+3 -1)`; reads and writes show numbered code.
+
+A command that writes or runs something, such as `tee`, `xargs`, or `find -delete`, always keeps its own row; only calls that just look around are folded into a group.
+
+### Silent mode
 
 ![Silent mode switched on mid-run: the rows fold into a moving light, the answer stays, and every row comes back when it is off](https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/assets/silent-mode.gif)
 
-Shows only your prompts and the answers, in either style.
+Only your prompts and the answers. Toggle with `Ctrl+'` or `/silent`; `"mode": "silent"` starts sessions with it on.
 
-- Toggle with `Ctrl+'` or `/silent`. Tool rows and thinking fold into a moving light while the agent works.
-- Turn it off and every row comes back. `"mode": "silent"` starts sessions with it on.
+## Commands
+
+```text
+/compact-tools                 # choose a style and where to save it
+/compact-tools codex           # switch style, at once, even while tools run
+/compact-tools claude project  # save for this trusted project
+/compact-tools off             # restore Pi's own rows (reloads Pi)
+/compact-tools status          # effective style, mode, and config paths
+```
+
+Without a scope, the style is saved where it is decided: in the trusted project if its settings choose a style, otherwise globally. Switching between Claude, Codex, and Compact redraws every row at once, even while tools run. Turning rows `off` or back on reloads Pi, so it waits until the response finishes. Your other settings are kept.
 
 ## Configuration
 
-Optional, in `~/.pi/agent/compact-tools.json` or `<project>/.pi/compact-tools.json`:
+Optional, in `~/.pi/agent/compact-tools.json` or `<project>/.pi/compact-tools.json` (trusted projects only; they override global settings field by field). Add `"$schema": "https://raw.githubusercontent.com/nedleeds/pi-compact-tools/main/schemas/compact-tools.schema.json"` for editor validation.
 
 ```json
 {
@@ -62,8 +83,9 @@ Optional, in `~/.pi/agent/compact-tools.json` or `<project>/.pi/compact-tools.js
 }
 ```
 
-- `tools`: built-ins to compact. Also `grep`, `find`, `ls`, `powershell`.
-- `auto_compact`: `true` starts a row collapsed; `false` shows up to `previewLines` rows. Custom tool names work too.
+- `style`: `claude`, `codex`, `compact`, or `off`.
+- `tools`: built-ins drawn in the style. Also `grep`, `find`, `ls`, `powershell`.
+- `auto_compact`: `true` starts a Compact row collapsed; `false` shows up to `previewLines` rows. Custom tool names work too.
 - `custom_tools`: rows for tools from other packages. `exclude` keeps a tool's own look.
 
 ## Controls
@@ -83,7 +105,7 @@ Development dependencies are pinned to Pi 1.0.0; the peer minimum remains Pi 0.8
 
 For a local before/after performance comparison, run `npx tsx tests/benchmark.ts <clean-baseline-directory>` with the same host dependencies in both directories. Measurements are informational, not timing-sensitive test assertions.
 
-Renders are pinned in `tests/golden/render.json`. After an intended change to the output, record it with `UPDATE_GOLDEN=1 npm test` and review the diff. Before publishing, add the version's notes to `release-notes.json` (`[]` for none).
+Renders are pinned in `tests/golden/`. After an intended change to the output, record it with `UPDATE_GOLDEN=1 npm test` and review the diff. The Claude and Codex styles are checked against references captured from the real tools in `tests/fixtures/`. The README's GIFs are recorded with `scripts/record-demos.sh` (needs `vhs` and `ffmpeg`). Before publishing, add the version's notes to `release-notes.json` (`[]` for none).
 
 ## License
 

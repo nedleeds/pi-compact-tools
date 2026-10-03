@@ -101,8 +101,11 @@ export class Transcript {
 const idOf = (row: Row) => (row as unknown as { toolCallId: string }).toolCallId;
 const nameOf = (row: Row) => (row as unknown as { toolName: string }).toolName;
 
-/** The whole story: groups forming as calls stream, run, fail, and settle, then read back. */
-export function story(t: Transcript): void {
+/**
+ * The whole story: groups forming as calls stream, run, fail, and settle, then read
+ * back. `clicks` are the group lines clicked open and then closed.
+ */
+export function story(t: Transcript, clicks: readonly [RegExp, RegExp] = [/Read 1 file|Searched for/u, /Searched for|Read 1 file/u]): void {
 	t.add(thinking("Looking around"));
 	const read = t.stream("read");
 	t.snap();
@@ -144,9 +147,9 @@ export function story(t: Transcript): void {
 	t.add(answer("All done."));
 	t.snap();
 	t.tick(2);
-	t.clickGroup(/Read 1 file|Searched for/u);
+	t.clickGroup(clicks[0]);
 	t.snap();
-	t.clickGroup(/Searched for|Read 1 file/u);
+	t.clickGroup(clicks[1]);
 	t.snap();
 	t.expandAll(true);
 	t.snap();
@@ -154,11 +157,17 @@ export function story(t: Transcript): void {
 	t.snap();
 }
 
-for (const width of [100, 44]) {
-	test(`group golden: a transcript's groups at width ${width}`, async () => {
-		const harness = await loadExtension({ style: "claude" }, { tui: true, idle: false });
-		const t = new Transcript(harness, width, `story-${width}`);
-		story(t);
+// Codex opens a group from its "+ Show details" and closes it from the "− Show less" beneath its calls.
+const STORIES = {
+	claude: { prefix: "", clicks: undefined },
+	codex: { prefix: "codex/", clicks: [/Show details/u, /Show less/u] as const },
+};
+
+for (const [style, { prefix, clicks }] of Object.entries(STORIES)) for (const width of [100, 44]) {
+	test(`group golden: a transcript's groups at width ${width} (${style})`, async () => {
+		const harness = await loadExtension({ style }, { tui: true, idle: false });
+		const t = new Transcript(harness, width, `${prefix}story-${width}`);
+		story(t, clicks);
 		// A new width reflows every group line.
 		t.frames.push(harness.chat.render(width === 100 ? 60 : 100));
 		t.snap();
@@ -172,7 +181,7 @@ for (const width of [100, 44]) {
 			(harness.chat as unknown as Component).invalidate?.();
 		}
 		t.snap();
-		check(`story/${width}`, t.frames);
+		check(`${prefix}story/${width}`, t.frames);
 		shutdown(harness);
 	});
 }

@@ -22,7 +22,7 @@ import { DEFAULT_CONFIG, loadConfig, mergeConfig } from "../extensions/compact-t
 import { patchToolRows } from "../extensions/compact-tools-custom.ts";
 import { findAnchorTop, ViewportKeeper } from "../extensions/compact-tools-viewport.ts";
 import { hookMethod } from "../extensions/compact-tools-hook.ts";
-import { compareVersions, releasesToShow, showReleaseNotice } from "../extensions/compact-tools-release.ts";
+import { compareVersions, releaseMarkdown, releaseSections, releasesToShow, showReleaseNotice } from "../extensions/compact-tools-release.ts";
 import { isIntermediateAssistant, parseSilentArgument, patchRender, renderAnswerOnly, renderWithoutNotices, SilentModeController } from "../extensions/compact-tools-silent.ts";
 import { attachActivityToUserMessage, bottomAlignTranscript, dotIntensities, frameChanges, renderActivityDots, SilentActivityAnimator } from "../extensions/compact-tools-activity.ts";
 import { classifyShellCommand, claudeArgument, claudeCommand, claudeFailure, claudeOutcome, claudeTitle } from "../extensions/compact-tools-claude.ts";
@@ -112,6 +112,8 @@ test("parses display mode and keeps the previous value when invalid", () => {
 	assert.equal(DEFAULT_CONFIG.style, "compact");
 	assert.equal(mergeConfig(DEFAULT_CONFIG, { style: "claude" }, "test").style, "claude");
 	assert.equal(mergeConfig(DEFAULT_CONFIG, { style: "off" }, "test").style, "off");
+	assert.equal(mergeConfig(DEFAULT_CONFIG, { style: "codex" }, "test").style, "codex");
+	assert.equal(mergeConfig(DEFAULT_CONFIG, { style: "Codex" }, "test").style, "compact", "styles are spelled exactly");
 	assert.equal(mergeConfig(DEFAULT_CONFIG, { style: "fancy" }, "test").style, "compact", "an unknown style keeps the previous one");
 	assert.equal(mergeConfig(DEFAULT_CONFIG, { mode: "claude" }, "test").mode, "normal", "styles are not modes");
 	const both = mergeConfig(DEFAULT_CONFIG, { style: "claude", mode: "silent" }, "test");
@@ -123,6 +125,7 @@ test("parses display mode and keeps the previous value when invalid", () => {
 });
 
 test("shows what changed once, like Pi's own What's New, and only as a conversation starts", () => {
+	initTheme("dark", false);
 	const dir = mkdtempSync(join(tmpdir(), "compact-tools-notices-"));
 	const notes = { "0.9.0": ["Older"], "0.10.0": ["Silent mode", "Custom tools"], "0.11.0": ["Next"] };
 	const theme = fakeTheme({ fg: (_color: string, text: string) => text, bold: (text: string) => text });
@@ -142,7 +145,7 @@ test("shows what changed once, like Pi's own What's New, and only as a conversat
 		},
 	} as unknown as ExtensionContext;
 	const shownText = () => (chat.children as Array<{ render(width: number): string[] }>)
-		.flatMap((child) => child.render(60)).map((line) => line.trim()).filter(Boolean);
+		.flatMap((child) => child.render(60)).map((line) => line.replace(/\x1b\[[0-9;]*m/gu, "").trim()).filter(Boolean);
 	try {
 		assert.equal(showReleaseNotice({ ...ctx, mode: "print" } as ExtensionContext, "0.10.0", dir, notes), false);
 		// A resumed conversation keeps the notes for the next new one.
@@ -154,7 +157,7 @@ test("shows what changed once, like Pi's own What's New, and only as a conversat
 		const block = shownText();
 		assert.equal(block[0], "─".repeat(60));
 		assert.equal(block[1], "What's new in pi-compact-tools v0.10.0");
-		assert.deepEqual(block.slice(2, 4), ["• Silent mode", "• Custom tools"]);
+		assert.deepEqual(block.slice(2, 4), ["- Silent mode", "- Custom tools"], "a plain list reads as Markdown items, like Pi's changelog");
 		assert.equal(block.at(-1), "─".repeat(60));
 		assert.ok(!block.some((line) => line.includes("Older")), "versions before the first notice stay quiet");
 		assert.equal(notices.length, 0);
@@ -168,6 +171,46 @@ test("shows what changed once, like Pi's own What's New, and only as a conversat
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+test("notes grouped under New, Fix, and Deprecated show under ### headings, and empty groups stay out", () => {
+	initTheme("dark", false);
+	const dir = mkdtempSync(join(tmpdir(), "compact-tools-sections-"));
+	const notes = {
+		"0.13.0": ["Plain list"],
+		"0.14.0": { New: ["Codex style"], Fix: ["First Enter runs it", "Narrow panes"], Deprecated: [] },
+		"0.14.1": { New: [], Fix: [], Deprecated: [] },
+	};
+	assert.deepEqual(releaseSections(notes["0.14.0"]), [
+		{ title: "New", notes: ["Codex style"] }, { title: "Fix", notes: ["First Enter runs it", "Narrow panes"] },
+	]);
+	assert.deepEqual(releaseSections(notes["0.13.0"]), [{ notes: ["Plain list"] }], "an older plain list has no heading");
+	assert.deepEqual(releasesToShow("0.14.1", notes, "0.13.0").map(({ version }) => version), ["0.14.0"],
+		"a release whose groups are all empty is quiet");
+	const theme = fakeTheme({ fg: (_color: string, text: string) => text, bold: (text: string) => text });
+	const chat = { children: [] as unknown[], addChild(component: unknown) { this.children.push(component); } };
+	const ctx = {
+		mode: "tui",
+		sessionManager: { getEntries: () => [] },
+		ui: {
+			theme,
+			notify: () => {},
+			setWidget: (_key: string, factory: unknown) => { if (typeof factory === "function") factory({ children: [{ children: [{}, chat] }] }, theme); },
+		},
+	} as unknown as ExtensionContext;
+	assert.equal(showReleaseNotice(ctx, "0.14.0", dir, notes), true);
+	const block = (chat.children as Array<{ render(width: number): string[] }>).flatMap((child) => child.render(60))
+		.map((line) => line.replace(/\x1b\[[0-9;]*m/gu, "").trim()).filter(Boolean);
+	// Drawn by Pi's own Markdown, as its What's New draws the changelog.
+	assert.deepEqual(block.slice(1, -1), [
+		"What's new in pi-compact-tools v0.14.0", "### New", "- Codex style", "### Fix", "- First Enter runs it", "- Narrow panes",
+	]);
+	assert.equal(releaseMarkdown(notes["0.14.0"]), "### New\n\n- Codex style\n\n### Fix\n\n- First Enter runs it\n- Narrow panes");
+	// Without a chat to draw in, the same groups go into one notification.
+	const notices: string[] = [];
+	const plain = { ...ctx, ui: { ...ctx.ui, notify: (text: string) => notices.push(text), setWidget: () => {} } } as unknown as ExtensionContext;
+	assert.equal(showReleaseNotice(plain, "0.14.0", mkdtempSync(join(tmpdir(), "compact-tools-sections-")), notes), true);
+	assert.equal(notices[0], "pi-compact-tools v0.14.0\n\n### New\n\n- Codex style\n\n### Fix\n\n- First Enter runs it\n- Narrow panes");
 });
 
 test("lists every release skipped since the last notice, newest first", () => {
@@ -199,7 +242,7 @@ test("falls back to a status line when Pi's chat can't be reached", () => {
 	} as unknown as ExtensionContext;
 	try {
 		assert.equal(showReleaseNotice(ctx, "0.10.0", dir, { "0.10.0": ["Silent mode"] }), true);
-		assert.deepEqual(notices, ["pi-compact-tools v0.10.0\n  • Silent mode"]);
+		assert.deepEqual(notices, ["pi-compact-tools v0.10.0\n\n- Silent mode"]);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -275,6 +318,23 @@ test("renders only an assistant turn's answer and restores the children", () => 
 	assert.deepEqual(renderAnswerOnly(errorOnly, 40, () => ["unexpected"]), []);
 	// A plain answer is rendered unchanged.
 	assert.deepEqual(renderAnswerOnly({ contentContainer: { children: [line("A")] } }, 20, () => ["A"]), ["A"]);
+});
+
+test("/silent offers on and off, but nothing already typed in full, so Enter runs it at once", async () => {
+	let completions: ((prefix: string) => unknown) | undefined;
+	const pi = {
+		on: () => {},
+		registerCommand: (_name: string, definition: { getArgumentCompletions?: (prefix: string) => unknown }) => {
+			completions = definition.getArgumentCompletions;
+		},
+		registerShortcut: () => {},
+	} as unknown as ExtensionAPI;
+	new SilentModeController(pi, () => {});
+	assert.deepEqual(await completions!(""), [{ value: "on", label: "on" }, { value: "off", label: "off" }]);
+	assert.deepEqual(await completions!("o"), [{ value: "on", label: "on" }, { value: "off", label: "off" }]);
+	assert.deepEqual(await completions!("of"), [{ value: "off", label: "off" }]);
+	// Pi applies a shown completion on Enter instead of running the command.
+	for (const typed of ["on", "off", "ON ", "x"]) assert.equal(await completions!(typed), null, typed);
 });
 
 test("restores hidden rows when silent mode is disposed and preserves the choice across reload", async () => {
@@ -572,6 +632,10 @@ test("summarizes collapsed shell calls and shows text-search patterns", () => {
 	assert.equal(summarizeShellCommand("bash", "npm run check"), "Run check task");
 	assert.equal(summarizeShellCommand("bash", "cd release && git status --short && git log -1"), "Check repository status + 1 more step");
 	assert.equal(summarizeShellCommand("bash", "rg very-secret-query src"), 'Search text "very-secret-query"');
+	assert.equal(summarizeShellCommand("bash", "cat README.md | tee copy.md"), 'Read file "README.md" + 1 more step',
+		"a pipe ends the first command; what it feeds is a step of its own, never a file");
+	assert.equal(summarizeShellCommand("bash", "rg 'a|b' src"), 'Search text "a|b"', "a quoted pipe is part of the pattern");
+	assert.equal(summarizeShellCommand("bash", "ps aux | grep node | head"), "Run ps + 2 more steps");
 	assert.equal(summarizeShellCommand("bash", "rg -n '\\d+ items' src"), 'Search text "\\\\d+ items"');
 	assert.equal(summarizeShellCommand("bash", "grep -R --include='*.ts' 'foo bar' ."), 'Search text "foo bar"');
 	assert.equal(summarizeShellCommand("bash", "rg --type ts -e 'TODO|FIXME' src"), 'Search text "TODO|FIXME"');
@@ -2076,7 +2140,7 @@ test("claude mode words a group the way Claude Code does, in progress or done", 
 	assert.equal(summarizeGroup(running), "Searching for 1 pattern, reading 1 file");
 	assert.deepEqual(countGroup([toolRow("bash", { command: "cat a | wc -l" }, "1")]), { search: 0, read: 1, list: 0 },
 		"a read by command counts when no file was read");
-	assert.equal(EXPAND_HINT, "(ctrl+o to expand)");
+	assert.equal(EXPAND_HINT, "(click to expand)", "a click opens one group; Ctrl+O would open every row");
 });
 
 test("only commands that look around fold into a group", () => {
@@ -2088,6 +2152,9 @@ test("only commands that look around fold into a group", () => {
 	assert.equal(classifyShellCommand("npm test"), undefined);
 	assert.equal(classifyShellCommand("cat a.ts && npm test"), undefined, "one step that runs something is enough to keep it apart");
 	assert.equal(classifyShellCommand("rg 'a|b' src"), "search", "a pipe inside quotes is part of the pattern");
+	assert.equal(classifyShellCommand("find . -delete"), undefined, "a find that deletes is no search");
+	assert.equal(classifyShellCommand("cat a.ts > b.ts"), undefined, "a read that writes a file is no read");
+	assert.equal(classifyShellCommand("rg x src 2>/dev/null"), "search", "output thrown away writes nothing");
 	// Claude Code's own lists, every command in each.
 	const lists = {
 		search: ["find", "grep", "rg", "ag", "ack", "locate", "which", "whereis"],

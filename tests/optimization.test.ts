@@ -130,7 +130,7 @@ test("timing eviction preserves active siblings and bounds an all-active workloa
 	} finally { runtime.reset(true); }
 });
 
-for (const style of ["compact", "claude"] as const) test(`existing real host tool rows repaint on theme changes but reuse unchanged results (${style})`, () => {
+for (const style of ["compact", "claude", "codex"] as const) test(`existing real host tool rows repaint on theme changes but reuse unchanged results (${style})`, () => {
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	const directory = mkdtempSync(join(tmpdir(), "compact-tools-theme-reuse-"));
 	process.env.PI_CODING_AGENT_DIR = directory;

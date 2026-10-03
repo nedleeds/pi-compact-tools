@@ -17,11 +17,11 @@ const ESCAPE = /\x1b\[[0-9;]*m/gu;
 const plain = (line: string) => line.replace(ESCAPE, "");
 /** The escape sequence a line opens with: the color its chrome is drawn in. */
 const leadingColor = (line: string) => line.match(/^\s*(\x1b\[[0-9;]*m)/u)?.[1];
-const dotOf = (lines: string[]) => lines.join("\n").match(/\x1b\[[0-9;]*m⦁/u)?.[0];
+const dotOf = (lines: string[]) => lines.join("\n").match(/\x1b\[[0-9;]*m[⦁•]/u)?.[0];
 
 /** One run of silent mode's activity line: 26 frames on the shared 80 ms clock. */
 const ACTIVITY_BREATH_MS = 26 * 80;
-const STYLES = { compact: { style: "compact" }, claude: { style: "claude" } } as const;
+const STYLES = { compact: { style: "compact" }, claude: { style: "claude" }, codex: { style: "codex" } } as const;
 let sequence = 0;
 
 /** A built-in and a custom tool run side by side, drawn at the same moments. */
@@ -58,7 +58,45 @@ for (const [styleName, config] of Object.entries(STYLES)) {
 			: config;
 		const label = `${styleName}${preview ? " with previews" : ""}`;
 
-		test(`a custom tool's row wears the built-in style while it runs and once it ends (${label})`, async () => {
+		if (styleName === "codex") test(`a custom tool's row wears Codex's chrome while it runs and once it ends (${label})`, async () => {
+			for (const failed of [false, true]) {
+				for (const expanded of [false, true]) {
+					const harness = await loadExtension(settings, { tui: true, idle: false });
+					const { builtIn, custom, finish } = pair(harness, failed, expanded);
+					const at = `${label}, ${failed ? "failed" : "done"}, ${expanded ? "open" : "closed"}`;
+					// Running, with nothing yet to open: Codex's "Calling" and "Running", behind the same bullet on the same frame.
+					for (let frame = 0; frame < 16; frame++) {
+						const [b, c] = [builtIn.render(100), custom.render(100)];
+						assert.match(plain(c[1]!), /^ • Calling web_search/u, at);
+						assert.equal(dotOf(c), dotOf(b), `${at}: frame ${frame} dot`);
+						assert.match(plain(b[1]!), /^ • Running cd \/project/u, at);
+						tick();
+					}
+					finish();
+					const [b, c] = [builtIn.render(100), custom.render(100)];
+					// Opened, a command with more than its preview reads `$ cmd` as Codex's transcript does, with no bullet;
+					// a one-line failure has nothing more and keeps its preview.
+					const commandOpened = expanded && !failed;
+					if (!commandOpened) assert.equal(dotOf(c), dotOf(b), `${at}: settled dot`);
+					assert.match(plain(c[1]!), failed ? /^ • Failed web_search/u : /^ • Called web_search/u, at);
+					assert.match(plain(b[1]!), commandOpened ? /^ \$ cd \/project/u : failed ? /^ • Failed \(exit 1\) cd/u : /^ • Ran cd/u, at);
+					// Collapsed, what follows the call hangs from "└" four columns in, and the control reads the same way.
+					if (!expanded) {
+						for (const lines of [b, c]) {
+							assert.match(plain(lines[2]!), /^ {3}└ /u, `${at}: ${JSON.stringify(plain(lines[2]!))}`);
+							for (const line of lines.slice(3)) assert.match(plain(line), /^ {5}\S/u, `${at}: ${JSON.stringify(plain(line))}`);
+						}
+					}
+					assert.equal(plain(c.at(-1)!), expanded ? "     − Show less" : "     + Show details", at);
+					if (commandOpened) assert.equal(plain(b.at(-1)!), "     − Show less", at);
+					// The tail under "└" is dim, in the same color for both.
+					const chrome = (lines: string[]) => new Set(lines.slice(2).filter((line) => plain(line).startsWith("   └ ")).map(leadingColor));
+					for (const color of chrome(c)) assert.ok(chrome(b).has(color) || chrome(b).size === 0, `${at}: chrome ${JSON.stringify(color)}`);
+					shutdown(harness);
+				}
+			}
+		});
+		else test(`a custom tool's row wears the built-in style while it runs and once it ends (${label})`, async () => {
 			for (const failed of [false, true]) {
 				for (const expanded of [false, true]) {
 					const harness = await loadExtension(settings, { tui: true, idle: false });
@@ -78,7 +116,7 @@ for (const [styleName, config] of Object.entries(STYLES)) {
 					// Every line under the call starts with the same chrome, in the same color.
 					for (const lines of [b, c]) {
 						for (const line of lines.slice(2)) {
-							assert.match(plain(line), /^( [└│] |   )/u, `${at}: ${JSON.stringify(plain(line))}`);
+							assert.match(plain(line), /^( [└│] |   ⎿  |   )/u, `${at}: ${JSON.stringify(plain(line))}`);
 						}
 					}
 					const chrome = (lines: string[]) => new Set(lines.slice(2).filter((line) => /^\s*\x1b\[[0-9;]*m\s*[└│]/u.test(line)).map(leadingColor));
@@ -91,7 +129,7 @@ for (const [styleName, config] of Object.entries(STYLES)) {
 					} else {
 						assert.match(plain(c[1]!), /^ ⦁ web_search\(query: "pi tui", limit: 3\)$/u, `${at}: Claude Code's call line`);
 						assert.match(plain(b[1]!), /^ ⦁ Bash\(/u, at);
-						assert.match(plain(c[2]!), /^ └ /u, `${at}: an outcome under the call`);
+						assert.match(plain(c[2]!), /^   ⎿  /u, `${at}: an outcome under the call`);
 					}
 					shutdown(harness);
 				}
@@ -108,10 +146,10 @@ for (const [styleName, config] of Object.entries(STYLES)) {
 			const kept = makeRow("other_tool", "kept", { query: "x" }, undefined);
 			for (const row of [left, kept]) row.updateResult({ ...text("out"), isError: false } as never);
 			const leftLines = left.render(100).map(plain);
-			assert.ok(!leftLines.some((line) => line.includes("⦁")), `${JSON.stringify(custom_tools)}: Pi draws it`);
+			assert.ok(!leftLines.some((line) => /[⦁•]/u.test(line)), `${JSON.stringify(custom_tools)}: Pi draws it`);
 			assert.ok(leftLines.some((line) => line.includes("web_search")), JSON.stringify(custom_tools));
 			const keptLines = kept.render(100).map(plain);
-			assert.equal(keptLines.some((line) => line.includes("⦁")), custom_tools !== false,
+			assert.equal(keptLines.some((line) => /[⦁•]/u.test(line)), custom_tools !== false,
 				`${JSON.stringify(custom_tools)}: another custom tool follows the policy`);
 			shutdown(harness);
 		}
@@ -169,7 +207,7 @@ for (const [styleName, config] of Object.entries(STYLES)) {
 			const state = silentState();
 			assert.equal(state.enabled && state.active, true, "silent from the start");
 			const hidden = harness.chat.render(100).map(plain);
-			assert.deepEqual(hidden.filter((line) => line.includes("⦁")), [], "no tool row, custom or built-in, and no group");
+			assert.deepEqual(hidden.filter((line) => /[⦁•]/u.test(line)), [], "no tool row, custom or built-in, and no group");
 			assert.ok(hidden.some((line) => line.includes("The answer.")), "the answer stays");
 			assert.ok(!hidden.some((line) => line.includes("Looking")), "the hand-off turn goes");
 			for (const row of rows) assert.deepEqual(row.render(100), [], "each row draws nothing");
@@ -185,6 +223,9 @@ for (const [styleName, config] of Object.entries(STYLES)) {
 			const calls = shown.filter((line) => line.includes("⦁"));
 			if (styleName === "compact") {
 				assert.deepEqual(calls.map((line) => line.split(" ").slice(0, 3).join(" ")), [" ⦁ read", " ⦁ grep", " ⦁ web_search", " ⦁ bash"]);
+			} else if (styleName === "codex") {
+				assert.deepEqual(shown.filter((line) => line.includes("•")).map((line) => line.split(" ").slice(0, 4).join(" ")),
+					[" • Explored", " • Called web_search", " • Running cd"]);
 			} else {
 				assert.deepEqual(calls.map((line) => line.replace(/\(.*$/u, "(")),
 					[" ⦁ Searched for 1 pattern, read 1 file (", " ⦁ web_search(", " ⦁ Bash("]);
@@ -198,7 +239,7 @@ for (const [styleName, config] of Object.entries(STYLES)) {
 
 			// Hidden and shown again with nothing changed, it draws exactly the same.
 			state.enabled = true;
-			assert.deepEqual(harness.chat.render(100).map(plain).filter((line) => line.includes("⦁")), []);
+			assert.deepEqual(harness.chat.render(100).map(plain).filter((line) => /[⦁•]/u.test(line)), []);
 			state.enabled = false;
 			const again = harness.chat.render(100);
 			state.enabled = true;

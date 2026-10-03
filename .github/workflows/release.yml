@@ -70,4 +70,6 @@ jobs:
             echo "release $GITHUB_REF_NAME already exists; leaving it as is"
             exit 0
           fi
-          gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+          # The release reads the same New, Fix, and Deprecated notes Pi shows after an update.
+          node scripts/release-notes.mjs "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/release-notes.md"
+          gh release create "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md" --verify-tag

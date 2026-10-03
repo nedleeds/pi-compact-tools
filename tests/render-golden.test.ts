@@ -203,22 +203,16 @@ function renderRow(
 	events?.get("tool_execution_start")?.({ toolCallId });
 	definition.renderCall(args, theme, context(false, true)).render(width);
 	now += 1_234;
-	if (phase === "running") {
-		const partial = outcome.partial ?? { content: [] };
-		const running = context(false, true);
-		return [
-			...definition.renderCall(args, theme, running).render(width),
-			...definition.renderResult(partial, { expanded, isPartial: true }, theme, running).render(width),
-		];
-	}
+	// Pi makes the call and then the result, and draws them only once both are made.
+	const draw = (ctx: ReturnType<typeof context>, result: Result, isPartial: boolean) => {
+		const call = definition.renderCall(args, theme, ctx);
+		const body = definition.renderResult(result, { expanded, isPartial }, theme, ctx);
+		return [...call.render(width), ...body.render(width)];
+	};
+	if (phase === "running") return draw(context(false, true), outcome.partial ?? { content: [] }, true);
 	events?.get("tool_execution_end")?.({ toolCallId });
 	const failed = phase === "failed";
-	const finished = context(failed, false);
-	const result = failed ? outcome.failure : outcome.success;
-	return [
-		...definition.renderCall(args, theme, finished).render(width),
-		...definition.renderResult(result, { expanded, isPartial: false }, theme, finished).render(width),
-	];
+	return draw(context(failed, false), failed ? outcome.failure : outcome.success, false);
 }
 
 function loadGolden(): Record<string, string[]> {
@@ -241,6 +235,7 @@ const MODE_CONFIGS: Record<string, object> = {
 	compact: { style: "compact" },
 	preview: { style: "compact", auto_compact: Object.fromEntries(Object.keys(CASES).map((name) => [name.split("@")[0], false])) },
 	claude: { style: "claude" },
+	codex: { style: "codex" },
 };
 
 async function loadExtension(config: object) {
@@ -346,9 +341,9 @@ class ToolExecutionComponent {
 	invalidate(): void {}
 }
 
-test("golden: claude mode groups in the transcript", () => {
+for (const style of ["claude", "codex"] as const) test(`golden: ${style} mode groups in the transcript`, () => {
 	const runtime = new ToolRuntime();
-	runtime.configure({ ...DEFAULT_CONFIG, style: "claude" });
+	runtime.configure({ ...DEFAULT_CONFIG, style });
 	const controller = new ToolGroupController(runtime);
 	const chat = new Container();
 	let factory: ((tui: unknown) => Component) | undefined;
@@ -378,13 +373,19 @@ test("golden: claude mode groups in the transcript", () => {
 			tool("read", { path: "a.ts" }, "done", "f1"), tool("read", { path: "gone.ts" }, "failed", "f2"),
 		],
 		"streaming": [tool("grep", {}, "running", "s1")],
+		// A search that found nothing exits 1, which Codex reports quietly; any other exit is a failure.
+		"exits": [
+			new ToolExecutionComponent("bash", { command: "rg missing src" }, { ...text("\n\nCommand exited with code 1"), isError: true }, false, "x1"),
+			new ToolExecutionComponent("bash", { command: "cat gone.txt" }, { ...text("cat: gone.txt: No such file\n\nCommand exited with code 2"), isError: true }, false, "x2"),
+			tool("read", { path: "src/a.ts" }, "done", "x3"), tool("read", { path: "lib/b.ts" }, "done", "x4"),
+		],
 	};
 	for (const [name, children] of Object.entries(scenes)) {
 		chat.children = children as Component[];
-		for (const width of WIDTHS) check(`claude/group:${name}/${width}`, chat.render(width));
+		for (const width of WIDTHS) check(`${style}/group:${name}/${width}`, chat.render(width));
 		// Ctrl+O opens every row, and the groups follow.
 		for (const child of children) if (child instanceof ToolExecutionComponent) child.expanded = true;
-		check(`claude/group:${name}/opened/100`, chat.render(100));
+		check(`${style}/group:${name}/opened/100`, chat.render(100));
 		for (const child of children) if (child instanceof ToolExecutionComponent) child.expanded = false;
 		chat.render(100);
 	}

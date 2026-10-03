@@ -29,8 +29,10 @@ const RUNNING_TICKS = 3 + 15 + 2;
 const LIFECYCLE_REBUILDS = 8;
 
 const readableFrames = (frames: string[][]) => frames.map((frame) => frame.map(readable));
-/** A duration the row could only know by having timed its run. */
-const withoutDuration = (frame: string[]) => frame.map((line) => line.replace(/ in (?:\d+\.\d{3}s|\d+m \d+s|\d+h \d+m \d+s)/gu, ""));
+/** A duration the row could only know by having timed its run: Pi's `in 1.234s`, or Codex's dim `• 1.23s`. */
+const withoutDuration = (frame: string[]) => frame.map((line) => line
+	.replace(/ in (?:\d+\.\d{3}s|\d+m \d+s|\d+h \d+m \d+s)/gu, "")
+	.replace(/\\e\[[0-9;]*m • (?:\d+ms|\d+\.\d{2}s|\d+m \d{2}s)\\e\[39m/gu, ""));
 /**
  * A restored row matches the live one's finished frame less its duration. Where the
  * shorter status line wraps differently, the call line must still match exactly and
@@ -89,7 +91,9 @@ function customDefinition(key: string, outcome: Case & { author?: object }) {
 	return { name, definition: outcome.author ? { name, ...outcome.author } : undefined };
 }
 
-const dotOf = (lines: string[]) => lines.join("\n").match(/\x1b\[[0-9;]*m⦁/u)?.[0];
+/** A row's status dot: Pi's own, or Codex's bullet in that style. */
+const dotOf = (lines: string[]) => lines.join("\n").match(/\x1b\[[0-9;]*m[⦁•]/u)?.[0];
+const glyphOf = (mode: string) => mode === "codex" ? "•" : undefined;
 /** The dot of a row that waits rather than runs. */
 const PENDING_DOT = dotOf([paintIndicator(theme, "pending", 0)]);
 
@@ -173,8 +177,16 @@ for (const [mode, config] of Object.entries(MODE_CONFIGS)) {
 						const drawn = row.render(width).map(readable);
 						if (width === 100) assert.deepEqual(drawn, withoutDuration(live[FINISHED_FRAME]!), `${key}: finished`);
 						else assertFinishedLike(drawn, live[FINISHED_FRAME]!, `${key}: finished`);
-						assert.equal(dotOf(row.render(width)), dotOf([paintIndicator(theme, failed ? "error" : "success", 0)]),
-							`${key}: settled dot`);
+						// Codex draws a patch's bullet dim, and marks a failed one with "✘" rather than a dot.
+						// An opened command reads `$ cmd` with no bullet; its "✓" or "✗" says how it ended.
+						const patch = mode === "codex" && (name === "edit" || name === "write");
+						// Codex opens only a command with more than its preview; drawn opened, it reads `$ cmd`.
+						const command = mode === "codex" && expanded && (name === "bash" || name === "powershell")
+							&& row.render(width).some((line) => line.replace(/\x1b\[[0-9;]*m/gu, "").startsWith(" $ "));
+						const settled = command ? undefined : patch ? (failed ? undefined : dotOf([theme.fg("dim", "•")]))
+							: dotOf([paintIndicator(theme, failed ? "error" : "success", 0, glyphOf(mode))]);
+						assert.equal(dotOf(row.render(width)), settled, `${key}: settled dot`);
+						if (command) assert.ok(row.render(width).some((line) => line.includes(failed ? "✗" : "✓")), `${key}: outcome mark`);
 						tick(30);
 						assert.deepEqual(row.render(width).map(readable), drawn, `${key}: never animates`);
 						assert.equal(harness.requestRenders(), 0, `${key}: asks for no frames`);

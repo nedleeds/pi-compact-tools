@@ -290,9 +290,38 @@ function summarizeFileOperation(executable: string, words: string[]): string | u
 	return undefined;
 }
 
+/** One step split at its unquoted pipes: `cat a | tee b` is two commands, the second writing a file. */
+function pipelineStages(segment: string): string[] {
+	const stages: string[] = [];
+	let current = "";
+	let quote: string | undefined;
+	for (let index = 0; index < segment.length; index++) {
+		const character = segment[index]!;
+		if (quote) {
+			if (character === "\\" && quote === '"' && index + 1 < segment.length) {
+				current += character + segment[++index];
+				continue;
+			}
+			if (character === quote) quote = undefined;
+		} else if (character === "'" || character === '"' || character === "`") {
+			quote = character;
+		} else if (character === "\\" && index + 1 < segment.length) {
+			current += character + segment[++index];
+			continue;
+		} else if (character === "|") {
+			if (current.trim()) stages.push(current.trim());
+			current = "";
+			continue;
+		}
+		current += character;
+	}
+	if (current.trim()) stages.push(current.trim());
+	return stages;
+}
+
 /** A calm collapsed label that describes intent while retaining primary command targets. */
 export function summarizeShellCommand(name: string, command: string): string {
-	const allSegments = shellSegments(normalizeLineEndings(command));
+	const allSegments = shellSegments(normalizeLineEndings(command)).flatMap(pipelineStages);
 	const segments = allSegments.filter((segment) => !/^\s*(?:cd|pushd|popd)\b/iu.test(segment));
 	const primary = segments[0] ?? allSegments[0] ?? "";
 	if (!primary) return name === "powershell" ? "Prepare PowerShell command" : "Prepare shell command";

@@ -30,6 +30,15 @@ export function setRowResolver(resolver: RowResolver | undefined): void {
 }
 
 /**
+ * Stop answering for rows, if `resolver` is still the one answering. The patch on
+ * Pi's rows outlives the extension, so a /reload that leaves it out must find no
+ * resolver, and Pi's own renderers draw every row made afterwards.
+ */
+export function clearRowResolver(resolver: RowResolver): void {
+	if ((globalThis as ResolverSlot)[RESOLVER_KEY] === resolver) setRowResolver(undefined);
+}
+
+/**
  * Pi routes every renderer lookup on a tool row through these four methods, so
  * answering them is enough to give any tool, whichever extension registered it,
  * compact renderers. Returns false when the host no longer has that shape.

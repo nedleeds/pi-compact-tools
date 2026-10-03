@@ -135,7 +135,7 @@ test("a summary Pi writes mid-turn leaves the silent line where it was, at the f
 	}
 });
 
-for (const style of ["compact", "claude"] as const) test(`silent file-read animation survives low-level run end and a continuation (${style})`, async () => {
+for (const style of ["compact", "claude", "codex"] as const) test(`silent file-read animation survives low-level run end and a continuation (${style})`, async () => {
 	const harness = await loadExtension({ style, mode: "silent" }, { tui: true, idle: false });
 	try {
 		harness.handlers.get("agent_start")!({});

@@ -122,18 +122,17 @@ function ramp(theme: Theme, low: ContrastBand, high: ContrastBand): ColorRamp | 
  * A row's status dot; a running one pulses between the theme's endpoints as frames advance.
  * Every running row repaints its dot on every frame, so the pulse is painted once per palette.
  */
-export function paintIndicator(theme: Theme, status: RowStatus, frame: number): string {
-	if (status !== "running") return theme.fg(indicatorTone(status), indicatorGlyph(status));
-	const pulse = runningPulse(theme);
+export function paintIndicator(theme: Theme, status: RowStatus, frame: number, glyph = indicatorGlyph(status)): string {
+	if (status !== "running") return theme.fg(indicatorTone(status), glyph);
+	const pulse = runningPulse(theme, glyph);
 	return pulse[((frame % pulse.length) + pulse.length) % pulse.length]!;
 }
 
-/** Every step of the running dot's pulse, painted once per palette. */
-function runningPulse(theme: Theme): readonly string[] {
-	return perPalette(theme, "running-pulse", () => {
+/** Every step of the running dot's pulse, painted once per palette and glyph. */
+function runningPulse(theme: Theme, glyph: string): readonly string[] {
+	return perPalette(theme, `running-pulse:${glyph}`, () => {
 		const pulse = ramp(theme, PULSE_LOW, PULSE_HIGH);
 		return Array.from({ length: RUNNING_INDICATOR_FRAME_COUNT }, (_, step) => {
-			const glyph = indicatorGlyph("running", step);
 			return pulse
 				? colorizeRgb(theme, interpolateRgb(pulse.from, pulse.to, indicatorStrength("running", step)), glyph)
 				: theme.fg(indicatorTone("running", step), glyph);

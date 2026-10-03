@@ -4,10 +4,10 @@ import { normalizeLineEndings } from "./compact-tools-core.ts";
 import {
 	countEditChanges,
 	formatResultLineSummary,
-	shellSegments,
 	summarizeCustomArguments,
 	summarizeFailure,
 } from "./compact-tools-invocation.ts";
+import { isHarmlessRedirect, parseShell, writesOrRuns } from "./compact-tools-shell.ts";
 import type { ToolArgs } from "./compact-tools-types.ts";
 
 /**
@@ -19,6 +19,18 @@ export const CLAUDE_OUTPUT_ROWS = 3;
 export const CLAUDE_WRITE_ROWS = 10;
 /** Lines of context Claude Code keeps around each change in an edit's diff. */
 export const CLAUDE_DIFF_CONTEXT_LINES = 3;
+
+/**
+ * Claude Code 2.1.288's chrome: `⏺ Bash(…)`, then `  ⎿  ` with the "⎿" under the
+ * tool's name and the result two columns after it. Pi draws every row one column
+ * in, with its own smaller "⦁" dot, so each prefix keeps that geometry one column
+ * further right.
+ */
+export const CLAUDE_RESULT_PREFIX = "   ⎿  ";
+/** Lines after the first under "⎿", and everything drawn beneath the result. */
+export const CLAUDE_INDENT = "      ";
+/** Where a wrapped call line continues: under the tool's name. */
+export const CLAUDE_TITLE_INDENT = "   ";
 
 /** Claude Code's names for the tools Pi shares with it. */
 const LABELS: Readonly<Record<string, string>> = {
@@ -118,38 +130,20 @@ const NEUTRAL_COMMANDS = new Set(["echo", "printf", "true", "false", ":"]);
 
 export type LookKind = "search" | "read" | "list";
 
-/** Split one shell step at its unquoted pipes. */
-function pipeStages(segment: string): string[] {
-	const stages: string[] = [];
-	let current = "";
-	let quote: string | undefined;
-	for (let index = 0; index < segment.length; index++) {
-		const character = segment[index]!;
-		if (quote) {
-			if (character === quote) quote = undefined;
-		} else if (character === "'" || character === '"' || character === "`") {
-			quote = character;
-		} else if (character === "|" && segment[index + 1] !== "|") {
-			stages.push(current);
-			current = "";
-			continue;
-		}
-		current += character;
-	}
-	stages.push(current);
-	return stages.map((stage) => stage.trim()).filter(Boolean);
-}
-
 /**
  * How a shell command looks around, if that is all it does: `rg x | head` searches,
- * `cat a.ts` reads, `ls src` lists. Anything that runs something else is undefined.
+ * `cat a.ts` reads, `ls src` lists. Anything that runs something else, writes a
+ * file, or redirects anywhere but /dev/null is undefined, so a group never hides it.
  */
 export function classifyShellCommand(command: string): LookKind | undefined {
+	const parsed = parseShell(normalizeLineEndings(command));
+	if (!parsed || parsed.opaque) return undefined;
 	let search = false;
 	let read = false;
 	let list = false;
-	for (const stage of shellSegments(normalizeLineEndings(command)).flatMap(pipeStages)) {
-		const program = stage.split(/\s+/u)[0];
+	for (const { words, redirects } of parsed.commands) {
+		if (!redirects.every(isHarmlessRedirect) || writesOrRuns(words)) return undefined;
+		const program = words[0];
 		if (!program || NEUTRAL_COMMANDS.has(program)) continue;
 		if (SEARCH_COMMANDS.has(program)) search = true;
 		else if (READ_COMMANDS.has(program)) read = true;

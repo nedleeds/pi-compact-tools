@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
@@ -15,12 +16,14 @@ import {
 	createPowerShellToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
+	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { classifyCallStatus, formatDurationMs, normalizeLineEndings, type RowStatus } from "./compact-tools-core.ts";
 import { loadConfig } from "./compact-tools-config.ts";
 import { paletteOf } from "./compact-tools-color.ts";
-import { installToolRowPatch, setRowResolver, type RowRenderers, type ToolRow } from "./compact-tools-custom.ts";
+import { registerCompactToolsCommand } from "./compact-tools-command.ts";
+import { clearRowResolver, installToolRowPatch, setRowResolver, type RowRenderers, type ToolRow } from "./compact-tools-custom.ts";
 import {
 	formatResultLineSummary,
 	countEditChanges,
@@ -41,7 +44,7 @@ import {
 	claudeRows,
 	LiveCallContainer,
 	limitComponentLines,
-	prefixedLines,
+	prefixedSentence,
 	prefixedText,
 	railComponent,
 	renderArguments,
@@ -50,14 +53,17 @@ import {
 	renderOutput,
 	renderToolCall,
 	styleMultiline,
+	WithinWidth,
 } from "./compact-tools-layout.ts";
-import { CLAUDE_DIFF_CONTEXT_LINES, CLAUDE_OUTPUT_ROWS, CLAUDE_WRITE_ROWS, claudeFailure, claudeOutcome, claudeTitle } from "./compact-tools-claude.ts";
+import { CLAUDE_DIFF_CONTEXT_LINES, CLAUDE_INDENT, CLAUDE_OUTPUT_ROWS, CLAUDE_RESULT_PREFIX, CLAUDE_TITLE_INDENT, CLAUDE_WRITE_ROWS, claudeFailure, claudeOutcome, claudeTitle } from "./compact-tools-claude.ts";
+import { CODEX_BULLET } from "./compact-tools-codex.ts";
+import { renderCodexCall, renderCodexResult } from "./compact-tools-codex-rows.ts";
 import { ToolGroupController } from "./compact-tools-grouping.ts";
 import { chromePainter, paintIndicator } from "./compact-tools-palette.ts";
 import { ProgressController } from "./compact-tools-progress.ts";
 import { showReleaseNotice } from "./compact-tools-release.ts";
 import { ToolRuntime } from "./compact-tools-runtime.ts";
-import { SilentModeController } from "./compact-tools-silent.ts";
+import { findChat, isKind, SilentModeController } from "./compact-tools-silent.ts";
 import { ThinkingCycleController } from "./compact-tools-thinking.ts";
 import { ViewportKeeper } from "./compact-tools-viewport.ts";
 import {
@@ -71,13 +77,28 @@ import {
 
 /** Context lines kept around each change while an edit result is collapsed. */
 const PREVIEW_DIFF_CONTEXT_LINES = 1;
-/** Claude Code sets what a call returned under the "⎿" rather than beside a rail. */
-const CLAUDE_INDENT = "   ";
 
 const runtime = new ToolRuntime();
 const RENDER_WIDGET_KEY = "compact-tools-render";
 const registeredTools = new Set<CompactToolName>();
 let registeredConfiguration: string | undefined;
+/**
+ * Whether the last session found its directory trusted. A /reload rebuilds the
+ * transcript before session_start says so again, so the tools a trusted project
+ * adds are registered from the start rather than after its rows were made. Pi
+ * evaluates this module afresh on every load, so the answer is kept on globalThis.
+ */
+const TRUST_KEY = Symbol.for("pi-compact-tools.trust");
+type TrustSlot = typeof globalThis & { [TRUST_KEY]?: { cwd: string; trusted: boolean } };
+
+/** A directory as the file system names it, so `/var` and `/private/var` are one place. */
+function realDirectory(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		return path;
+	}
+}
 
 /** How a tool's row is drawn: a file tool's result is code, a shell's is output, a custom tool's is its author's. */
 type RowKind = "file" | "shell" | "custom";
@@ -89,6 +110,10 @@ function rowKind(name: string): RowKind {
 
 function isClaude(): boolean {
 	return runtime.config.style === "claude";
+}
+
+function isCodex(): boolean {
+	return runtime.config.style === "codex";
 }
 
 function pathArgument(args: ToolArgs): string {
@@ -108,13 +133,13 @@ function callStatus(ctx: RenderContext, state: RowState): RowStatus {
  * result, so a dot painted with the call would miss the result that arrived with
  * it; reading the row's state at draw time sees it. A settled dot never changes.
  */
-function liveIndicator(theme: Theme, ctx: RenderContext, state: RowState): () => string {
+function liveIndicator(theme: Theme, ctx: RenderContext, state: RowState, glyph?: string): () => string {
 	let settled: string | undefined;
 	return () => {
 		if (settled !== undefined) return settled;
 		const status = callStatus(ctx, state);
 		const indicator = paintIndicator(theme, status,
-			runtime.syncIndicator(ctx.toolCallId, status === "running", () => ctx.invalidate()));
+			runtime.syncIndicator(ctx.toolCallId, status === "running", () => ctx.invalidate()), glyph);
 		if (status === "success" || status === "error") settled = indicator;
 		return indicator;
 	};
@@ -192,19 +217,22 @@ function renderRowCall(name: string, args: ToolArgs, theme: Theme, ctx: RenderCo
 	const state = runtime.syncRow(ctx);
 	runtime.syncExpansion(state, ctx.expanded, name);
 	const kind = rowKind(name);
-	const indicator = liveIndicator(theme, ctx, state);
+	const indicator = liveIndicator(theme, ctx, state, isCodex() ? CODEX_BULLET : undefined);
 	// Painted once now as well, so a row that starts running starts the animation clock.
 	indicator();
+	// Codex's head reads the call's outcome, so it is worded each time it is drawn.
+	if (isCodex()) return renderCodexCall(name, kind, args, theme, state, () => callStatus(ctx, state), indicator, ctx.toolCallId);
 	if (isClaude()) {
 		// Claude Code's call line: `⦁ Bash(npm test)`, `⦁ Update(src/app.ts)`.
 		const { label, argument } = claudeTitle(name, args, state.expanded === true);
 		const title = ` ${theme.fg("toolTitle", theme.bold(label))}`
 			+ (argument ? styleMultiline(`(${argument})`, (line) => theme.fg("toolOutput", line)) : "");
-		// The title wraps rather than being cut to the row; only a very long command is shortened.
-		const container = new LiveCallContainer(indicator, (dot) => renderToolCall(dot + title, undefined, theme));
+		// The title wraps under the tool's name rather than being cut to the row; only a
+		// very long command is shortened.
+		const container = new LiveCallContainer(indicator, (dot) => renderToolCall(dot + title, undefined, theme, CLAUDE_TITLE_INDENT));
 		// The title already lists plain arguments; only nested ones need the full view.
-		if (kind === "custom" && state.expanded && hasNestedArguments(args)) container.addChild(renderArguments(args, theme));
-		return container;
+		if (kind === "custom" && state.expanded && hasNestedArguments(args)) container.addChild(renderArguments(args, theme, CLAUDE_INDENT));
+		return new WithinWidth(container);
 	}
 	const title = ` ${theme.fg("toolTitle", theme.bold(name))}`;
 	let details: string | undefined;
@@ -220,10 +248,13 @@ function renderRowCall(name: string, args: ToolArgs, theme: Theme, ctx: RenderCo
 	const container = new LiveCallContainer(indicator, (dot) => renderToolCall(dot + title, details, theme));
 	const extra = kind === "file" ? getArgumentDetails(name, args) : kind === "custom" && state.expanded ? args : {};
 	if (Object.keys(extra).length > 0) container.addChild(renderArguments(extra, theme));
-	return container;
+	return new WithinWidth(container);
 }
 
-/** A result body as code where it is code: numbered file text, or an edit's diff. */
+/**
+ * A result body as code where it is code: numbered file text, or an edit's diff.
+ * `rail` is what each row starts with; the compact result rail unless given.
+ */
 function renderFileBody(
 	name: string,
 	args: ToolArgs,
@@ -232,20 +263,22 @@ function renderFileBody(
 	expanded: boolean,
 	theme: Theme,
 	isError: boolean,
+	rail?: string,
 ): Component | undefined {
-	if (isError) return renderOutput(output, theme, isError);
+	const fallback = () => renderOutput(output, theme, isError, rail);
+	if (isError) return fallback();
 	const path = pathArgument(args);
 	if (name === "edit" && getEditDiff(result)) {
 		return renderCodeDiff(getEditPatch(result), getEditDiff(result), path, theme,
-			expanded ? {} : { contextLines: PREVIEW_DIFF_CONTEXT_LINES }) ?? renderOutput(output, theme, isError);
+			expanded ? { rail } : { contextLines: PREVIEW_DIFF_CONTEXT_LINES, rail }) ?? fallback();
 	}
 	if (name === "read" && isReadTextResult(result)) {
 		const { body, footer } = splitReadFooter(output);
 		const startLine = typeof args.offset === "number" ? args.offset : 1;
-		return renderCodeView(body, path, theme, { startLine, footer }) ?? renderOutput(output, theme, isError);
+		return renderCodeView(body, path, theme, { startLine, footer, rail }) ?? fallback();
 	}
-	if (name === "write") return renderCodeView(output, path, theme) ?? renderOutput(output, theme, isError);
-	return renderOutput(output, theme, isError);
+	if (name === "write") return renderCodeView(output, path, theme, { rail }) ?? fallback();
+	return fallback();
 }
 
 function renderRowBody(
@@ -257,17 +290,18 @@ function renderRowBody(
 	theme: Theme,
 	isError: boolean,
 	author: AuthorResultRenderer | undefined,
+	rail?: string,
 ): Component | undefined {
-	if (rowKind(name) !== "custom") return renderFileBody(name, args, result, output, expanded, theme, isError);
+	if (rowKind(name) !== "custom") return renderFileBody(name, args, result, output, expanded, theme, isError, rail);
 	if (author) {
 		try {
 			const component = author(expanded);
-			if (component) return railComponent(component, theme);
+			if (component) return railComponent(component, theme, rail);
 		} catch {
 			// A failing third-party renderer degrades to the plain text result.
 		}
 	}
-	return renderOutput(output, theme, isError);
+	return renderOutput(output, theme, isError, rail);
 }
 
 function claudeMoreLines(theme: Theme, hidden: number): string {
@@ -313,12 +347,12 @@ function claudeBody(
 	// A command's output is already the result line itself.
 	const kind = rowKind(name);
 	if (!expanded || kind === "shell") return undefined;
-	if (kind === "custom") return author ? renderRowBody(name, args, result, output, true, theme, false, author) : undefined;
-	return renderFileBody(name, args, result, output, true, theme, false);
+	if (kind === "custom") return author ? renderRowBody(name, args, result, output, true, theme, false, author, CLAUDE_INDENT) : undefined;
+	return renderFileBody(name, args, result, output, true, theme, false, CLAUDE_INDENT);
 }
 
 /**
- * Claude Code's result block: a "└" line saying what happened, or the output
+ * Claude Code's result block: a "⎿" line saying what happened, or the output
  * itself for commands and custom tools, then any diff or code beneath it.
  */
 function renderClaudeResult(
@@ -335,7 +369,7 @@ function renderClaudeResult(
 	const chrome = chromePainter(theme);
 	const container = new CachedContainer();
 	// One line under the call, wrapped rather than cut to the row.
-	const line = (text: string) => prefixedLines(text, chrome(" └ "), CLAUDE_INDENT, false);
+	const line = (text: string) => prefixedSentence(text, chrome(CLAUDE_RESULT_PREFIX), CLAUDE_INDENT);
 	if (options.isPartial) {
 		container.addChild(line(chrome("Running…")));
 		return container;
@@ -348,7 +382,7 @@ function renderClaudeResult(
 			container.addChild(line(theme.fg("error", failure.headline)));
 			container.addChild(claudeOutput(failure.detail, expanded, theme, true, "", CLAUDE_INDENT));
 		} else if (expanded && output.trim()) {
-			container.addChild(claudeOutput(`Error: ${output.trim()}`, true, theme, true, "", chrome(" └ ")));
+			container.addChild(claudeOutput(`Error: ${output.trim()}`, true, theme, true, "", chrome(CLAUDE_RESULT_PREFIX)));
 		} else {
 			container.addChild(line(theme.fg("error", failure.headline)));
 		}
@@ -360,7 +394,7 @@ function renderClaudeResult(
 		? formatResultLineSummary(name, args, result, output) ?? "Done"
 		: claudeOutcome(name, args, result, output, (value) => theme.bold(value));
 	if (outcome !== undefined) container.addChild(line(theme.fg("toolOutput", outcome)));
-	else container.addChild(claudeOutput(output, expanded, theme, false, rowKind(name) === "shell" ? "(No output)" : "(No content)", chrome(" └ ")));
+	else container.addChild(claudeOutput(output, expanded, theme, false, rowKind(name) === "shell" ? "(No output)" : "(No content)", chrome(CLAUDE_RESULT_PREFIX)));
 	if (body) container.addChild(body);
 	return container;
 }
@@ -386,8 +420,13 @@ function renderRowResult(
 	const hasEditDiff = name === "edit" && getEditDiff(result).length > 0;
 	runtime.setResultAvailable(state, name, hasEditDiff || output.length > 0 || author !== undefined);
 	let component: Component;
-	if (isClaude()) {
-		component = renderClaudeResult(name, ctx.args, result, options, theme, ctx.isError, state.expanded === true, output, author);
+	if (isCodex()) {
+		component = renderCodexResult({
+			name, kind, args: ctx.args, result, output, theme, state, isError: ctx.isError,
+			isPartial: options.isPartial, expanded: state.expanded === true, toolCallId: ctx.toolCallId, author,
+		});
+	} else if (isClaude()) {
+		component = new WithinWidth(renderClaudeResult(name, ctx.args, result, options, theme, ctx.isError, state.expanded === true, output, author));
 	} else {
 		if (!options.isPartial && !state.resultLineSummaryComputed) {
 			// A custom tool with no text has nothing to count.
@@ -404,7 +443,7 @@ function renderRowResult(
 		const failureReason = ctx.isError && !state.expanded && !state.preview ? summarizeFailure(name, output) : undefined;
 		container.addChild(renderControls(theme, state, options.isPartial, ctx.isError, failureReason,
 			name === "edit" ? countEditChanges(result) : undefined));
-		component = container;
+		component = new WithinWidth(container);
 	}
 	rememberResult(state, result, options, ctx.isError, theme);
 	return component;
@@ -495,6 +534,28 @@ function configure(pi: ExtensionAPI, cwd?: string, projectTrusted = false): void
 	registeredConfiguration = signature;
 }
 
+/**
+ * Apply a style saved by /compact-tools without reloading Pi. The compact, Claude, and
+ * Codex styles share every tool registration and read the style as they draw, so the
+ * configuration is swapped and each tool row on screen is drawn again, a running one
+ * included. Anything else that changed, or a switch to or from off, needs a reload.
+ */
+function applyStyle(cwd: string, trusted: boolean): boolean {
+	const config = loadConfig(cwd, trusted);
+	const current = runtime.config;
+	if (config.style === "off" || current.style === "off") return false;
+	if (JSON.stringify({ ...config, style: current.style }) !== JSON.stringify(current)) return false;
+	runtime.configure(config);
+	registeredConfiguration = JSON.stringify([cwd, config]);
+	const chat = boundTui ? findChat(boundTui) : undefined;
+	for (const child of chat?.children ?? []) {
+		// Pi asks a row's renderers again whenever it redraws the row; this is that redraw.
+		if (isKind(child, ToolExecutionComponent)) (child as { updateDisplay?(): void }).updateDisplay?.();
+	}
+	boundTui?.requestRender();
+	return true;
+}
+
 /** Note the calls an assistant message makes, as Pi reads them to make their rows. */
 function noteCalls(message: unknown): void {
 	// Only a run's own updates announce calls; the check is cheap enough for every update.
@@ -515,15 +576,20 @@ function madeByTool(event: object): boolean {
 	return typeof (event as { parentToolCallId?: unknown }).parentToolCallId === "string";
 }
 
+/** Pi's TUI while one is bound: where a style switched in place finds the rows to draw again. */
+let boundTui: { requestRender(): void } | undefined;
+
 /** Hand the animation Pi's frame request, reached through an invisible widget as the extension API allows. */
 function bindRenderer(ctx: ExtensionContext): void {
 	ctx.ui.setWidget(RENDER_WIDGET_KEY, (tui) => {
+		boundTui = tui;
 		runtime.bindRenderer(() => tui.requestRender());
 		return { render: () => [], invalidate() {} };
 	}, { placement: "belowEditor" });
 }
 
 function unbindRenderer(ctx: ExtensionContext | undefined): void {
+	boundTui = undefined;
 	runtime.bindRenderer(undefined);
 	ctx?.ui.setWidget(RENDER_WIDGET_KEY, undefined, { placement: "belowEditor" });
 }
@@ -537,6 +603,7 @@ export default function compactTools(pi: ExtensionAPI): void {
 	registeredConfiguration = undefined;
 	registeredTools.clear();
 
+	registerCompactToolsCommand(pi, () => runtime.config, applyStyle);
 	const thinkingCycle = new ThinkingCycleController(pi);
 	const progress = new ProgressController(pi);
 	const viewport = new ViewportKeeper();
@@ -548,12 +615,16 @@ export default function compactTools(pi: ExtensionAPI): void {
 	let renderContext: ExtensionContext | undefined;
 	// Register once while the extension runtime is being built. In particular, this
 	// makes the overrides available before Pi restores the active tool set on /reload.
-	configure(pi, process.cwd());
+	const cwd = process.cwd();
+	const lastTrust = (globalThis as TrustSlot)[TRUST_KEY];
+	configure(pi, cwd, lastTrust?.cwd === realDirectory(cwd) && lastTrust.trusted);
 	pi.on("session_start", (event, ctx) => {
 		if (event.reason !== "reload") runtime.clearTimings();
 		// Rows restored from the session are drawn next; while idle none of them is running.
 		if (typeof ctx.isIdle === "function") runtime.setBusy(!ctx.isIdle());
-		configure(pi, ctx.cwd, ctx.isProjectTrusted());
+		const trusted = ctx.isProjectTrusted();
+		(globalThis as TrustSlot)[TRUST_KEY] = { cwd: realDirectory(ctx.cwd), trusted };
+		configure(pi, ctx.cwd, trusted);
 		unbindRenderer(renderContext);
 		renderContext = undefined;
 		if (ctx.mode === "tui" && runtime.config.style !== "off") {
@@ -601,5 +672,7 @@ export default function compactTools(pi: ExtensionAPI): void {
 		unbindRenderer(renderContext);
 		renderContext = undefined;
 		runtime.reset(event.reason !== "reload");
+		// A reload that keeps the extension sets it again before Pi rebuilds the transcript.
+		clearRowResolver(resolveCustomRow);
 	});
 }

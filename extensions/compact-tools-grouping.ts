@@ -5,8 +5,24 @@ import {
 	type ExtensionContext,
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Spacer, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
-import { claudeFailure, lookHint, lookKind, pathOf, type LookKind } from "./compact-tools-claude.ts";
+import { Container, Spacer, Text, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
+import { CLAUDE_RESULT_PREFIX, claudeFailure, lookHint, lookKind, pathOf, type LookKind } from "./compact-tools-claude.ts";
+import {
+	CODEX_BULLET,
+	CODEX_INDENT,
+	CODEX_MARGIN,
+	CODEX_PREVIEW_ROWS,
+	CODEX_RESULT_PREFIX,
+	codexDisclosure,
+	exploreActions,
+	exploreFailure,
+	exploreLines,
+	openExplorations,
+	paintSegments,
+	wrapSegments,
+	type ExploreAction,
+	type Segment,
+} from "./compact-tools-codex.ts";
 import { formatDurationMs, type RowStatus } from "./compact-tools-core.ts";
 import { hookMethod } from "./compact-tools-hook.ts";
 import { getTextResult } from "./compact-tools-invocation.ts";
@@ -25,7 +41,8 @@ const PHRASES: ReadonlyArray<{ kind: LookKind; running: string; done: string; si
 	{ kind: "list", running: "listing", done: "listed", singular: "directory", plural: "directories" },
 ];
 
-export const EXPAND_HINT = "(ctrl+o to expand)";
+/** A click opens one group; Ctrl+O opens every row and its output, which is rarely what a reader wants here. */
+export const EXPAND_HINT = "(click to expand)";
 
 /** The fields of Pi's tool row a group summary reads. */
 export interface ToolRowLike {
@@ -38,6 +55,7 @@ export interface ToolRowLike {
 	render(width: number): string[];
 	handleMouse?(event: unknown): unknown;
 	invalidate(): void;
+	setExpanded?(expanded: boolean): void;
 }
 
 /** Whether a call without its result can still get one; the row itself answers the same way. */
@@ -69,6 +87,17 @@ function kindOf(row: ToolRowLike): LookKind | undefined {
 	const kind = lookKind(row.toolName, argsOf(row));
 	kinds.set(row, { args: row.args, kind });
 	return kind;
+}
+
+// Codex parses a command into what it does, once for each set of arguments as they stream in.
+const explorations = new WeakMap<object, { args: unknown; actions: ExploreAction[] | undefined }>();
+
+function exploreOf(row: ToolRowLike): ExploreAction[] | undefined {
+	const cached = explorations.get(row);
+	if (cached && cached.args === row.args) return cached.actions;
+	const actions = exploreActions(row.toolName, argsOf(row));
+	explorations.set(row, { args: row.args, actions });
+	return actions;
 }
 
 function lastRunning(rows: readonly ToolRowLike[], canRun: CanRun): ToolRowLike | undefined {
@@ -149,7 +178,7 @@ type GroupState = { expanded: boolean; lastHostExpanded: boolean; header?: Heade
 type Paint = { theme: Theme; chrome: (text: string) => string; key: string };
 
 /** Theme colors a group line uses; a theme that changes any of them draws the lines anew. */
-const PAINT_COLORS = ["toolTitle", "error", "success", "muted", "dim", "text", "borderMuted"] as const;
+const PAINT_COLORS = ["toolTitle", "error", "success", "muted", "dim", "text", "borderMuted", "accent"] as const;
 
 function headerStill(cache: HeaderCache, rows: readonly ToolRowLike[], paint: string, width: number, expanded: boolean): boolean {
 	if (cache.paint !== paint || cache.width !== width || cache.expanded !== expanded || cache.rows.length !== rows.length) return false;
@@ -165,7 +194,9 @@ export class ToolGroupComponent extends Container {
 		members: readonly unknown[],
 		private readonly state: GroupState,
 		private readonly draw: (rows: readonly ToolRowLike[], width: number, expanded: boolean) => string[],
-		private readonly onToggle: () => void,
+		private readonly onToggle: (expanded: boolean) => void,
+		/** Lines beneath an opened group's members, which a click closes too. */
+		footer?: (width: number) => string[],
 	) {
 		super();
 		// Ctrl+O expands every tool row in Pi; the group follows it both ways.
@@ -174,24 +205,26 @@ export class ToolGroupComponent extends Container {
 			state.lastHostExpanded = hostExpanded;
 			state.expanded = hostExpanded;
 		}
-		const header: Component = {
-			render: (width) => this.draw(this.rows, width, this.state.expanded),
-			invalidate() {},
-			handleMouse: (event: { type?: string; button?: string }) => {
-				if (event.type !== "click" || event.button !== "left") return undefined;
-				captureViewport();
-				this.state.expanded = !this.state.expanded;
-				this.onToggle();
-				return { handled: true };
-			},
-		} as Component;
-		this.addChild(header);
-		if (state.expanded) for (const member of members) this.addChild(member as Component);
+		const handleMouse = (event: { type?: string; button?: string }) => {
+			if (event.type !== "click" || event.button !== "left") return undefined;
+			captureViewport();
+			this.state.expanded = !this.state.expanded;
+			this.onToggle(this.state.expanded);
+			return { handled: true };
+		};
+		this.addChild({ render: (width) => this.draw(this.rows, width, this.state.expanded), invalidate() {}, handleMouse } as Component);
+		if (!state.expanded) return;
+		for (const member of members) this.addChild(member as Component);
+		if (footer) this.addChild({ render: footer, invalidate() {}, handleMouse } as Component);
 	}
 }
 
-function isGroupable(child: unknown): child is ToolRowLike {
-	return isKind(child, ToolExecutionComponent) && kindOf(child as ToolRowLike) !== undefined;
+/** Which rows fold into a group: what Claude Code counts as looking around, or what Codex parses as exploring. */
+export type GroupStyle = "claude" | "codex";
+
+function isGroupable(child: unknown, style: GroupStyle = "claude"): child is ToolRowLike {
+	if (!isKind(child, ToolExecutionComponent)) return false;
+	return style === "codex" ? exploreOf(child as ToolRowLike) !== undefined : kindOf(child as ToolRowLike) !== undefined;
 }
 
 type AssistantLike = { lastMessage?: { content?: Array<{ type: string; text?: string }> } };
@@ -219,6 +252,7 @@ function isFoldable(child: unknown): boolean {
 export function groupChildren(
 	children: readonly unknown[],
 	makeGroup: (rows: ToolRowLike[], members: unknown[]) => Component,
+	style: GroupStyle = "claude",
 ): unknown[] {
 	const grouped: unknown[] = [];
 	let rows: ToolRowLike[] = [];
@@ -230,7 +264,7 @@ export function groupChildren(
 		members = [];
 	};
 	for (const child of children) {
-		if (isGroupable(child)) {
+		if (isGroupable(child, style)) {
 			rows.push(child);
 			members.push(...pending, child);
 			pending = [];
@@ -249,7 +283,7 @@ export function groupChildren(
 	return grouped;
 }
 
-/** Claude style: runs of reads, searches, and listings fold into one line each. */
+/** Claude and Codex styles: runs of reads, searches, and listings fold into one group each. */
 export class ToolGroupController {
 	private context: ExtensionContext | undefined;
 	private readonly states = new WeakMap<object, GroupState>();
@@ -268,10 +302,12 @@ export class ToolGroupController {
 			const chat = findChat(tui);
 			if (chat) {
 				hookMethod(chat, "render", "claude.groups", (self, args, original) => {
-					if (!this.context || isSilent() || this.runtime.config.style !== "claude") return original.apply(self, args);
+					const style = this.runtime.config.style;
+					if (!this.context || isSilent() || (style !== "claude" && style !== "codex")) return original.apply(self, args);
 					const children = self.children as unknown[];
 					this.paint = this.resolvePaint();
-					self.children = groupChildren(children, (rows, members) => this.makeGroup(rows, members, tui));
+					openExplorations.clear();
+					self.children = groupChildren(children, (rows, members) => this.makeGroup(rows, members, tui), style);
 					try {
 						return original.apply(self, args);
 					} finally {
@@ -297,15 +333,35 @@ export class ToolGroupController {
 			this.states.set(key, state);
 		}
 		const groupState = state;
-		return new ToolGroupComponent(rows, members, state,
-			(group, width, expanded) => this.drawCached(group, width, expanded, groupState), () => tui.requestRender());
+		const draw = (group: readonly ToolRowLike[], width: number, expanded: boolean) => this.drawCached(group, width, expanded, groupState);
+		if (this.runtime.config.style !== "codex") return new ToolGroupComponent(rows, members, state, draw, () => tui.requestRender());
+		// Codex opens a group to the whole of each call, and closes it from one "− Show less" beneath them.
+		const toggle = (expanded: boolean) => {
+			for (const row of rows) row.setExpanded?.(expanded);
+			tui.requestRender();
+		};
+		const footer = (width: number) => {
+			const theme = this.paint?.theme ?? this.context?.ui.theme;
+			return theme ? [truncateToWidth(theme.fg("dim", codexDisclosure(width, true)), Math.max(1, width), "…")] : [];
+		};
+		const group = new ToolGroupComponent(rows, members, state, draw, toggle, footer);
+		// Read once the group has followed Ctrl+O, which it does as it is made. A call that joins an
+		// opened group opens with it, as every call in an opened Codex group shows whole.
+		if (state.expanded) {
+			for (const row of rows) {
+				openExplorations.add(row.toolCallId);
+				if (!row.expanded) row.setExpanded?.(true);
+			}
+		}
+		return group;
 	}
 
 	private resolvePaint(): Paint | undefined {
 		const theme = this.context?.ui.theme;
 		if (!theme) return undefined;
 		const chrome = chromePainter(theme);
-		const key = PAINT_COLORS.map((color) => theme.fg(color, "x")).join("") + theme.bold("x") + chrome("x");
+		// The style is part of the key: a group drawn in one style is never reused in another.
+		const key = this.runtime.config.style + PAINT_COLORS.map((color) => theme.fg(color, "x")).join("") + theme.bold("x") + chrome("x");
 		return { theme, chrome, key };
 	}
 
@@ -338,6 +394,7 @@ export class ToolGroupController {
 	 * looks at.
 	 */
 	private draw(rows: readonly ToolRowLike[], width: number, expanded: boolean, paint: Paint): string[] {
+		if (this.runtime.config.style === "codex") return this.drawCodex(rows, width, expanded, paint);
 		const { theme, chrome } = paint;
 		const fit = (line: string) => truncateToWidth(line, Math.max(1, width), "…");
 		const running = lastRunning(rows, this.canRun);
@@ -346,7 +403,7 @@ export class ToolGroupController {
 		const status: RowStatus = running ? "running" : statuses.includes("error") ? "error"
 			: statuses.includes("pending") ? "pending" : "success";
 		const summary = summarizeGroup(rows, undefined, this.canRun);
-		let title = `${paintIndicator(theme, status, this.runtime.frame)} ${theme.fg("toolTitle", theme.bold(summary))}`;
+		let title = ` ${paintIndicator(theme, status, this.runtime.frame)} ${theme.fg("toolTitle", theme.bold(summary))}`;
 		if (running) {
 			// The folded row is not drawn, so the line that pulses for it keeps the clock going.
 			this.runtime.keepAnimating(running.toolCallId);
@@ -355,10 +412,52 @@ export class ToolGroupController {
 			title += `${elapsed >= 2000 ? chrome(` · ${formatDurationMs(elapsed)}`) : ""}…`;
 		}
 		if (!expanded) title += chrome(` ${EXPAND_HINT}`);
-		const lines = ["", fit(` ${title}`)];
+		const lines = ["", fit(title)];
 		const hintText = groupHint(rows, this.canRun);
-		if (hintText) lines.push(fit(chrome(` └ ${hintText}`)));
-		if (!expanded) for (const failure of groupFailures(rows)) lines.push(fit(chrome(" └ ") + theme.fg("error", failure)));
+		if (hintText) lines.push(fit(chrome(`${CLAUDE_RESULT_PREFIX}${hintText}`)));
+		if (!expanded) for (const failure of groupFailures(rows)) lines.push(fit(chrome(CLAUDE_RESULT_PREFIX) + theme.fg("error", failure)));
+		return lines;
+	}
+
+	/**
+	 * Codex's exploration: `• Exploring` while a call runs and `• Explored` after,
+	 * then a line for what each call did, three rows of them until the group opens.
+	 * A failed call says so at the end of its line and in the head's count.
+	 */
+	private drawCodex(rows: readonly ToolRowLike[], width: number, expanded: boolean, paint: Paint): string[] {
+		const { theme } = paint;
+		const fit = (line: string) => truncateToWidth(line, Math.max(1, width), "…");
+		const running = lastRunning(rows, this.canRun);
+		const statuses = rows.map((row) => memberStatus(row, this.canRun));
+		if (running) this.runtime.keepAnimating(running.toolCallId);
+		const bullet = running ? paintIndicator(theme, "running", this.runtime.frame, CODEX_BULLET)
+			: statuses.includes("pending") ? paintIndicator(theme, "pending", 0, CODEX_BULLET) : theme.fg("dim", CODEX_BULLET);
+		const failed = statuses.filter((status) => status === "error").length;
+		let head = `${CODEX_MARGIN}${bullet} ${theme.bold(running ? "Exploring" : "Explored")}`;
+		if (failed > 0) head += theme.bold(theme.fg("error", ` · ${failed} failed`));
+		// Opened, Codex lists the calls themselves in place of the summary; each brings its own blank line.
+		if (expanded) return [];
+		const lines = ["", fit(head)];
+		const calls = rows.map((row) => {
+			const actions = exploreOf(row) ?? [];
+			const failure = row.result && !row.isPartial
+				? exploreFailure(row.toolName, getTextResult(row.result), row.result.isError === true, actions) : undefined;
+			return { actions, failure };
+		});
+		const details: string[] = [];
+		for (const line of exploreLines(calls)) {
+			const verb = `${line.verb} `;
+			const segments: Segment[] = line.parts.map((part) => ({ text: part.text, color: part.dim ? "dim" : undefined }));
+			if (line.failure) segments.push({ text: line.failure.text, color: line.failure.quiet ? "dim" : "error" });
+			const available = Math.max(1, width - visibleWidth(CODEX_INDENT) - verb.length);
+			wrapSegments(segments, available, available).forEach((row, index) => {
+				details.push((index === 0 ? theme.fg("accent", verb) : " ".repeat(verb.length)) + paintSegments(row, theme));
+			});
+		}
+		details.slice(0, CODEX_PREVIEW_ROWS).forEach((row, index) => {
+			lines.push(fit(theme.fg("dim", index === 0 ? CODEX_RESULT_PREFIX : CODEX_INDENT) + row));
+		});
+		lines.push(fit(theme.fg("dim", codexDisclosure(width, false))));
 		return lines;
 	}
 }

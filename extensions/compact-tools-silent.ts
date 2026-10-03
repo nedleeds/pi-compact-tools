@@ -274,8 +274,11 @@ export class SilentModeController {
 		pi.registerCommand("silent", {
 			description: `(${SILENT_SHORTCUT}) Show only prompts and final answers`,
 			getArgumentCompletions: (prefix) => {
+				// Pi applies a shown completion on Enter instead of running the command, so a value
+				// already typed in full is not offered again: Enter then runs it the first time.
+				const typed = prefix.trim().toLowerCase();
 				const items = COMMAND_ARGUMENTS
-					.filter((value) => value.startsWith(prefix.trim().toLowerCase()))
+					.filter((value) => value.startsWith(typed) && value !== typed)
 					.map((value) => ({ value, label: value }));
 				return items.length > 0 ? items : null;
 			},

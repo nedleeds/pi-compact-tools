@@ -1,7 +1,7 @@
 {
   "name": "pi-compact-tools",
-  "version": "0.13.2",
-  "description": "Compact, expandable tool rows for Pi in its own compact style or Claude Code's, with a silent mode and a GitHub Dark theme.",
+  "version": "0.14.0",
+  "description": "Tool rows for Pi in three styles: Claude, Codex, and Compact. Switch with /compact-tools; includes silent mode and a GitHub Dark theme.",
   "type": "module",
   "license": "MIT",
   "author": "Dong Hyeong Lee",
@@ -17,6 +17,8 @@
     "pi-package",
     "pi-coding-agent",
     "pi-extension",
+    "claude-code",
+    "codex",
     "terminal-ui",
     "theme"
   ],

@@ -36,8 +36,15 @@ for (const key of ["border", "dim", "muted", "thinkingMax", "mdQuote", "mdCodeBl
   assert.ok(theme.colors?.[key], `github-dark-pro must define ${key}`);
 }
 assert.ok(theme.vars?.thinkingText, "github-dark-pro must define thinking text");
-const notes = documents["release-notes.json"][manifest.version];
-assert.ok(Array.isArray(notes) && notes.every((note) => typeof note === "string" && note.trim()),
+// Each version is a plain list of notes, or the notes grouped under New, Fix, and Deprecated.
+const SECTIONS = ["New", "Fix", "Deprecated"];
+const isNoteList = (value) => Array.isArray(value) && value.every((note) => typeof note === "string" && note.trim());
+for (const [version, entry] of Object.entries(documents["release-notes.json"])) {
+  const grouped = entry && typeof entry === "object" && !Array.isArray(entry)
+    && Object.keys(entry).every((key) => SECTIONS.includes(key)) && Object.values(entry).every(isNoteList);
+  assert.ok(isNoteList(entry) || grouped, `release-notes.json ${version}: a list of notes, or New, Fix, and Deprecated lists`);
+}
+assert.ok(documents["release-notes.json"][manifest.version] !== undefined,
   `release-notes.json must have an entry for v${manifest.version}; use [] for no notice`);
 assert.ok(manifest.keywords?.includes("pi-package"), "manifest must declare pi-package");
 for (const name of ["@earendil-works/pi-ai", "@earendil-works/pi-agent-core", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "typebox"]) {

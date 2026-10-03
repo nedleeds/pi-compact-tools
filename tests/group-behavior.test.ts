@@ -108,7 +108,7 @@ test("every change a finished group shows is drawn", async () => {
 	const [row] = (await finishedRows(harness, 1)) as Array<ReturnType<typeof makeRow>>;
 	chat.children = [row] as unknown as Component[];
 	const done = strip(chat.render(100));
-	assert.match(done[1]!, /Read 1 file \(ctrl\+o to expand\)/u);
+	assert.match(done[1]!, /Read 1 file \(click to expand\)/u);
 
 	// Its result is replaced: the failure shows.
 	row!.updateResult({ ...text("ENOENT: gone"), isError: true } as never);
@@ -120,7 +120,7 @@ test("every change a finished group shows is drawn", async () => {
 	// Ctrl+O opens it: the hint goes and the row itself shows.
 	row!.setExpanded(true);
 	const opened = strip(chat.render(100));
-	assert.doesNotMatch(opened[1]!, /ctrl\+o/u);
+	assert.doesNotMatch(opened[1]!, /click to expand/u);
 	assert.ok(opened.some((line) => /Read\(src\/0\.ts\)/u.test(line)));
 	row!.setExpanded(false);
 
@@ -182,7 +182,7 @@ test("a group whose call was restored without its result waits, as its row does"
 	const row = makeRow("read", `g-${++sequence}`, { path: "src/a.ts" }, harness.definitions.get("read"));
 	harness.chat.children = [row];
 	const { collapsed, header, rowLine } = groupAndRow(harness, row);
-	assert.deepEqual(strip(collapsed).filter((line) => line.trim()), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.deepEqual(strip(collapsed).filter((line) => line.trim()), [" ⦁ Read 1 file (click to expand)"]);
 	assert.equal(dotOf([header]), PENDING_DOT);
 	assert.equal(dotOf([rowLine]), PENDING_DOT, "the group and its row agree");
 	timerClock.tick(45 * 20);
@@ -190,7 +190,7 @@ test("a group whose call was restored without its result waits, as its row does"
 	// A new run does not revive it. The dot alone cannot tell: a pulse starts in the waiting shade.
 	harness.handlers.get("agent_start")!({});
 	const revived = groupAndRow(harness, row);
-	assert.deepEqual(strip(revived.collapsed).filter((line) => line.trim()), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.deepEqual(strip(revived.collapsed).filter((line) => line.trim()), [" ⦁ Read 1 file (click to expand)"]);
 	assert.equal(dotOf([revived.header]), PENDING_DOT);
 	shutdown(harness);
 });
@@ -206,14 +206,14 @@ test("when the run ends, a group whose call got no result stops running with it"
 	row.markExecutionStarted();
 	harness.chat.children = [row];
 	const running = strip(harness.chat.render(100)).filter((line) => line.trim());
-	assert.deepEqual(running, [" ⦁ Reading 1 file… (ctrl+o to expand)", " └ src/a.ts"]);
+	assert.deepEqual(running, [" ⦁ Reading 1 file… (click to expand)", "   ⎿  src/a.ts"]);
 	timerClock.tick(45 * 3);
 	harness.chat.render(100);
 	const asked = harness.requestRenders();
 	assert.ok(asked > 0, "it pulsed while the run went on");
 	harness.handlers.get("agent_end")!({ messages: [] });
 	const { collapsed, header, rowLine } = groupAndRow(harness, row);
-	assert.deepEqual(strip(collapsed).filter((line) => line.trim()), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.deepEqual(strip(collapsed).filter((line) => line.trim()), [" ⦁ Read 1 file (click to expand)"]);
 	assert.equal(dotOf([header]), PENDING_DOT);
 	assert.equal(dotOf([rowLine]), PENDING_DOT, "the group and its row agree");
 	const after = harness.requestRenders();
@@ -224,7 +224,7 @@ test("when the run ends, a group whose call got no result stops running with it"
 	assert.equal(harness.requestRenders(), after, "and it asks for no more frames");
 	// The next run cannot give it a result: Pi drops the calls it waited on when a run starts.
 	harness.handlers.get("agent_start")!({});
-	assert.deepEqual(strip(harness.chat.render(100)).filter((line) => line.trim()), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.deepEqual(strip(harness.chat.render(100)).filter((line) => line.trim()), [" ⦁ Read 1 file (click to expand)"]);
 	shutdown(harness);
 });
 
@@ -235,7 +235,7 @@ test("a waiting call leaves a finished group waiting, and a failure still shows 
 	const waiting = makeRow("read", `g-${++sequence}`, { path: "src/b.ts" }, harness.definitions.get("read"));
 	harness.chat.children = [done, waiting];
 	const header = harness.chat.render(100).find((line) => line.includes("⦁"))!;
-	assert.equal(strip([header])[0], " ⦁ Read 2 files (ctrl+o to expand)");
+	assert.equal(strip([header])[0], " ⦁ Read 2 files (click to expand)");
 	assert.equal(dotOf([header]), PENDING_DOT);
 	const failed = makeRow("read", `g-${++sequence}`, { path: "src/c.ts" }, harness.definitions.get("read"));
 	failed.updateResult({ ...text("ENOENT: gone"), isError: true } as never);
@@ -255,12 +255,12 @@ test("a call Pi draws itself, restored without its result, is not revived by the
 	const harness = await loadExtension(PI_DRAWS_READ, { tui: true, idle: true });
 	assert.equal(harness.definitions.has("read"), false, "read keeps Pi's renderer");
 	harness.chat.children = [piRead(`pi-${++sequence}`)];
-	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (click to expand)"]);
 	harness.handlers.get("agent_start")!({});
-	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (click to expand)"]);
 	harness.handlers.get("agent_end")!({ messages: [] });
 	harness.handlers.get("agent_start")!({});
-	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (click to expand)"]);
 	shutdown(harness);
 });
 
@@ -277,7 +277,7 @@ test("a restored call is known as restored even if no group drew it before the n
 	} finally {
 		silent.enabled = false;
 	}
-	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (click to expand)"]);
 	shutdown(harness);
 });
 
@@ -290,13 +290,13 @@ test("a call Pi draws itself runs with its run, and waits once the run ends with
 	const running = piRead(runningId);
 	const finished = piRead(finishedId);
 	harness.chat.children = [running, finished];
-	assert.deepEqual(lines(harness), [" ⦁ Reading 1 file… (ctrl+o to expand)", " └ src/a.ts"]);
+	assert.deepEqual(lines(harness), [" ⦁ Reading 1 file… (click to expand)", "   ⎿  src/a.ts"]);
 	finished.updateResult({ ...text("a"), isError: false } as never);
-	assert.deepEqual(lines(harness), [" ⦁ Reading 1 file… (ctrl+o to expand)", " └ src/a.ts"]);
+	assert.deepEqual(lines(harness), [" ⦁ Reading 1 file… (click to expand)", "   ⎿  src/a.ts"]);
 	harness.handlers.get("agent_end")!({ messages: [] });
-	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (click to expand)"]);
 	harness.handlers.get("agent_start")!({});
-	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (click to expand)"]);
 	shutdown(harness);
 });
 
@@ -331,9 +331,9 @@ test("rebuilt mid-run, an old call's new row still waits and a running call's ne
 		rebuiltRunning(liveAgain);
 		harness.chat.children = [oldAgain, new AssistantMessageComponent({ content: [{ type: "text", text: "Next." }], stopReason: "stop" } as never), liveAgain];
 		const drawn = lines(harness);
-		assert.equal(drawn[0], " ⦁ Read 1 file (ctrl+o to expand)", JSON.stringify(config));
-		assert.equal(drawn.at(-2), " ⦁ Reading 1 file… (ctrl+o to expand)", JSON.stringify(config));
-		assert.equal(drawn.at(-1), " └ src/live.ts", JSON.stringify(config));
+		assert.equal(drawn[0], " ⦁ Read 1 file (click to expand)", JSON.stringify(config));
+		assert.equal(drawn.at(-2), " ⦁ Reading 1 file… (click to expand)", JSON.stringify(config));
+		assert.equal(drawn.at(-1), "   ⎿  src/live.ts", JSON.stringify(config));
 		if (harness.definitions.has("read")) {
 			// The rows themselves agree: only the running one asks for frames.
 			const asked = harness.requestRenders();
@@ -377,7 +377,7 @@ test("in a long session, a call an early run left without its result is not revi
 	}
 	harness.handlers.get("agent_start")!({});
 	harness.chat.children = [early];
-	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (ctrl+o to expand)"]);
+	assert.deepEqual(lines(harness), [" ⦁ Read 1 file (click to expand)"]);
 	shutdown(harness);
 });
 

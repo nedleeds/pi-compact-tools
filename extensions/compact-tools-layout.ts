@@ -15,7 +15,7 @@ import { highlightMarkdown } from "./compact-tools-markdown.ts";
 import { paintChrome } from "./compact-tools-palette.ts";
 import type { ToolArgs } from "./compact-tools-types.ts";
 
-class CachedComponent implements Component {
+export class CachedComponent implements Component {
 	private cachedWidth?: number;
 	private cachedLines?: string[];
 
@@ -161,6 +161,20 @@ export function prefixedLines(text: string, firstPrefix: string, continuationPre
 }
 
 /**
+ * A sentence under a tree prefix, wrapped at words as a terminal UI wraps prose:
+ * a word moves to the next row whole, and only a word longer than a row is split.
+ */
+export function prefixedSentence(text: string, firstPrefix: string, continuationPrefix: string): Component {
+	const prefixWidth = Math.max(visibleWidth(firstPrefix), visibleWidth(continuationPrefix));
+	const lines = text.replace(/\t/g, "   ").split("\n");
+	return new CachedComponent((width) => {
+		const available = Math.max(1, width - prefixWidth);
+		return lines.flatMap((line) => wrapTextWithAnsi(line, available).map((row) => truncateToWidth(row, available, "")))
+			.map((row, index) => `${index === 0 ? firstPrefix : continuationPrefix}${row}`);
+	});
+}
+
+/**
  * Output as Claude Code previews it. Each line is wrapped to the width, and rows
  * rather than lines are counted: collapsed, `maxRows` show, all of them when only
  * one more would be hidden, and then `more(hidden)`. Claude Code wraps ten
@@ -179,7 +193,7 @@ export function claudeRows(
 		const wrapWidth = maxRows === undefined ? available : Math.min(available, Math.max(width - 10, 10));
 		let rows = lines.flatMap((line) => hardWrapTextWithAnsi(line, wrapWidth).map((row) => row.trimEnd()));
 		if (maxRows !== undefined && rows.length > maxRows + 1) {
-			rows = [...rows.slice(0, maxRows), more(rows.length - maxRows)];
+			rows = [...rows.slice(0, maxRows), truncateToWidth(more(rows.length - maxRows), available, "…")];
 		}
 		return rows.map((row, index) => `${index === 0 ? firstPrefix : continuationPrefix}${row}`);
 	});
@@ -209,10 +223,14 @@ export function hardWrapTextWithAnsi(text: string, width: number): string[] {
 	return wrapped;
 }
 
-export function renderToolCall(title: string, details: string | undefined, theme: Theme): Component {
+export function renderToolCall(
+	title: string,
+	details: string | undefined,
+	theme: Theme,
+	continuationPrefix = paintChrome(theme, " │ "),
+): Component {
 	const text = details ? `${title} ${details}` : title;
 	const firstPrefix = " ";
-	const continuationPrefix = paintChrome(theme, " │ ");
 	const prefixWidth = visibleWidth(continuationPrefix);
 	return new CachedComponent((width) => {
 		const lines = hardWrapTextWithAnsi(text, width - prefixWidth);
@@ -224,12 +242,12 @@ export function styleMultiline(text: string, style: (line: string) => string): s
 	return normalizeLineEndings(text).split("\n").map(style).join("\n");
 }
 
-export function renderOutput(output: string, theme: Theme, isError: boolean): Component | undefined {
+export function renderOutput(output: string, theme: Theme, isError: boolean, rail = paintChrome(theme, " │ ")): Component | undefined {
 	const normalized = normalizeLineEndings(output).trimEnd();
 	if (!normalized) return undefined;
 	const color = isError ? "error" : "toolOutput";
 	const styled = normalized.split("\n").map((line) => theme.fg(color, line)).join("\n");
-	return prefixedText(styled, paintChrome(theme, " │ "));
+	return prefixedText(styled, rail);
 }
 
 export type CodeDiffLineKind = "context" | "add" | "remove" | "separator";
@@ -249,7 +267,7 @@ export type CodeDiffOptions = {
 
 const DIFF_SEPARATOR = "\u22ee";
 
-function parseUnifiedPatch(patch: string): CodeDiffLine[] {
+function parseUnifiedPatch(patch: string, tab: string): CodeDiffLine[] {
 	const result: CodeDiffLine[] = [];
 	let oldLine = 0;
 	let newLine = 0;
@@ -265,7 +283,7 @@ function parseUnifiedPatch(patch: string): CodeDiffLine[] {
 		}
 		if (hunk < 0 || line.startsWith("\\ No newline at end of file")) continue;
 		const prefix = line[0];
-		const content = line.slice(1).replace(/\t/gu, "   ");
+		const content = line.slice(1).replace(/\t/gu, tab);
 		if (prefix === "+") {
 			result.push({ kind: "add", lineNumber: newLine++, content, hunk });
 		} else if (prefix === "-") {
@@ -278,7 +296,7 @@ function parseUnifiedPatch(patch: string): CodeDiffLine[] {
 	return result;
 }
 
-function parseDisplayDiff(diff: string): CodeDiffLine[] {
+function parseDisplayDiff(diff: string, tab: string): CodeDiffLine[] {
 	const result: CodeDiffLine[] = [];
 	let hunk = 0;
 	for (const line of normalizeLineEndings(diff).split("\n")) {
@@ -291,17 +309,20 @@ function parseDisplayDiff(diff: string): CodeDiffLine[] {
 		result.push({
 			kind: match[1] === "+" ? "add" : match[1] === "-" ? "remove" : "context",
 			lineNumber: Number(match[2]),
-			content: match[3]!.replace(/\t/gu, "   "),
+			content: match[3]!.replace(/\t/gu, tab),
 			hunk,
 		});
 	}
 	return result;
 }
 
-/** Parse a standard patch, falling back to Pi's display-oriented numbered diff. */
-export function parseCodeDiff(patch: string, displayDiff = ""): CodeDiffLine[] {
-	const parsedPatch = patch ? parseUnifiedPatch(patch) : [];
-	return parsedPatch.length > 0 ? parsedPatch : parseDisplayDiff(displayDiff);
+/**
+ * Parse a standard patch, falling back to Pi's display-oriented numbered diff. A tab
+ * becomes `tab`: three columns as Pi draws code, four as Codex does.
+ */
+export function parseCodeDiff(patch: string, displayDiff = "", tab = "   "): CodeDiffLine[] {
+	const parsedPatch = patch ? parseUnifiedPatch(patch, tab) : [];
+	return parsedPatch.length > 0 ? parsedPatch : parseDisplayDiff(displayDiff, tab);
 }
 
 /** Drop context that sits far from any change so a collapsed preview still reaches the edit. */
@@ -488,6 +509,82 @@ export function renderCodeView(code: string, path: string, theme: Theme, options
 	return renderCodeRows(lines, path, theme, { signs: false, footer: options.footer, rail: options.rail });
 }
 
+/**
+ * Diff rows the way Codex draws them: `{line} {sign}{code}` after `indent`, the
+ * number dim and the sign in its change color, and an added or removed row tinted
+ * across the whole width. A wrapped row continues under the code; `⋮` marks a gap
+ * between hunks. `maxRows` keeps the first rows, as Codex's collapsed preview does.
+ */
+export function renderCodexDiff(
+	lines: readonly CodeDiffLine[],
+	path: string,
+	theme: Theme,
+	indent: string,
+	maxRows?: number,
+): Component | undefined {
+	if (lines.length === 0) return undefined;
+	const first = lines[0];
+	const shebangLine = first?.lineNumber === 1 && first.kind !== "separator" ? first.content : undefined;
+	let highlighted: string[] | undefined;
+	const numberWidth = lines.reduce((maximum, line) => Math.max(maximum, String(line.lineNumber ?? "").length), 1);
+	const indentWidth = visibleWidth(indent);
+	const addedTint = diffTintRgb(theme, "toolDiffAdded");
+	const removedTint = diffTintRgb(theme, "toolDiffRemoved");
+	return new CachedComponent((width) => {
+		highlighted ??= highlightCodeLines([...lines], resolveLanguage(path, shebangLine), theme);
+		const codeWidth = Math.max(1, width - indentWidth - numberWidth - 2);
+		const output: string[] = [];
+		for (const [index, line] of lines.entries()) {
+			if (maxRows !== undefined && output.length >= maxRows) break;
+			if (line.kind === "separator") {
+				output.push(indent + " ".repeat(numberWidth + 1) + theme.fg("dim", line.content));
+				continue;
+			}
+			const tint = line.kind === "add" ? addedTint : line.kind === "remove" ? removedTint : undefined;
+			const sign = line.kind === "add" ? theme.fg("toolDiffAdded", "+") : line.kind === "remove" ? theme.fg("toolDiffRemoved", "-") : " ";
+			for (const [chunkIndex, chunk] of hardSliceAnsi(highlighted[index] ?? line.content, codeWidth).entries()) {
+				const gutter = chunkIndex === 0
+					? theme.fg("dim", `${String(line.lineNumber ?? "").padStart(numberWidth)} `) + sign
+					: " ".repeat(numberWidth + 2);
+				// Narrower than the gutter itself, a row is cut rather than drawn past the edge.
+				const row = truncateToWidth(indent + gutter + chunk, Math.max(1, width), "");
+				output.push(tint ? fillRgb(theme, tint, row + " ".repeat(Math.max(0, width - visibleWidth(row)))) : row);
+			}
+		}
+		return maxRows === undefined ? output : output.slice(0, maxRows);
+	});
+}
+
+/**
+ * A row that never draws past the pane's edge. Chrome has a width of its own, so in
+ * a pane narrower than a prefix the lines are cut to it. Lines are checked again only
+ * when the component draws new ones.
+ */
+export class WithinWidth implements Component {
+	private source: string[] | undefined;
+	private width: number | undefined;
+	private lines: string[] = [];
+
+	constructor(private readonly inner: Component) {}
+
+	render(width: number): string[] {
+		const lines = this.inner.render(width);
+		if (lines !== this.source || width !== this.width) {
+			this.source = lines;
+			this.width = width;
+			this.lines = lines.some((line) => visibleWidth(line) > width)
+				? lines.map((line) => visibleWidth(line) > width ? truncateToWidth(line, Math.max(1, width), "") : line)
+				: lines;
+		}
+		return this.lines;
+	}
+
+	invalidate(): void {
+		this.inner.invalidate?.();
+		this.source = undefined;
+	}
+}
+
 /** Limit a result preview by rendered rows while preserving the full source component for expansion. */
 export function limitComponentLines(
 	component: Component,
@@ -499,13 +596,12 @@ export function limitComponentLines(
 	return new CachedComponent((width) => {
 		const lines = component.render(width);
 		if (lines.length <= maximumLines) return lines;
-		return [...lines.slice(0, maximumLines), footer(lines.length - maximumLines)];
+		return [...lines.slice(0, maximumLines), truncateToWidth(footer(lines.length - maximumLines), Math.max(1, width), "…")];
 	}, () => component.invalidate?.());
 }
 
 /** Indent another renderer's component under the result rail so it reads as part of the row. */
-export function railComponent(component: Component, theme: Theme): Component {
-	const rail = paintChrome(theme, " │ ");
+export function railComponent(component: Component, theme: Theme, rail = paintChrome(theme, " │ ")): Component {
 	const railWidth = visibleWidth(rail);
 	return new CachedComponent(
 		(width) => component.render(Math.max(1, width - railWidth)).map((line) => rail + line),
@@ -513,8 +609,8 @@ export function railComponent(component: Component, theme: Theme): Component {
 	);
 }
 
-export function renderArguments(args: ToolArgs, theme: Theme): Component {
+export function renderArguments(args: ToolArgs, theme: Theme, rail = paintChrome(theme, " │ ")): Component {
 	const json = JSON.stringify(args, null, 2) ?? "{}";
 	const styled = styleMultiline(json, (line) => theme.fg("toolOutput", line));
-	return prefixedText(styled, paintChrome(theme, " │ "));
+	return prefixedText(styled, rail);
 }
