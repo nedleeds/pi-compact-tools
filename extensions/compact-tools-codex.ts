@@ -7,7 +7,7 @@ import type { ToolArgs } from "./compact-tools-types.ts";
 /** Rows Codex shows of a call's output, its last ones, before offering the rest. */
 export const CODEX_PREVIEW_ROWS = 3;
 /**
- * Codex 0.160.0's chrome: `• Ran …`, then `  └ ` under the bullet with the output two
+ * Codex 0.165.0's compact chrome: `• Ran …`, then `  └ ` under the bullet with the output two
  * columns after it, and every later row four columns in. Pi draws every row one column
  * in, so each prefix keeps that geometry one column further right.
  */

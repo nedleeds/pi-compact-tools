@@ -15,13 +15,15 @@ import type { ToolArgs } from "./compact-tools-types.ts";
  * wrapped to the width first, so a long line counts as the rows it takes.
  */
 export const CLAUDE_OUTPUT_ROWS = 3;
+/** While Bash runs, Claude follows the last four output rows rather than the head. */
+export const CLAUDE_RUNNING_OUTPUT_ROWS = 4;
 /** Rows Claude Code shows of what a write put in the file. */
 export const CLAUDE_WRITE_ROWS = 10;
 /** Lines of context Claude Code keeps around each change in an edit's diff. */
 export const CLAUDE_DIFF_CONTEXT_LINES = 3;
 
 /**
- * Claude Code 2.1.288's chrome: `⏺ Bash(…)`, then `  ⎿  ` with the "⎿" under the
+ * Claude Code 2.1.312's chrome: `⏺ Bash(…)`, then `  ⎿  ` with the "⎿" under the
  * tool's name and the result two columns after it. Pi draws every row one column
  * in, with its own smaller "⦁" dot, so each prefix keeps that geometry one column
  * further right.
@@ -92,6 +94,14 @@ export function claudeArgument(name: string, args: ToolArgs, expanded = false): 
 		return path ? `pattern: "${pattern}", path: "${path}"` : `pattern: "${pattern}"`;
 	}
 	if (name === "ls") return path || ".";
+	if (name === "read" && expanded) {
+		// Failed calls and streaming arguments can contain invalid ranges.
+		const validLine = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+		if ((args.offset != null && !validLine(args.offset)) || (args.limit != null && !validLine(args.limit))) return path;
+		const start = validLine(args.offset) ? args.offset : 1;
+		if (validLine(args.limit)) return `${path} · lines ${start}-${start + args.limit - 1}`;
+		if (validLine(args.offset)) return `${path} · from line ${start}`;
+	}
 	if (name === "read" || name === "edit" || name === "write") return path;
 	return formatArguments(args);
 }
@@ -200,7 +210,7 @@ export function claudeOutcome(
 	const lines = countOf(formatResultLineSummary(name, args, result, output));
 	const count = (value: number, singular: string) => `${bold(String(value))} ${plural(value, singular)}`;
 	switch (name) {
-		case "read": return `Read ${count(lines, "line")}`;
+		case "read": return result.content.some((block) => block.type === "image") ? "Read image" : `Read ${count(lines, "line")}`;
 		case "grep": return `Found ${count(lines, "line")}`;
 		case "find": return `Found ${count(lines, "file")}`;
 		case "ls": return `Listed ${count(lines, "path")}`;
@@ -222,7 +232,7 @@ const SHELL_STATUS = /^Command (?:exited with code (\d+)|(timed out.*|aborted|te
  * A failure as Claude Code reports it. A command leads with its exit code and
  * then shows what it printed; another tool leads with its reason alone.
  */
-export function claudeFailure(name: string, output: string): { headline: string; detail: string } {
+export function claudeFailure(name: string, output: string, expanded = false): { headline: string; detail: string } {
 	if (name === "bash" || name === "powershell" || !TOOL_NAMES.has(name)) {
 		const lines = normalizeLineEndings(output).trimEnd().split("\n");
 		const status = lines.at(-1)?.trim().match(SHELL_STATUS);
@@ -232,8 +242,10 @@ export function claudeFailure(name: string, output: string): { headline: string;
 		}
 		if (name === "bash" || name === "powershell") return { headline: "Error", detail: output.trimEnd() };
 	}
-	const reason = summarizeFailure(name, output);
-	return { headline: reason ? `Error: ${reason}` : "Error", detail: "" };
+	const reason = expanded
+		? normalizeLineEndings(stripTerminalSequences(output)).trim()
+		: summarizeFailure(name, output);
+	return { headline: reason ? (/^Error\b/iu.test(reason) ? reason : `Error: ${reason}`) : "Error", detail: "" };
 }
 
 const TOOL_NAMES = new Set(Object.keys(LABELS));

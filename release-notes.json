@@ -1,4 +1,8 @@
 {
+  "0.16.7": [
+    "Match Claude Code 2.1.312: quiet exploration groups, expanded Read ranges, image labels, streaming Bash tails, and clearer errors.",
+    "Match Codex CLI 0.165.0: neutral Exited (status N) rows and nonzero-exit summaries, preserving tail previews and transcript expansion."
+  ],
   "0.16.6": {
     "New": [],
     "Fix": [

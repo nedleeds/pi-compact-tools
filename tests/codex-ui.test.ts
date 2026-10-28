@@ -7,8 +7,8 @@ import {
 	advance, announce, INDICATOR_INTERVAL_MS, loadExtension, makeRow, restoreClocks, shutdown, text, timerClock, type Harness,
 } from "./indicator-harness.ts";
 
-// These expectations come from tests/fixtures/codex-0.160.0.md, captured from the
-// native UI in a 120-column pane. Pi draws every row one column in, so at 121 columns
+// These expectations come from tests/fixtures/codex-0.165.0.md, checked against the
+// compact source and earlier native UI in a 120-column pane. Pi draws every row one column in, so at 121 columns
 // each Pi line is Codex's line after one column of margin, with Pi's own key in the
 // hint. Keep them independent of the generated golden recorder.
 const CODEX_WIDTH = 120;
@@ -51,7 +51,7 @@ function fits(row: { render(width: number): string[] }, label: string): void {
 const SEQ = Array.from({ length: 12 }, (_, index) => String(index + 1)).join("\n");
 const LONG = "aaaaaaaaaa bbbbbbbbbb cccccccccc dddddddddd eeeeeeeeee ffffffffff gggggggggg hhhhhhhhhh iiiiiiiiii jjjjjjjjjj kkkkkkkkkk llllllllll mmmmmmmmmm nnnnnnnnnn";
 
-test("Codex 0.160.0 commands, collapsed, match the live reference character for character", async () => {
+test("Codex 0.165.0 commands, collapsed, match the pinned compact reference", async () => {
 	const harness = await loadExtension({ style: "codex" }, { tui: true, idle: true });
 	try {
 		const seq = bash(harness, "seq 1 12", SEQ);
@@ -61,7 +61,7 @@ test("Codex 0.160.0 commands, collapsed, match the live reference character for 
 		assert.deepEqual(drawn(bash(harness, "true", "(no output)").render(PI_WIDTH)), asPi(["• Ran true", "  └ (no output)"]));
 		const failed = bash(harness, "sh -c 'echo fixture failure >&2; exit 2'", "fixture failure\n\n\nCommand exited with code 2", true);
 		assert.deepEqual(drawn(failed.render(PI_WIDTH)), asPi([
-			"• Failed (exit 2) sh -c 'echo fixture failure >&2; exit 2'", "  └ fixture failure",
+			"• Exited (status 2) sh -c 'echo fixture failure >&2; exit 2'", "  └ fixture failure",
 		]));
 		// A header and an output line too wide for the row are cut with "…", and the cut line counts as hidden.
 		const wide = bash(harness, `echo ${LONG}`, LONG);
@@ -74,7 +74,7 @@ test("Codex 0.160.0 commands, collapsed, match the live reference character for 
 	} finally { shutdown(harness); }
 });
 
-test("Codex 0.160.0 commands, opened, read as its transcript", async () => {
+test("Codex 0.165.0 commands, opened, read as its transcript", async () => {
 	const harness = await loadExtension({ style: "codex" }, { tui: true, idle: true });
 	try {
 		const wide = bash(harness, `echo ${LONG}`, LONG);
@@ -101,7 +101,7 @@ test("Codex 0.160.0 commands, opened, read as its transcript", async () => {
 		const quiet = [
 			[bash(harness, "true", "(no output)"), ["• Ran true", "  └ (no output)"]],
 			[bash(harness, "sh -c 'echo fixture failure >&2; exit 2'", "fixture failure\n\nCommand exited with code 2", true),
-				["• Failed (exit 2) sh -c 'echo fixture failure >&2; exit 2'", "  └ fixture failure"]],
+				["• Exited (status 2) sh -c 'echo fixture failure >&2; exit 2'", "  └ fixture failure"]],
 			[bash(harness, "cat README.md", "# Lab\n\nA tiny fixture project.\n"), ["• Ran cat README.md", "  └ # Lab", "", "    A tiny fixture project."]],
 		] as const;
 		for (const [row, lines] of quiet) {
@@ -117,7 +117,7 @@ test("Codex 0.160.0 commands, opened, read as its transcript", async () => {
 	} finally { shutdown(harness); }
 });
 
-test("Codex 0.160.0 exploration folds reads, searches, and listings into one group", async () => {
+test("Codex 0.165.0 exploration folds reads, searches, and listings into one group", async () => {
 	const harness = await loadExtension({ style: "codex" }, { tui: true, idle: true });
 	try {
 		harness.chat.children = [
@@ -141,7 +141,7 @@ test("Codex 0.160.0 exploration folds reads, searches, and listings into one gro
 		];
 		const failed = harness.chat.render(PI_WIDTH);
 		assert.deepEqual(drawn(failed), asPi([
-			"• Explored · 3 failed", "  └ Search missing in src (exit 1)", "    Read gone.txt (exit 2)", "    Read nope.txt (exit 1)", "    + Show details",
+			"• Explored · 3 nonzero exits", "  └ Search missing in src (exit 1)", "    Read gone.txt (exit 2)", "    Read nope.txt (exit 1)", "    + Show details",
 		]));
 		const colorOf = (line: string, part: string) => {
 			const drawnLine = failed.find((each) => stripTerminalSequences(each).includes(line))!;
@@ -154,7 +154,7 @@ test("Codex 0.160.0 exploration folds reads, searches, and listings into one gro
 	} finally { shutdown(harness); }
 });
 
-test("Codex 0.160.0 exploration opens to each call's transcript, closed from one '− Show less'", async () => {
+test("Codex 0.165.0 exploration opens to each call's transcript, closed from one '− Show less'", async () => {
 	const harness = await loadExtension({ style: "codex" }, { tui: true, idle: true });
 	try {
 		const rows = [
@@ -213,7 +213,7 @@ test("a command that writes or runs something keeps its own row, in Codex's styl
 	}
 });
 
-test("Codex 0.160.0 exploration reads 'Exploring' while a call runs, with the bullet pulsing", async () => {
+test("Codex 0.165.0 exploration reads 'Exploring' while a call runs, with the bullet pulsing", async () => {
 	const harness = await loadExtension({ style: "codex" }, { tui: true, idle: false });
 	try {
 		const id = `codex-running-${++sequence}`;
@@ -237,7 +237,7 @@ test("Codex 0.160.0 exploration reads 'Exploring' while a call runs, with the bu
 	} finally { shutdown(harness); }
 });
 
-test("Codex 0.160.0 commands read 'Running' with the tail of their live output, then 'Ran'", async () => {
+test("Codex 0.165.0 commands read 'Running' with the tail of their live output, then 'Ran'", async () => {
 	const harness = await loadExtension({ style: "codex" }, { tui: true, idle: false });
 	try {
 		const id = `codex-live-${++sequence}`;
@@ -265,7 +265,7 @@ const editResult = () => text("Successfully replaced 1 block(s) in src/app.ts.",
 	patch: generateUnifiedPatch("src/app.ts", OLD_FILE, NEW_FILE),
 });
 
-test("Codex 0.160.0 patches preview their changed lines and open to the whole diff", async () => {
+test("Codex 0.165.0 patches preview their changed lines and open to the whole diff", async () => {
 	const harness = await loadExtension({ style: "codex" }, { tui: true, idle: true });
 	try {
 		const edit = finished(harness, "edit", { path: "src/app.ts", edits: [{ oldText: "Hello", newText: "Hi" }] }, editResult());
@@ -295,7 +295,7 @@ test("Codex 0.160.0 patches preview their changed lines and open to the whole di
 	} finally { shutdown(harness); }
 });
 
-test("Codex 0.160.0 patches in progress and failed name their file", async () => {
+test("Codex 0.165.0 patches in progress and failed name their file", async () => {
 	const harness = await loadExtension({ style: "codex" }, { tui: true, idle: false });
 	try {
 		const id = `codex-editing-${++sequence}`;
@@ -363,17 +363,71 @@ test("lone reads, searches, and listings head their rows with Codex's exploratio
 	} finally { shutdown(harness); }
 });
 
-test("Codex bullets are Codex's: green and red once settled, dim on a patch, never Pi's own dot", async () => {
+test("Codex bullets are Codex's: green on success, neutral on shell exit, dim on a patch, never Pi's own dot", async () => {
 	const harness = await loadExtension({ style: "codex" }, { tui: true, idle: true });
 	try {
 		const bulletOf = (lines: string[]) => lines.find((line) => line.includes("•"))!;
 		const ok = bulletOf(bash(harness, "true", "ok").render(100));
 		const bad = bulletOf(bash(harness, "false", "Command exited with code 1", true).render(100));
+		const custom = bulletOf(finished(harness, "web_search", {}, text("unavailable"), true).render(100));
+		const unknown = bulletOf(bash(harness, "sleep 10", "Command aborted", true).render(100));
 		const patch = bulletOf(finished(harness, "edit", { path: "src/app.ts", edits: [] }, editResult()).render(100));
 		assert.ok(ok.includes(theme.fg("success", "•")), "a command that succeeded");
-		assert.ok(bad.includes(theme.fg("error", "•")), "a command that failed");
+		assert.ok(bad.includes(theme.bold("•")), "a nonzero shell exit is bold without a color");
+		assert.ok(!bad.includes(theme.fg("error", "•")), "compact shell exits are not red");
+		assert.ok(custom.includes(theme.fg("error", "•")), "a custom tool failure stays red (mcp_preview.rs)");
+		assert.ok(unknown.includes(theme.fg("error", "•")), "Pi's failure without an exit code stays red");
+		assert.equal(stripTerminalSequences(unknown), " • Failed sleep 10", "do not invent an exit status");
 		assert.ok(patch.includes(theme.fg("dim", "•")), "a patch");
-		for (const line of [ok, bad, patch]) assert.ok(!line.includes("⦁"), "never Pi's own dot");
+		for (const line of [ok, bad, custom, unknown, patch]) assert.ok(!line.includes("⦁"), "never Pi's own dot");
+	} finally { shutdown(harness); }
+});
+
+test("compact disclosure measures the Exited title and counts clipped tail lines", async () => {
+	const harness = await loadExtension({ style: "codex" }, { tui: true, idle: true });
+	try {
+		const failed = bash(harness, "false", "Command exited with code 7", true);
+		const header = " • Exited (status 7) false";
+		failed.setExpanded(true);
+		assert.deepEqual(drawn(failed.render(visibleWidth(header))), [header, "   └ (no output)"]);
+		assert.equal(drawn(failed.render(visibleWidth(header) - 1))[0], " $ false", "a clipped title can open");
+		const long = "x".repeat(40);
+		const tail = bash(harness, "printf output", `hidden 1\nhidden 2\n${long}\nok\n${long}`);
+		assert.deepEqual(drawn(tail.render(25)), [
+			" • Ran printf output", `   └ ${"x".repeat(19)}…`, "     ok", `     ${"x".repeat(19)}…`, "     + 4 lines",
+		]);
+		const multiline = bash(harness, "echo first\necho second", "first\nsecond");
+		assert.deepEqual(drawn(multiline.render(100)), [" • Ran echo first …", "   └ first", "     second", "     + Show details"]);
+		multiline.setExpanded(true);
+		assert.deepEqual(drawn(multiline.render(100)), [" $ echo first", "     echo second", " first", " second", " ✓ • 0ms", "     − Show less"]);
+		const custom = finished(harness, "web_search", {}, text("hidden\nlast 1\nlast 2\nlast 3"), true);
+		assert.deepEqual(drawn(custom.render(100)), [" • Failed web_search", "   └ last 1", "     last 2", "     last 3", "     + Show details"],
+			"a long custom failure keeps the last three lines without an invented Error prefix");
+	} finally { shutdown(harness); }
+});
+
+test("Codex exploration separates neutral numeric exits from red Pi failures", async () => {
+	const harness = await loadExtension({ style: "codex" }, { tui: true, idle: true });
+	try {
+		const numeric = bash(harness, "rg missing src", "Command exited with code 1", true);
+		const numeric2 = finished(harness, "powershell", { command: "cat gone.txt" }, text("Command exited with code 2"), true);
+		const ok = finished(harness, "read", { path: "ok.ts" }, text("ok"));
+		const readError = finished(harness, "read", { path: "gone.ts" }, text("ENOENT"), true);
+		const grepError = finished(harness, "grep", { pattern: "x" }, text("Command exited with code 2"), true);
+		const aborted = bash(harness, "cat aborted.txt", "Command aborted", true);
+		const header = (rows: unknown[]) => {
+			harness.chat.children = rows;
+			return harness.chat.render(PI_WIDTH).find((line) => stripTerminalSequences(line).includes("• Explored"))!;
+		};
+		const singular = header([numeric, ok]);
+		assert.equal(stripTerminalSequences(singular), " • Explored · 1 nonzero exit");
+		assert.ok(singular.includes(theme.bold(" · 1 nonzero exit")), "numeric exit count is bold and neutral, including search exit 1");
+		assert.equal(stripTerminalSequences(header([numeric, numeric2])), " • Explored · 2 nonzero exits");
+		const mixed = header([numeric, readError, grepError, aborted]);
+		assert.equal(stripTerminalSequences(mixed), " • Explored · 1 nonzero exit · 3 failed");
+		assert.ok(mixed.includes(theme.bold(" · 1 nonzero exit")));
+		assert.ok(mixed.includes(theme.bold(theme.fg("error", " · 3 failed"))), "unknown and dedicated-tool failures stay red");
+		assert.equal(stripTerminalSequences(header([readError, aborted])), " • Explored · 2 failed", "unknown failures never imply a nonzero exit");
 	} finally { shutdown(harness); }
 });
 

@@ -223,8 +223,11 @@ export function renderCodexCall(
 		return `${dot}|${current}|${outcome?.exitCode ?? ""}|${outcome?.changes?.added ?? ""}/${outcome?.changes?.removed ?? ""}|${opened(width)}`;
 	}, (width) => {
 		const phase = settled(current);
+		// 0.165.0 compact.rs leaves a shell's nonzero-exit marker neutral; MCP failures stay red.
+		// Pi failures without an exit code retain their explicit Failed title and error color.
 		const bullet = phase === "success" ? theme.bold(theme.fg("success", CODEX_BULLET))
-			: phase === "error" ? theme.bold(theme.fg("error", CODEX_BULLET)) : dot;
+			: phase === "error" ? theme.bold(kind === "shell" && state.codex?.exitCode !== undefined
+				? CODEX_BULLET : theme.fg("error", CODEX_BULLET)) : dot;
 		const head = (verb: string, rest: string) => `${CODEX_MARGIN}${bullet} ${theme.bold(verb)}${rest ? ` ${rest}` : ""}`;
 		if (kind === "shell") {
 			if (opened(width)) {
@@ -235,7 +238,7 @@ export function renderCodexCall(
 					.map((row, position) => index === 0 && position === 0 ? `${CODEX_MARGIN}${prompt}${paintSegments(row, theme)}` : `${CODEX_COMMAND_INDENT}${paintSegments(row, theme)}`));
 			}
 			const exitCode = state.codex?.exitCode;
-			const verb = phase === "error" && exitCode !== undefined ? `Failed (exit ${exitCode})` : VERBS.shell[phase];
+			const verb = phase === "error" && exitCode !== undefined ? `Exited (status ${exitCode})` : VERBS.shell[phase];
 			// Painted as it is drawn, so a theme switched since the row was made colors it too.
 			return [clip(head(verb, paintSegments(segments[0] ?? [], theme) + (segments.length > 1 ? " …" : "")), width)];
 		}
@@ -321,7 +324,7 @@ function dimDisclosure(theme: Theme, width: number, expanded: boolean, hidden?: 
 function shellVerb(isPartial: boolean, isError: boolean, exitCode: number | undefined): string {
 	if (isPartial) return VERBS.shell.running;
 	if (!isError) return VERBS.shell.success;
-	return exitCode !== undefined ? `Failed (exit ${exitCode})` : VERBS.shell.error;
+	return exitCode !== undefined ? `Exited (status ${exitCode})` : VERBS.shell.error;
 }
 
 /** Whether a command's collapsed head hides part of it: a second line, or a first line too wide for the row. */

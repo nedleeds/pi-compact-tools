@@ -19,6 +19,7 @@ import {
 	exploreLines,
 	openExplorations,
 	paintSegments,
+	shellOutcome,
 	wrapSegments,
 	type ExploreAction,
 	type Segment,
@@ -169,6 +170,7 @@ type HeaderCache = {
 	paint: string;
 	width: number;
 	expanded: boolean;
+	hostExpanded: boolean;
 	rows: readonly ToolRowLike[];
 	args: unknown[];
 	results: unknown[];
@@ -184,7 +186,8 @@ type Paint = { theme: Theme; chrome: (text: string) => string; key: string };
 const PAINT_COLORS = ["toolTitle", "error", "success", "muted", "dim", "text", "borderMuted", "accent"] as const;
 
 function headerStill(cache: HeaderCache, rows: readonly ToolRowLike[], paint: string, width: number, expanded: boolean): boolean {
-	if (cache.paint !== paint || cache.width !== width || cache.expanded !== expanded || cache.rows.length !== rows.length) return false;
+	if (cache.paint !== paint || cache.width !== width || cache.expanded !== expanded
+		|| cache.hostExpanded !== rows[0]?.expanded || cache.rows.length !== rows.length) return false;
 	return rows.every((row, index) => row === cache.rows[index] && row.args === cache.args[index]
 		&& row.result === cache.results[index]);
 }
@@ -389,6 +392,7 @@ export class ToolGroupController {
 			paint: paint.key,
 			width,
 			expanded,
+			hostExpanded: rows[0]!.expanded,
 			rows: [...rows],
 			args: rows.map((row) => row.args),
 			results: rows.map((row) => row.result),
@@ -397,13 +401,12 @@ export class ToolGroupController {
 		return lines;
 	}
 
-	/**
-	 * A group's line reads like any other row: its status dot, then what it did in
-	 * the title style. While it runs the dot pulses and the line below names what it
-	 * looks at.
-	 */
+	/** Claude's quiet completed exploration; active and interrupted calls keep a status cue. */
 	private draw(rows: readonly ToolRowLike[], width: number, expanded: boolean, paint: Paint): string[] {
 		if (this.runtime.config.style === "codex") return this.drawCodex(rows, width, expanded, paint);
+		// Ctrl+O replaces the summary with individual calls, as Claude's transcript
+		// does. A locally clicked group retains its header as a collapse target.
+		if (expanded && rows[0]?.expanded) return [];
 		const { theme, chrome } = paint;
 		const fit = (line: string) => truncateToWidth(line, Math.max(1, width), "…");
 		const running = lastRunning(rows, this.canRun);
@@ -411,10 +414,12 @@ export class ToolGroupController {
 		// A call that waits for a result it will never get leaves the group waiting too.
 		const status: RowStatus = running ? "running" : statuses.includes("error") ? "error"
 			: statuses.includes("pending") ? "pending" : "success";
-		const summary = summarizeGroup(rows, undefined, this.canRun);
-		let title = ` ${paintIndicator(theme, status, this.runtime.frame)} ${theme.fg("toolTitle", theme.bold(summary))}`;
+		const summary = summarizeGroup(rows, (count) => theme.bold(count), this.canRun);
+		let title = status === "success"
+			? `   ${chrome(summary)}`
+			: ` ${paintIndicator(theme, status, this.runtime.frame)} ${theme.fg("toolTitle", summary)}`;
 		if (running) {
-			// The folded row is not drawn, so the line that pulses for it keeps the clock going.
+			// The folded row is not drawn, so its group keeps the animation clock going.
 			this.runtime.keepAnimating(running.toolCallId);
 			const started = this.runtime.timing(running.toolCallId)?.startedAt;
 			const elapsed = started === undefined ? 0 : Date.now() - started;
@@ -441,8 +446,18 @@ export class ToolGroupController {
 		if (running) this.runtime.keepAnimating(running.toolCallId);
 		const bullet = running ? paintIndicator(theme, "running", this.runtime.frame, CODEX_BULLET)
 			: statuses.includes("pending") ? paintIndicator(theme, "pending", 0, CODEX_BULLET) : theme.fg("dim", CODEX_BULLET);
-		const failed = statuses.filter((status) => status === "error").length;
+		let nonzeroExits = 0;
+		let failed = 0;
+		rows.forEach((row, index) => {
+			if (!row.result || row.isPartial) return;
+			const exitCode = row.toolName === "bash" || row.toolName === "powershell"
+				? shellOutcome(getTextResult(row.result)).exitCode : undefined;
+			if (exitCode !== undefined) {
+				if (exitCode !== 0) nonzeroExits++;
+			} else if (statuses[index] === "error") failed++;
+		});
 		let head = `${CODEX_MARGIN}${bullet} ${theme.bold(running ? "Exploring" : "Explored")}`;
+		if (nonzeroExits > 0) head += theme.bold(` · ${nonzeroExits} ${nonzeroExits === 1 ? "nonzero exit" : "nonzero exits"}`);
 		if (failed > 0) head += theme.bold(theme.fg("error", ` · ${failed} failed`));
 		// Opened, Codex lists the calls themselves in place of the summary; each brings its own blank line.
 		if (expanded) return [];

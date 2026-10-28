@@ -224,7 +224,8 @@ export function prefixedSentence(text: string, firstPrefix: string, continuation
  * rather than lines are counted: collapsed, `maxRows` show, all of them when only
  * one more would be hidden, then an optional completion and `more(hidden)`.
  * Claude Code wraps ten columns short of the terminal, so previews break where
- * its own do. Completion rows never count toward the output-preview limit.
+ * its own do. `fromEnd` follows a running command's tail and reports even a single
+ * hidden row. Completion rows never count toward the output-preview limit.
  */
 export function claudeRows(
 	lines: readonly string[],
@@ -233,14 +234,15 @@ export function claudeRows(
 	maxRows: number | undefined,
 	more: (hidden: number) => string,
 	completion?: Component,
+	fromEnd = false,
 ): Component {
 	const prefixWidth = Math.max(visibleWidth(firstPrefix), visibleWidth(continuationPrefix));
 	return new CachedComponent((width) => {
 		const available = Math.max(1, width - prefixWidth);
 		const wrapWidth = maxRows === undefined ? available : Math.min(available, Math.max(width - 10, 10));
 		let rows = lines.flatMap((line) => hardWrapTextWithAnsi(line, wrapWidth).map((row) => row.trimEnd()));
-		const hidden = maxRows !== undefined && rows.length > maxRows + 1 ? rows.length - maxRows : 0;
-		if (hidden) rows = rows.slice(0, maxRows);
+		const hidden = maxRows !== undefined && rows.length > maxRows + (fromEnd ? 0 : 1) ? rows.length - maxRows : 0;
+		if (hidden && maxRows !== undefined) rows = fromEnd ? rows.slice(-maxRows) : rows.slice(0, maxRows);
 		const rendered = rows.map((row, index) => `${index === 0 ? firstPrefix : continuationPrefix}${row}`);
 		if (completion) rendered.push(...completion.render(width));
 		if (hidden) rendered.push((rendered.length ? continuationPrefix : firstPrefix) + truncateToWidth(more(hidden), available, "…"));

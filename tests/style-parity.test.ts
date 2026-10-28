@@ -77,9 +77,9 @@ for (const [styleName, config] of Object.entries(STYLES)) {
 					// Opened, a command with more than its preview reads `$ cmd` as Codex's transcript does, with no bullet;
 					// a one-line failure has nothing more and keeps its preview.
 					const commandOpened = expanded && !failed;
-					if (!commandOpened) assert.equal(dotOf(c), dotOf(b), `${at}: settled dot`);
+					if (!commandOpened && !failed) assert.equal(dotOf(c), dotOf(b), `${at}: settled dot`);
 					assert.match(plain(c[1]!), failed ? /^ • Failed web_search/u : /^ • Called web_search/u, at);
-					assert.match(plain(b[1]!), commandOpened ? /^ \$ cd \/project/u : failed ? /^ • Failed \(exit 1\) cd/u : /^ • Ran cd/u, at);
+					assert.match(plain(b[1]!), commandOpened ? /^ \$ cd \/project/u : failed ? /^ • Exited \(status 1\) cd/u : /^ • Ran cd/u, at);
 					// Collapsed, what follows the call hangs from "└" four columns in, and the control reads the same way.
 					if (!expanded) {
 						for (const lines of [b, c]) {
@@ -230,8 +230,9 @@ for (const [styleName, config] of Object.entries(STYLES)) {
 				assert.deepEqual(shown.filter((line) => line.includes("•")).map((line) => line.split(" ").slice(0, 4).join(" ")),
 					[" • Explored", " • Called web_search", " • Running cd"]);
 			} else {
-				assert.deepEqual(calls.map((line) => line.replace(/\(.*$/u, "(")),
-					[" ⦁ Searched for 1 pattern, read 1 file (", " ⦁ web_search(", " ⦁ Bash("]);
+				assert.deepEqual(shown.filter((line) => line.includes("⦁") || line.startsWith("   Searched for"))
+					.map((line) => line.replace(/\(.*$/u, "(")),
+					["   Searched for 1 pattern, read 1 file (", " ⦁ web_search(", " ⦁ Bash("]);
 			}
 			const asked = harness.requestRenders();
 			for (let frame = 0; frame < 3; frame++) {

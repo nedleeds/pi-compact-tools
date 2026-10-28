@@ -47,7 +47,7 @@ import {
 	styleMultiline,
 	WithinWidth,
 } from "./compact-tools-layout.ts";
-import { CLAUDE_DIFF_CONTEXT_LINES, CLAUDE_INDENT, CLAUDE_OUTPUT_ROWS, CLAUDE_RESULT_PREFIX, CLAUDE_TITLE_INDENT, CLAUDE_WRITE_ROWS, claudeFailure, claudeOutcome, claudeTitle } from "./compact-tools-claude.ts";
+import { CLAUDE_DIFF_CONTEXT_LINES, CLAUDE_INDENT, CLAUDE_OUTPUT_ROWS, CLAUDE_RESULT_PREFIX, CLAUDE_RUNNING_OUTPUT_ROWS, CLAUDE_TITLE_INDENT, CLAUDE_WRITE_ROWS, claudeFailure, claudeOutcome, claudeTitle } from "./compact-tools-claude.ts";
 import { CODEX_BULLET, CODEX_INDENT } from "./compact-tools-codex.ts";
 import { NestedCallSummaries } from "./compact-tools-nested.ts";
 import { renderCodexCall, renderCodexResult } from "./compact-tools-codex-rows.ts";
@@ -326,7 +326,7 @@ function claudeOutput(output: string, expanded: boolean, theme: Theme, isError: 
 /**
  * What Claude Code draws beneath a finished call: an edit's every hunk, a write's
  * first rows, the author's view of a custom tool once opened, and otherwise
- * nothing until the row is opened.
+ * nothing until the row is opened. Read stays counts-only even when opened.
  */
 function claudeBody(
 	name: string,
@@ -351,7 +351,7 @@ function claudeBody(
 	}
 	// A command's output is already the result line itself.
 	const kind = rowKind(name);
-	if (!expanded || kind === "shell") return undefined;
+	if (!expanded || kind === "shell" || name === "read") return undefined;
 	if (kind === "custom") return author ? renderRowBody(name, args, result, output, true, theme, false, author, CLAUDE_INDENT) : undefined;
 	return renderFileBody(name, args, result, output, true, theme, false, CLAUDE_INDENT);
 }
@@ -377,22 +377,23 @@ function renderClaudeResult(
 	// One line under the call, wrapped rather than cut to the row.
 	const line = (text: string) => prefixedSentence(text, chrome(CLAUDE_RESULT_PREFIX), CLAUDE_INDENT);
 	if (options.isPartial) {
-		container.addChild(line(chrome("Running…")));
+		const partial = normalizeLineEndings(output).trimEnd();
+		if (rowKind(name) === "shell" && partial && partial !== "(no output)") {
+			container.addChild(claudeRows(partial.split("\n").map((row) => theme.fg("toolOutput", row)),
+				chrome(CLAUDE_RESULT_PREFIX), CLAUDE_INDENT, expanded ? undefined : CLAUDE_RUNNING_OUTPUT_ROWS,
+				(hidden) => chrome(`+${hidden} lines`), undefined, true));
+		} else container.addChild(line(chrome("Running…")));
 		return container;
 	}
 	if (isError) {
-		const failure = claudeFailure(name, output);
-		// A command's output says why beneath its exit code; another tool's message is
-		// shortened to one line, and a click shows it whole in its place.
+		const failure = claudeFailure(name, output, expanded);
+		// Expansion reveals diagnostics, never Pi's transport-only shell status.
+		// A non-shell failure keeps its full message in place once opened. Each
+		// logical line needs its own color: Pi resets terminal styling per row.
+		container.addChild(line(styleMultiline(failure.headline, (row) => theme.fg("error", row))));
 		if (failure.detail) {
-			container.addChild(line(theme.fg("error", failure.headline)));
 			container.addChild(claudeOutput(failure.detail, expanded, theme, true, "", CLAUDE_INDENT, completion));
-		} else if (expanded && output.trim()) {
-			container.addChild(claudeOutput(`Error: ${output.trim()}`, true, theme, true, "", chrome(CLAUDE_RESULT_PREFIX), completion));
-		} else {
-			container.addChild(line(theme.fg("error", failure.headline)));
-			if (completion) container.addChild(completion);
-		}
+		} else if (completion) container.addChild(completion);
 		return container;
 	}
 	const body = claudeBody(name, args, result, output, expanded, theme, author);

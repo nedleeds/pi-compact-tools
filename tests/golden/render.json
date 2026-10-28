@@ -2805,64 +2805,11 @@
 	],
 	"claude/read/done/open/100": [
 		" {success}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
-		"{174;210;123}   ⎿  {/}{toolOutput}Read {b}25{/b} lines{/}",
-		"      {toolDiffContext}  1 {/}line {181;206;168}1{/}",
-		"      {toolDiffContext}  2 {/}line {181;206;168}2{/}",
-		"      {toolDiffContext}  3 {/}line {181;206;168}3{/}",
-		"      {toolDiffContext}  4 {/}line {181;206;168}4{/}",
-		"      {toolDiffContext}  5 {/}line {181;206;168}5{/}",
-		"      {toolDiffContext}  6 {/}line {181;206;168}6{/}",
-		"      {toolDiffContext}  7 {/}line {181;206;168}7{/}",
-		"      {toolDiffContext}  8 {/}line {181;206;168}8{/}",
-		"      {toolDiffContext}  9 {/}line {181;206;168}9{/}",
-		"      {toolDiffContext} 10 {/}line {181;206;168}10{/}",
-		"      {toolDiffContext} 11 {/}line {181;206;168}11{/}",
-		"      {toolDiffContext} 12 {/}line {181;206;168}12{/}",
-		"      {toolDiffContext} 13 {/}line {181;206;168}13{/}",
-		"      {toolDiffContext} 14 {/}line {181;206;168}14{/}",
-		"      {toolDiffContext} 15 {/}line {181;206;168}15{/}",
-		"      {toolDiffContext} 16 {/}line {181;206;168}16{/}",
-		"      {toolDiffContext} 17 {/}line {181;206;168}17{/}",
-		"      {toolDiffContext} 18 {/}line {181;206;168}18{/}",
-		"      {toolDiffContext} 19 {/}line {181;206;168}19{/}",
-		"      {toolDiffContext} 20 {/}line {181;206;168}20{/}",
-		"      {toolDiffContext} 21 {/}line {181;206;168}21{/}",
-		"      {toolDiffContext} 22 {/}line {181;206;168}22{/}",
-		"      {toolDiffContext} 23 {/}line {181;206;168}23{/}",
-		"      {toolDiffContext} 24 {/}line {181;206;168}24{/}",
-		"      {toolDiffContext} 25 {/}line {181;206;168}25{/}",
-		"      {dim}[Showing lines 1-25 of 80. Use offset=26 to continue.]{/}"
+		"{174;210;123}   ⎿  {/}{toolOutput}Read {b}25{/b} lines{/}"
 	],
 	"claude/read/done/open/44": [
 		" {success}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
-		"{174;210;123}   ⎿  {/}{toolOutput}Read {b}25{/b} lines{/}",
-		"      {toolDiffContext}  1 {/}line {181;206;168}1{/}",
-		"      {toolDiffContext}  2 {/}line {181;206;168}2{/}",
-		"      {toolDiffContext}  3 {/}line {181;206;168}3{/}",
-		"      {toolDiffContext}  4 {/}line {181;206;168}4{/}",
-		"      {toolDiffContext}  5 {/}line {181;206;168}5{/}",
-		"      {toolDiffContext}  6 {/}line {181;206;168}6{/}",
-		"      {toolDiffContext}  7 {/}line {181;206;168}7{/}",
-		"      {toolDiffContext}  8 {/}line {181;206;168}8{/}",
-		"      {toolDiffContext}  9 {/}line {181;206;168}9{/}",
-		"      {toolDiffContext} 10 {/}line {181;206;168}10{/}",
-		"      {toolDiffContext} 11 {/}line {181;206;168}11{/}",
-		"      {toolDiffContext} 12 {/}line {181;206;168}12{/}",
-		"      {toolDiffContext} 13 {/}line {181;206;168}13{/}",
-		"      {toolDiffContext} 14 {/}line {181;206;168}14{/}",
-		"      {toolDiffContext} 15 {/}line {181;206;168}15{/}",
-		"      {toolDiffContext} 16 {/}line {181;206;168}16{/}",
-		"      {toolDiffContext} 17 {/}line {181;206;168}17{/}",
-		"      {toolDiffContext} 18 {/}line {181;206;168}18{/}",
-		"      {toolDiffContext} 19 {/}line {181;206;168}19{/}",
-		"      {toolDiffContext} 20 {/}line {181;206;168}20{/}",
-		"      {toolDiffContext} 21 {/}line {181;206;168}21{/}",
-		"      {toolDiffContext} 22 {/}line {181;206;168}22{/}",
-		"      {toolDiffContext} 23 {/}line {181;206;168}23{/}",
-		"      {toolDiffContext} 24 {/}line {181;206;168}24{/}",
-		"      {toolDiffContext} 25 {/}line {181;206;168}25{/}",
-		"      {dim}[Showing lines 1-25 of 80. Use{/}",
-		"      {dim}offset=26 to continue.]{/}"
+		"{174;210;123}   ⎿  {/}{toolOutput}Read {b}25{/b} lines{/}"
 	],
 	"claude/read/failed/closed/100": [
 		" {error}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
@@ -2879,8 +2826,8 @@
 	],
 	"claude/read/failed/open/44": [
 		" {error}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
-		"{174;210;123}   ⎿  {/}{error}Error: ENOENT: no such file or directo",
-		"      {error}ry, access 'src/app.ts'{/}"
+		"{174;210;123}   ⎿  {/}{error}Error: ENOENT: no such file or",
+		"      {error}directory, access 'src/app.ts'{/}"
 	],
 	"claude/read@offset/running/closed/100": [
 		" {134;73;167}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
@@ -2891,11 +2838,11 @@
 		"{174;210;123}   ⎿  {/}{174;210;123}Running…{/}"
 	],
 	"claude/read@offset/running/open/100": [
-		" {134;73;167}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
+		" {134;73;167}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts · lines 40-42){/}",
 		"{174;210;123}   ⎿  {/}{174;210;123}Running…{/}"
 	],
 	"claude/read@offset/running/open/44": [
-		" {134;73;167}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
+		" {134;73;167}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts · lines 40-42){/}",
 		"{174;210;123}   ⎿  {/}{174;210;123}Running…{/}"
 	],
 	"claude/read@offset/done/closed/100": [
@@ -2907,18 +2854,12 @@
 		"{174;210;123}   ⎿  {/}{toolOutput}Read {b}3{/b} lines{/}"
 	],
 	"claude/read@offset/done/open/100": [
-		" {success}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
-		"{174;210;123}   ⎿  {/}{toolOutput}Read {b}3{/b} lines{/}",
-		"      {toolDiffContext} 40 {/}{86;156;214}const{/} a = {181;206;168}1{/};",
-		"      {toolDiffContext} 41 {/}{86;156;214}const{/} b = {181;206;168}2{/};",
-		"      {toolDiffContext} 42 {/}{86;156;214}export{/} { a, b };"
+		" {success}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts · lines 40-42){/}",
+		"{174;210;123}   ⎿  {/}{toolOutput}Read {b}3{/b} lines{/}"
 	],
 	"claude/read@offset/done/open/44": [
-		" {success}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
-		"{174;210;123}   ⎿  {/}{toolOutput}Read {b}3{/b} lines{/}",
-		"      {toolDiffContext} 40 {/}{86;156;214}const{/} a = {181;206;168}1{/};",
-		"      {toolDiffContext} 41 {/}{86;156;214}const{/} b = {181;206;168}2{/};",
-		"      {toolDiffContext} 42 {/}{86;156;214}export{/} { a, b };"
+		" {success}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts · lines 40-42){/}",
+		"{174;210;123}   ⎿  {/}{toolOutput}Read {b}3{/b} lines{/}"
 	],
 	"claude/read@offset/failed/closed/100": [
 		" {error}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
@@ -2930,11 +2871,11 @@
 		"      {error}(12 lines total){/}"
 	],
 	"claude/read@offset/failed/open/100": [
-		" {error}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
+		" {error}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts · lines 40-42){/}",
 		"{174;210;123}   ⎿  {/}{error}Error: Offset 40 is beyond end of file (12 lines total){/}"
 	],
 	"claude/read@offset/failed/open/44": [
-		" {error}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts){/}",
+		" {error}⦁{/} {toolTitle}{b}Read{/b}{/}{toolOutput}(src/app.ts · lines 40-42){/}",
 		"{174;210;123}   ⎿  {/}{error}Error: Offset 40 is beyond end of file",
 		"      {error}(12 lines total){/}"
 	],
@@ -3163,10 +3104,10 @@
 	],
 	"claude/edit/failed/open/44": [
 		" {error}⦁{/} {toolTitle}{b}Update{/b}{/}{toolOutput}(app.ts){/}",
-		"{174;210;123}   ⎿  {/}{error}Error: Could not find the exact text i",
-		"      {error}n app.ts. The old text must match exac",
-		"      {error}tly including all whitespace and newli",
-		"      {error}nes.{/}"
+		"{174;210;123}   ⎿  {/}{error}Error: Could not find the exact text",
+		"      {error}in app.ts. The old text must match",
+		"      {error}exactly including all whitespace and",
+		"      {error}newlines.{/}"
 	],
 	"claude/edit@large/running/closed/100": [
 		" {134;73;167}⦁{/} {toolTitle}{b}Update{/b}{/}{toolOutput}(big.txt){/}",
@@ -3376,24 +3317,33 @@
 	],
 	"claude/edit@large/failed/open/44": [
 		" {error}⦁{/} {toolTitle}{b}Update{/b}{/}{toolOutput}(big.txt){/}",
-		"{174;210;123}   ⎿  {/}{error}Error: Found 20 occurrences of the tex",
-		"      {error}t in big.txt. The text must be unique."
+		"{174;210;123}   ⎿  {/}{error}Error: Found 20 occurrences of the",
+		"      {error}text in big.txt. The text must be",
+		"      {error}unique.{/}"
 	],
 	"claude/bash/running/closed/100": [
 		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(npm test){/}",
-		"{174;210;123}   ⎿  {/}{174;210;123}Running…{/}"
+		"{174;210;123}   ⎿  {/}{toolOutput}> test{/}",
+		"      {toolOutput}> node --test{/}",
+		"      {toolOutput}ok 1{/}"
 	],
 	"claude/bash/running/closed/44": [
 		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(npm test){/}",
-		"{174;210;123}   ⎿  {/}{174;210;123}Running…{/}"
+		"{174;210;123}   ⎿  {/}{toolOutput}> test{/}",
+		"      {toolOutput}> node --test{/}",
+		"      {toolOutput}ok 1{/}"
 	],
 	"claude/bash/running/open/100": [
 		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(npm test){/}",
-		"{174;210;123}   ⎿  {/}{174;210;123}Running…{/}"
+		"{174;210;123}   ⎿  {/}{toolOutput}> test{/}",
+		"      {toolOutput}> node --test{/}",
+		"      {toolOutput}ok 1{/}"
 	],
 	"claude/bash/running/open/44": [
 		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(npm test){/}",
-		"{174;210;123}   ⎿  {/}{174;210;123}Running…{/}"
+		"{174;210;123}   ⎿  {/}{toolOutput}> test{/}",
+		"      {toolOutput}> node --test{/}",
+		"      {toolOutput}ok 1{/}"
 	],
 	"claude/bash/done/closed/100": [
 		" {success}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(npm test){/}",
@@ -3535,12 +3485,11 @@
 	],
 	"claude/bash@quiet/failed/open/100": [
 		" {error}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(true){/}",
-		"{174;210;123}   ⎿  {/}{error}Error: Command timed out after 5 seconds{/}"
+		"{174;210;123}   ⎿  {/}{error}Error: timed out after 5 seconds{/}"
 	],
 	"claude/bash@quiet/failed/open/44": [
 		" {error}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(true){/}",
-		"{174;210;123}   ⎿  {/}{error}Error: Command timed out after 5 secon",
-		"      {error}ds{/}"
+		"{174;210;123}   ⎿  {/}{error}Error: timed out after 5 seconds{/}"
 	],
 	"claude/bash@wide/running/closed/100": [
 		" {134;73;167}⦁{/} {toolTitle}{b}Bash{/b}{/}{toolOutput}(cat package.json | jq '.scripts' && echo 'a very long command that keeps going well past t",
@@ -3822,8 +3771,8 @@
 	],
 	"claude/grep/failed/open/44": [
 		" {error}⦁{/} {toolTitle}{b}Search{/b}{/}{toolOutput}(pattern: \"TODO\", path: \"src\"){/}",
-		"{174;210;123}   ⎿  {/}{error}Error: rg: src: No such file or direct",
-		"      {error}ory{/}"
+		"{174;210;123}   ⎿  {/}{error}Error: rg: src: No such file or",
+		"      {error}directory{/}"
 	],
 	"claude/find/running/closed/100": [
 		" {134;73;167}⦁{/} {toolTitle}{b}Search{/b}{/}{toolOutput}(pattern: \"*.ts\", path: \"src\"){/}",
@@ -4707,18 +4656,18 @@
 		"{dim}     − Show less{/}"
 	],
 	"codex/bash/failed/closed/100": [
-		" {b}{error}•{/}{/b} {b}Failed (exit 1){/b} {123;59;51}npm{/} test",
+		" {b}•{/b} {b}Exited (status 1){/b} {123;59;51}npm{/} test",
 		"{dim}   └ npm ERR! missing script: test{/}",
 		"{dim}     npm ERR! A complete log is in ~/.npm/_logs{/}"
 	],
 	"codex/bash/failed/closed/44": [
-		" {b}{error}•{/}{/b} {b}Failed (exit 1){/b} {123;59;51}npm{/} test",
+		" {b}•{/b} {b}Exited (status 1){/b} {123;59;51}npm{/} test",
 		"{dim}   └ npm ERR! missing script: test{/}",
 		"{dim}     npm ERR! A complete log is in ~/.npm/_{0}{dim}…{/}{0}",
 		"{dim}     + 1 line (ctrl+o to expand){/}"
 	],
 	"codex/bash/failed/open/100": [
-		" {b}{error}•{/}{/b} {b}Failed (exit 1){/b} {123;59;51}npm{/} test",
+		" {b}•{/b} {b}Exited (status 1){/b} {123;59;51}npm{/} test",
 		"{dim}   └ npm ERR! missing script: test{/}",
 		"{dim}     npm ERR! A complete log is in ~/.npm/_logs{/}"
 	],
@@ -4834,12 +4783,12 @@
 		"{dim}     − Show less{/}"
 	],
 	"codex/bash@wide/failed/closed/100": [
-		" {b}{error}•{/}{/b} {b}Failed (exit 5){/b} {123;59;51}cat{/} package.json {165;137;225}|{/} {123;59;51}jq{/} {210;184;192}'.scripts'{/} {165;137;225}&&{/} {123;59;51}echo{/} {210;184;192}'a very long command that keeps going w{0}…{0}",
+		" {b}•{/b} {b}Exited (status 5){/b} {123;59;51}cat{/} package.json {165;137;225}|{/} {123;59;51}jq{/} {210;184;192}'.scripts'{/} {165;137;225}&&{/} {123;59;51}echo{/} {210;184;192}'a very long command that keeps going{0}…{0}",
 		"{dim}   └ jq: error (at <stdin>:1): Cannot index string with \"scripts\"{/}",
 		"{dim}     + Show details{/}"
 	],
 	"codex/bash@wide/failed/closed/44": [
-		" {b}{error}•{/}{/b} {b}Failed (exit 5){/b} {123;59;51}cat{/} package.json {165;137;225}|{/} {123;59;51}jq{/} {210;184;192}'.{0}…{0}",
+		" {b}•{/b} {b}Exited (status 5){/b} {123;59;51}cat{/} package.json {165;137;225}|{/} {123;59;51}jq{/} {0}…{0}",
 		"{dim}   └ jq: error (at <stdin>:1): Cannot index{0}{dim}…{/}{0}",
 		"{dim}     + 1 line (ctrl+o to expand){/}"
 	],
@@ -4905,19 +4854,19 @@
 		"{dim}     − Show less{/}"
 	],
 	"codex/bash@four/failed/closed/100": [
-		" {b}{error}•{/}{/b} {b}Failed (exit 1){/b} {123;59;51}seq{/} {112;2;42}1{/} {112;2;42}4{/}",
+		" {b}•{/b} {b}Exited (status 1){/b} {123;59;51}seq{/} {112;2;42}1{/} {112;2;42}4{/}",
 		"{dim}   └ seq: invalid argument{/}"
 	],
 	"codex/bash@four/failed/closed/44": [
-		" {b}{error}•{/}{/b} {b}Failed (exit 1){/b} {123;59;51}seq{/} {112;2;42}1{/} {112;2;42}4{/}",
+		" {b}•{/b} {b}Exited (status 1){/b} {123;59;51}seq{/} {112;2;42}1{/} {112;2;42}4{/}",
 		"{dim}   └ seq: invalid argument{/}"
 	],
 	"codex/bash@four/failed/open/100": [
-		" {b}{error}•{/}{/b} {b}Failed (exit 1){/b} {123;59;51}seq{/} {112;2;42}1{/} {112;2;42}4{/}",
+		" {b}•{/b} {b}Exited (status 1){/b} {123;59;51}seq{/} {112;2;42}1{/} {112;2;42}4{/}",
 		"{dim}   └ seq: invalid argument{/}"
 	],
 	"codex/bash@four/failed/open/44": [
-		" {b}{error}•{/}{/b} {b}Failed (exit 1){/b} {123;59;51}seq{/} {112;2;42}1{/} {112;2;42}4{/}",
+		" {b}•{/b} {b}Exited (status 1){/b} {123;59;51}seq{/} {112;2;42}1{/} {112;2;42}4{/}",
 		"{dim}   └ seq: invalid argument{/}"
 	],
 	"codex/powershell/running/closed/100": [
@@ -4969,16 +4918,16 @@
 		"{dim}     − Show less{/}"
 	],
 	"codex/powershell/failed/closed/100": [
-		" {b}{error}•{/}{/b} {b}Failed (exit 1){/b} {123;59;51}Get-ChildItem{/} {212;78;54}-Path{/} src {165;137;225}|{/} {123;59;51}Select-Object{/} Name",
+		" {b}•{/b} {b}Exited (status 1){/b} {123;59;51}Get-ChildItem{/} {212;78;54}-Path{/} src {165;137;225}|{/} {123;59;51}Select-Object{/} Name",
 		"{dim}   └ Get-ChildItem: Cannot find path 'src'{/}"
 	],
 	"codex/powershell/failed/closed/44": [
-		" {b}{error}•{/}{/b} {b}Failed (exit 1){/b} {123;59;51}Get-ChildItem{/} {212;78;54}-Path{/} src {0}…{0}",
+		" {b}•{/b} {b}Exited (status 1){/b} {123;59;51}Get-ChildItem{/} {212;78;54}-Path{/} sr{0}…{0}",
 		"{dim}   └ Get-ChildItem: Cannot find path 'src'{/}",
 		"{dim}     + Show details{/}"
 	],
 	"codex/powershell/failed/open/100": [
-		" {b}{error}•{/}{/b} {b}Failed (exit 1){/b} {123;59;51}Get-ChildItem{/} {212;78;54}-Path{/} src {165;137;225}|{/} {123;59;51}Select-Object{/} Name",
+		" {b}•{/b} {b}Exited (status 1){/b} {123;59;51}Get-ChildItem{/} {212;78;54}-Path{/} src {165;137;225}|{/} {123;59;51}Select-Object{/} Name",
 		"{dim}   └ Get-ChildItem: Cannot find path 'src'{/}"
 	],
 	"codex/powershell/failed/open/44": [
@@ -5281,27 +5230,25 @@
 	],
 	"claude/group:finished/100": [
 		"",
-		" {success}⦁{/} {toolTitle}{b}Searched for 2 patterns, read 2 files, listed 1 directory{/b}{/}{174;210;123} (click to expand){/}",
+		"   {174;210;123}Searched for {b}2{/b} patterns, read {b}2{/b} files, listed {b}1{/b} directory{/}{174;210;123} (click to expand){/}",
 		"",
 		"ROW bash {\"command\":\"npm test\"}",
 		"",
-		" {success}⦁{/} {toolTitle}{b}Searched for 1 pattern{/b}{/}{174;210;123} (click to expand){/}",
+		"   {174;210;123}Searched for {b}1{/b} pattern{/}{174;210;123} (click to expand){/}",
 		"\\e]133;A\u0007",
 		"\\e]133;B\u0007\\e]133;C\u0007 All done.                                                                                          "
 	],
 	"claude/group:finished/44": [
 		"",
-		" {success}⦁{/} {toolTitle}{b}Searched for 2 patterns, read 2 files, l{0}…{0}",
+		"   {174;210;123}Searched for {b}2{/b} patterns, read {b}2{/b} files, l{0}…{0}",
 		"",
 		"ROW bash {\"command\":\"npm test\"}",
 		"",
-		" {success}⦁{/} {toolTitle}{b}Searched for 1 pattern{/b}{/}{174;210;123} (click to expand){/}",
+		"   {174;210;123}Searched for {b}1{/b} pattern{/}{174;210;123} (click to expand){/}",
 		"\\e]133;A\u0007",
 		"\\e]133;B\u0007\\e]133;C\u0007 All done.                                  "
 	],
 	"claude/group:finished/opened/100": [
-		"",
-		" {success}⦁{/} {toolTitle}{b}Searched for 2 patterns, read 2 files, listed 1 directory{/b}{/}",
 		"",
 		"ROW read {\"path\":\"a.ts\"}",
 		"",
@@ -5319,26 +5266,21 @@
 		"",
 		"ROW bash {\"command\":\"npm test\"}",
 		"",
-		" {success}⦁{/} {toolTitle}{b}Searched for 1 pattern{/b}{/}",
-		"",
 		"ROW find {\"pattern\":\"*.ts\"}",
 		"\\e]133;A\u0007",
 		"\\e]133;B\u0007\\e]133;C\u0007 All done.                                                                                          "
 	],
 	"claude/group:running/100": [
 		"",
-		" {134;73;167}⦁{/} {toolTitle}{b}Reading 1 file{/b}{/}…{174;210;123} (click to expand){/}",
+		" {134;73;167}⦁{/} {toolTitle}Reading {b}1{/b} file{/}…{174;210;123} (click to expand){/}",
 		"{174;210;123}   ⎿  $ cat long.log | tail -5{/}"
 	],
 	"claude/group:running/44": [
 		"",
-		" {134;73;167}⦁{/} {toolTitle}{b}Reading 1 file{/b}{/}…{174;210;123} (click to expand){/}",
+		" {134;73;167}⦁{/} {toolTitle}Reading {b}1{/b} file{/}…{174;210;123} (click to expand){/}",
 		"{174;210;123}   ⎿  $ cat long.log | tail -5{/}"
 	],
 	"claude/group:running/opened/100": [
-		"",
-		" {134;73;167}⦁{/} {toolTitle}{b}Reading 1 file{/b}{/}…",
-		"{174;210;123}   ⎿  $ cat long.log | tail -5{/}",
 		"",
 		"ROW read {\"path\":\"a.ts\"}",
 		"",
@@ -5346,17 +5288,15 @@
 	],
 	"claude/group:failed/100": [
 		"",
-		" {error}⦁{/} {toolTitle}{b}Read 2 files{/b}{/}{174;210;123} (click to expand){/}",
+		" {error}⦁{/} {toolTitle}Read {b}2{/b} files{/}{174;210;123} (click to expand){/}",
 		"{174;210;123}   ⎿  {/}{error}Error: ENOENT: gone{/}"
 	],
 	"claude/group:failed/44": [
 		"",
-		" {error}⦁{/} {toolTitle}{b}Read 2 files{/b}{/}{174;210;123} (click to expand){/}",
+		" {error}⦁{/} {toolTitle}Read {b}2{/b} files{/}{174;210;123} (click to expand){/}",
 		"{174;210;123}   ⎿  {/}{error}Error: ENOENT: gone{/}"
 	],
 	"claude/group:failed/opened/100": [
-		"",
-		" {error}⦁{/} {toolTitle}{b}Read 2 files{/b}{/}",
 		"",
 		"ROW read {\"path\":\"a.ts\"}",
 		"",
@@ -5364,33 +5304,29 @@
 	],
 	"claude/group:streaming/100": [
 		"",
-		" {134;73;167}⦁{/} {toolTitle}{b}Searching for 1 pattern{/b}{/}…{174;210;123} (click to expand){/}"
+		" {134;73;167}⦁{/} {toolTitle}Searching for {b}1{/b} pattern{/}…{174;210;123} (click to expand){/}"
 	],
 	"claude/group:streaming/44": [
 		"",
-		" {134;73;167}⦁{/} {toolTitle}{b}Searching for 1 pattern{/b}{/}…{174;210;123} (click to expan{0}…{0}"
+		" {134;73;167}⦁{/} {toolTitle}Searching for {b}1{/b} pattern{/}…{174;210;123} (click to expan{0}…{0}"
 	],
 	"claude/group:streaming/opened/100": [
-		"",
-		" {134;73;167}⦁{/} {toolTitle}{b}Searching for 1 pattern{/b}{/}…",
 		"",
 		"ROW grep {}"
 	],
 	"claude/group:exits/100": [
 		"",
-		" {error}⦁{/} {toolTitle}{b}Searched for 1 pattern, read 2 files{/b}{/}{174;210;123} (click to expand){/}",
+		" {error}⦁{/} {toolTitle}Searched for {b}1{/b} pattern, read {b}2{/b} files{/}{174;210;123} (click to expand){/}",
 		"{174;210;123}   ⎿  {/}{error}Error: Exit code 1{/}",
 		"{174;210;123}   ⎿  {/}{error}Error: Exit code 2{/}"
 	],
 	"claude/group:exits/44": [
 		"",
-		" {error}⦁{/} {toolTitle}{b}Searched for 1 pattern, read 2 files{/b}{/}{174;210;123} (cl{0}…{0}",
+		" {error}⦁{/} {toolTitle}Searched for {b}1{/b} pattern, read {b}2{/b} files{/}{174;210;123} (cl{0}…{0}",
 		"{174;210;123}   ⎿  {/}{error}Error: Exit code 1{/}",
 		"{174;210;123}   ⎿  {/}{error}Error: Exit code 2{/}"
 	],
 	"claude/group:exits/opened/100": [
-		"",
-		" {error}⦁{/} {toolTitle}{b}Searched for 1 pattern, read 2 files{/b}{/}",
 		"",
 		"ROW bash {\"command\":\"rg missing src\"}",
 		"",
@@ -5510,7 +5446,7 @@
 	],
 	"codex/group:exits/100": [
 		"",
-		" {dim}•{/} {b}Explored{/b}{b}{error} · 2 failed{/}{/b}",
+		" {dim}•{/} {b}Explored{/b}{b} · 2 nonzero exits{/b}",
 		"{dim}   └ {/}{accent}Search {/}missing{dim} in {/}src{dim} (exit 1){/}",
 		"{dim}     {/}{accent}Read {/}gone.txt{error} (exit 2){/}",
 		"{dim}     {/}{accent}Read {/}a.ts{dim}, {/}b.ts",
@@ -5518,7 +5454,7 @@
 	],
 	"codex/group:exits/44": [
 		"",
-		" {dim}•{/} {b}Explored{/b}{b}{error} · 2 failed{/}{/b}",
+		" {dim}•{/} {b}Explored{/b}{b} · 2 nonzero exits{/b}",
 		"{dim}   └ {/}{accent}Search {/}missing{dim} in {/}src{dim} (exit 1){/}",
 		"{dim}     {/}{accent}Read {/}gone.txt{error} (exit 2){/}",
 		"{dim}     {/}{accent}Read {/}a.ts{dim}, {/}b.ts",

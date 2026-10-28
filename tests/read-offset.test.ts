@@ -8,7 +8,7 @@ const CASES: Array<[unknown, number]> = [[11, 11], ["11", 11], [" 11 ", 11], [nu
 test("read offsets normalize historical numbers/strings, not null or malformed values", () => {
 	for (const [value, expected] of CASES) assert.equal(readStartLine(value), expected);
 });
-for (const style of ["compact", "claude"]) test(`${style}: expanded native rows number replayed read arguments correctly`, async () => {
+for (const style of ["compact", "claude"]) test(`${style}: expanded native rows render replayed read arguments correctly`, async () => {
 	const harness = await loadExtension({ style }, { idle: true });
 	try {
 		for (const [offset, start] of CASES) {
@@ -16,8 +16,16 @@ for (const style of ["compact", "claude"]) test(`${style}: expanded native rows 
 			row.updateResult({ ...text("const first = 1;\nconst second = 2;"), isError: false } as never);
 			row.setExpanded(true);
 			const output = row.render(100).map(stripTerminalSequences).join("\n");
-			assert.match(output, new RegExp(`\\b${start} const first = 1;`));
-			assert.match(output, new RegExp(`\\b${start + 1} const second = 2;`));
+			if (style === "claude") {
+				// Claude's transcript keeps Read counts-only, including restored calls.
+				assert.match(output, /Read 2 lines/u);
+				assert.doesNotMatch(output, /const (first|second)/u);
+				const valid = offset == null || (typeof offset === "number" && Number.isSafeInteger(offset) && offset > 0);
+				assert.ok(output.includes(valid ? `Read(sample.ts · lines ${start}-${start + 1})` : "Read(sample.ts)"));
+			} else {
+				assert.match(output, new RegExp(`\\b${start} const first = 1;`));
+				assert.match(output, new RegExp(`\\b${start + 1} const second = 2;`));
+			}
 		}
 	} finally { shutdown(harness); }
 });

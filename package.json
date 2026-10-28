@@ -1,6 +1,6 @@
 {
   "name": "pi-compact-tools",
-  "version": "0.16.6",
+  "version": "0.16.7",
   "description": "Tool rows for Pi in three styles: Claude, Codex, and Compact. Switch with /compact-tools; includes silent mode and a GitHub Dark theme.",
   "type": "module",
   "license": "MIT",

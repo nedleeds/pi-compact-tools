@@ -56,12 +56,12 @@ const plain = (harness: Harness) => harness.chat.render(100).map(stripTerminalSe
 /** The first line each style draws for this transcript: a group, a custom tool, and a running command. */
 const HEADS = {
 	codex: [" • Explored", " • Called web_search", " • Running for i in 1 2 3; do echo tick $i; sleep 1; done"],
-	claude: [" ⦁ Searched for 1 pattern, read 1 file (click to expand)", ' ⦁ web_search(query: "pi tui")', " ⦁ Bash(for i in 1 2 3; do echo tick $i; sleep 1; done)"],
+	claude: ["   Searched for 1 pattern, read 1 file (click to expand)", ' ⦁ web_search(query: "pi tui")', " ⦁ Bash(for i in 1 2 3; do echo tick $i; sleep 1; done)"],
 	compact: [" ⦁ read src/app.ts", " ⦁ grep /TODO/ in src", " ⦁ web_search", " ⦁ bash Run for"],
 } as const;
 
 function heads(harness: Harness): string[] {
-	return plain(harness).filter((line) => /^ [•⦁] /u.test(line)).map((line) => line.replace(/\s+$/u, ""));
+	return plain(harness).filter((line) => /^(?: [•⦁] |   Searched for)/u.test(line)).map((line) => line.replace(/\s+$/u, ""));
 }
 
 async function transcript(style: "codex" | "claude" | "compact") {
@@ -93,8 +93,8 @@ test("while a command runs, /compact-tools redraws every row in each style, with
 			const drawn = heads(harness);
 			for (const head of HEADS[style]) assert.ok(drawn.some((line) => line.startsWith(head)), `${style}: ${head}\n${drawn.join("\n")}`);
 		}
-		// The running command keeps what it has streamed: Claude Code shows it as running, Codex shows its tail.
-		assert.ok(plain(harness).some((line) => /⎿ {2}Running…/u.test(line)), plain(harness).join("\n"));
+		// Both styles keep the running command's streamed output in view.
+		assert.ok(plain(harness).some((line) => /⎿ {2}tick 1/u.test(line)), plain(harness).join("\n"));
 		await switchTo(harness, "codex");
 		assert.ok(plain(harness).some((line) => /└ tick 1/u.test(line)), plain(harness).join("\n"));
 	} finally { shutdown(harness); }

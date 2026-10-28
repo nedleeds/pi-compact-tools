@@ -1,5 +1,7 @@
 # Claude Code 2.1.288 UI reference
 
+Historical reference. See [2.1.312](claude-code-2.1.312.md) for the current exploration, expanded Read, and streaming Bash behavior; its Pi-specific boundaries supersede those below.
+
 Observed in a live Herdr pane, using `claude --effort low` (Opus 5.5), not inferred from model descriptions. `npm view @anthropic-ai/claude-code version` matched the installed version. Paths below are shortened; colors depend on the host theme. Approval/classifier notices are Claude-specific and are not reproduced by Pi.
 
 ## Completed exploration

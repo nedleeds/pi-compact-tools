@@ -12,7 +12,7 @@ Development dependencies pin Pi 1.3.0; the peer minimum is Pi 0.85.1. CI checks 
 
 `npm run check` runs TypeScript, rendering tests, resource validation, and packaging checks. Rendering and resource tests run separately so packaging subprocesses do not disturb animation tests. Schema validation and deterministic test clocks are development-only dependencies.
 
-Renders are pinned in `tests/golden/`. After an intentional rendering change, run `UPDATE_GOLDEN=1 npm test` and review the diff. Style parity is checked against real Claude Code and Codex CLI references in `tests/fixtures/`.
+Renders are pinned in `tests/golden/`. After an intentional rendering change, run `UPDATE_GOLDEN=1 npm test` and review the diff. Style parity is checked against real Claude Code and Codex CLI references in `tests/fixtures/`. Current tool-row references are [Claude Code 2.1.312](../tests/fixtures/claude-code-2.1.312.md) and [Codex CLI 0.165.0](../tests/fixtures/codex-0.165.0.md), checked against live rendering and implementation sources. These fixtures also record deliberate Pi differences; Codex's collapsed rows follow its owned-transcript compact renderer, not its legacy history display.
 
 For an informational before/after performance comparison:
 

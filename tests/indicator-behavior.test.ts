@@ -191,8 +191,10 @@ for (const [mode, config] of Object.entries(MODE_CONFIGS)) {
 						// Codex opens only a command with more than its preview; drawn opened, it reads `$ cmd`.
 						const command = mode === "codex" && expanded && (name === "bash" || name === "powershell")
 							&& row.render(width).some((line) => line.replace(/\x1b\[[0-9;]*m/gu, "").startsWith(" $ "));
+						// Codex 0.165 numeric shell exits have a bold neutral, not red, bullet.
+						const exited = mode === "codex" && failed && (name === "bash" || name === "powershell");
 						const settled = command ? undefined : patch ? (failed ? undefined : dotOf([theme.fg("dim", "•")]))
-							: dotOf([paintIndicator(theme, failed ? "error" : "success", 0, glyphOf(mode))]);
+							: exited ? dotOf([theme.bold("•")]) : dotOf([paintIndicator(theme, failed ? "error" : "success", 0, glyphOf(mode))]);
 						assert.equal(dotOf(row.render(width)), settled, `${key}: settled dot`);
 						if (command) assert.ok(row.render(width).some((line) => line.includes(failed ? "✗" : "✓")), `${key}: outcome mark`);
 						tick(30);
