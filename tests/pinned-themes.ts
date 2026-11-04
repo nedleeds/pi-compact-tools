@@ -6,8 +6,13 @@
  * Registered themes take precedence over built-ins of the same name, so every
  * `initTheme("dark")` in the suite gets the pinned file. Import this first.
  */
-import "./pinned-themes.ts";
 import { join } from "node:path";
+import { setKeybindings } from "@earendil-works/pi-tui";
+import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
+
+// Real tool rows inject keyText in Pi 1.5+. Initialize the app's defaults like
+// InteractiveMode does; the TUI-only singleton knows no app.tools.expand key.
+setKeybindings(new KeybindingsManager());
 
 // Codex spells its keys by platform; the suite records the spelling every other platform shares.
 process.env.PI_COMPACT_TOOLS_PLATFORM = "win32";

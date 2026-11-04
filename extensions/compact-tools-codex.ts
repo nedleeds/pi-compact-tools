@@ -43,12 +43,13 @@ export function formatCodexDuration(milliseconds: number): string {
  * The control under a collapsed or opened call. Codex starts it at a quarter of the
  * width, at most four columns in, and drops the key hint when the row cannot fit it.
  */
-export function codexDisclosure(width: number, expanded: boolean, hiddenLines?: number): string {
+export function codexDisclosure(width: number, expanded: boolean, hiddenLines?: number, expandKey: string = "ctrl+o"): string {
 	const indent = CODEX_MARGIN + " ".repeat(Math.min(Math.floor(width / 4), 4));
 	if (expanded) return `${indent}− Show less`;
 	if (hiddenLines === undefined) return `${indent}+ Show details`;
 	const label = `+ ${hiddenLines} ${hiddenLines === 1 ? "line" : "lines"}`;
-	const hint = ` (${codexExpandKey()} to expand)`;
+	const key = expandKey === "ctrl+o" ? codexExpandKey() : expandKey;
+	const hint = key ? ` (${key} to expand)` : "";
 	return visibleWidth(indent + label + hint) <= width ? indent + label + hint : indent + label;
 }
 

@@ -23,7 +23,9 @@ import { DEFAULT_CONFIG, loadConfig, mergeConfig } from "../extensions/compact-t
 import { patchToolRows } from "../extensions/compact-tools-custom.ts";
 import { findAnchorTop, ViewportKeeper } from "../extensions/compact-tools-viewport.ts";
 import { hookMethod } from "../extensions/compact-tools-hook.ts";
-import { compareVersions, releaseMarkdown, releaseSections, releasesToShow, showReleaseNotice } from "../extensions/compact-tools-release.ts";
+import { compareVersions, releaseMarkdown, releaseSections, releasesToShow, showReleaseNotice as hostReleaseNotice } from "../extensions/compact-tools-release.ts";
+// These fixtures deliberately exercise the pre-1.5 fallback on every CI host.
+const showReleaseNotice = (...args: Parameters<typeof hostReleaseNotice>) => hostReleaseNotice(args[0], args[1], args[2], args[3], "1.4.0");
 import { isIntermediateAssistant, parseSilentArgument, patchRender, renderAnswerOnly, renderWithoutNotices, SilentModeController } from "../extensions/compact-tools-silent.ts";
 import { attachActivityToUserMessage, bottomAlignTranscript, dotIntensities, frameChanges, renderActivityDots, SilentActivityAnimator } from "../extensions/compact-tools-activity.ts";
 import { classifyShellCommand, claudeArgument, claudeCommand, claudeFailure, claudeOutcome, claudeTitle } from "../extensions/compact-tools-claude.ts";

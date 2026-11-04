@@ -75,7 +75,7 @@ The two failed edits are intentional. Reload/resume preserves summaries from nes
 
 Without a scope, changes are saved where the style is configured: project or global. A trusted project's own style overrides a global save. `/compact-tools off` immediately restores native tool rows, unmodified thinking, Pi's working indicator and keyboard behavior, with no grouping or silent hiding—even while a response or tool is running. No reload, abort, or restart occurs. Your selected theme, tool execution, and session history are not changed. Use `/compact-tools compact`, `claude`, or `codex` to enable it again, also live. Your silent-mode choice is retained for when you re-enable a style; `/silent` while off only updates that saved choice, without hiding native UI.
 
-- Click a row/group or press `Ctrl+O` to expand/collapse.
+- Click a row/group or press `Ctrl+O` to expand/collapse. On Pi 1.5+, output hints follow your configured expand key.
 - `Ctrl+T` changes the thinking display, not the model's reasoning effort.
 - Choose `github-dark-pro` in Pi's `/settings` for the included theme.
 
@@ -97,6 +97,8 @@ Optional: `~/.pi/agent/compact-tools.json` or `<project>/.pi/compact-tools.json`
 `auto_compact` entries set to `true` start Compact rows collapsed. Add tool names to `custom_tools.exclude` to keep their own rendering. All options are described in the linked schema.
 
 ## Development
+
+Pi 1.5+ shows package changes through its native **Extension Updates** notice (including `collapseChangelog`); older hosts keep the extension's own notice.
 
 See [development, compatibility, and demo recording](https://github.com/nedleeds/pi-compact-tools/blob/main/docs/development.md). Run `npm ci` and `npm run check` before contributing.
 

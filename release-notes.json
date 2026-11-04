@@ -1,4 +1,17 @@
 {
+  "0.17.0": {
+    "New": [
+      "Use Pi 1.5's native Extension Updates changelog, including seen-version tracking and collapseChangelog; older hosts keep the existing release notice.",
+      "Verify Pi 1.4.0 and 1.5.0 in the release compatibility matrix while preserving the Pi 0.85.1 minimum."
+    ],
+    "Fix": [
+      "Claude and Codex output expansion hints follow Pi 1.5's injected keybindings, omit unbound actions, and refresh when the configured key changes.",
+      "Keep renderer context types and test fixtures compatible with both legacy hosts and Pi 1.5's new key hint fields.",
+      "Generate the shipped CHANGELOG.md from the same release notes used by older hosts and GitHub, and reject stale changelogs before publishing.",
+      "Bridge existing legacy notice users once on their first native-supported upgrade, including skipped versions, so moving to Pi 1.5's native changelog does not lose the migration release notes."
+    ],
+    "Deprecated": []
+  },
   "0.16.7": [
     "Match Claude Code 2.1.312: quiet exploration groups, expanded Read ranges, image labels, streaming Bash tails, and clearer errors.",
     "Match Codex CLI 0.165.0: neutral Exited (status N) rows and nonzero-exit summaries, preserving tail previews and transcript expansion."

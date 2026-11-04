@@ -62,6 +62,7 @@ import { ThinkingCycleController } from "./compact-tools-thinking.ts";
 import { ViewportKeeper } from "./compact-tools-viewport.ts";
 import {
 	SUPPORTED_TOOL_SET,
+	toolExpandKey,
 	type CompactToolName,
 	type RenderContext,
 	type RowState,
@@ -160,7 +161,8 @@ function canReuseResult<TArgs>(
 		&& state.lastResultConfigRevision === state.configRevision
 		&& state.lastResultPalette === paletteOf(theme)
 		&& state.lastResultDurationMs === state.durationMs
-		&& state.lastResultOutputPad === ctx.outputPad;
+		&& state.lastResultOutputPad === ctx.outputPad
+		&& state.lastResultExpandKey === toolExpandKey(ctx);
 }
 
 function rememberResult(state: RowState, result: AgentToolResult<unknown>, options: ToolRenderResultOptions, isError: boolean, theme: Theme): void {
@@ -308,19 +310,19 @@ function renderRowBody(
 	return renderOutput(output, theme, isError, rail);
 }
 
-function claudeMoreLines(theme: Theme, hidden: number): string {
-	return chromePainter(theme)(`… +${hidden} ${hidden === 1 ? "line" : "lines"} (ctrl+o to expand)`);
+function claudeMoreLines(theme: Theme, hidden: number, expandKey: string): string {
+	return chromePainter(theme)(`… +${hidden} ${hidden === 1 ? "line" : "lines"}${expandKey ? ` (${expandKey} to expand)` : ""}`);
 }
 
 /** Output previewed in rows the way Claude Code previews it, all of it once opened. */
-function claudeOutput(output: string, expanded: boolean, theme: Theme, isError: boolean, empty: string, firstPrefix: string, completion?: Component): Component {
+function claudeOutput(output: string, expanded: boolean, theme: Theme, isError: boolean, empty: string, firstPrefix: string, completion: Component | undefined, expandKey: string): Component {
 	const normalized = normalizeLineEndings(output).trimEnd();
 	// Pi's bash reports an empty run as "(no output)"; Claude Code dims its own words for it.
 	const lines = !normalized || normalized === "(no output)"
 		? [chromePainter(theme)(empty)]
 		: normalized.split("\n").map((line) => theme.fg(isError ? "error" : "toolOutput", line));
 	return claudeRows(lines, firstPrefix, CLAUDE_INDENT, expanded ? undefined : CLAUDE_OUTPUT_ROWS,
-		(hidden) => claudeMoreLines(theme, hidden), completion);
+		(hidden) => claudeMoreLines(theme, hidden, expandKey), completion);
 }
 
 /**
@@ -336,6 +338,7 @@ function claudeBody(
 	expanded: boolean,
 	theme: Theme,
 	author: AuthorResultRenderer | undefined,
+	expandKey: string,
 ): Component | undefined {
 	if (author && expanded) return renderRowBody(name, args, result, output, true, theme, false, author, CLAUDE_INDENT);
 	const path = pathArgument(args);
@@ -346,7 +349,7 @@ function claudeBody(
 	if (name === "write") {
 		const component = renderCodeView(output, path, theme, { rail: CLAUDE_INDENT });
 		return component && !expanded
-			? limitComponentLines(component, CLAUDE_WRITE_ROWS, theme, (hidden) => CLAUDE_INDENT + claudeMoreLines(theme, hidden))
+			? limitComponentLines(component, CLAUDE_WRITE_ROWS, theme, (hidden) => CLAUDE_INDENT + claudeMoreLines(theme, hidden, expandKey))
 			: component;
 	}
 	// A command's output is already the result line itself.
@@ -370,7 +373,8 @@ function renderClaudeResult(
 	expanded: boolean,
 	output: string,
 	author: AuthorResultRenderer | undefined,
-	completion?: Component,
+	completion: Component | undefined,
+	expandKey: string,
 ): Component {
 	const chrome = chromePainter(theme);
 	const container = new CachedContainer();
@@ -392,17 +396,17 @@ function renderClaudeResult(
 		// logical line needs its own color: Pi resets terminal styling per row.
 		container.addChild(line(styleMultiline(failure.headline, (row) => theme.fg("error", row))));
 		if (failure.detail) {
-			container.addChild(claudeOutput(failure.detail, expanded, theme, true, "", CLAUDE_INDENT, completion));
+			container.addChild(claudeOutput(failure.detail, expanded, theme, true, "", CLAUDE_INDENT, completion, expandKey));
 		} else if (completion) container.addChild(completion);
 		return container;
 	}
-	const body = claudeBody(name, args, result, output, expanded, theme, author);
+	const body = claudeBody(name, args, result, output, expanded, theme, author, expandKey);
 	// The author's view already shows a custom tool's output, so the line above it only counts it.
 	const outcome = body && rowKind(name) === "custom"
 		? formatResultLineSummary(name, args, result, output) ?? "Done"
 		: claudeOutcome(name, args, result, output, (value) => theme.bold(value));
 	if (outcome !== undefined) container.addChild(line(theme.fg("toolOutput", outcome)));
-	else container.addChild(claudeOutput(output, expanded, theme, false, rowKind(name) === "shell" ? "(No output)" : "(No content)", chrome(CLAUDE_RESULT_PREFIX), completion));
+	else container.addChild(claudeOutput(output, expanded, theme, false, rowKind(name) === "shell" ? "(No output)" : "(No content)", chrome(CLAUDE_RESULT_PREFIX), completion, expandKey));
 	if (body) container.addChild(body);
 	if (completion && outcome !== undefined) container.addChild(completion);
 	return container;
@@ -438,13 +442,13 @@ function renderRowResult(
 	if (isCodex()) {
 		component = renderCodexResult({
 			name, kind: author ? "custom" : kind, args: ctx.args, result, output, theme, state, isError: ctx.isError,
-			isPartial: options.isPartial, expanded: state.expanded === true, toolCallId: ctx.toolCallId, author,
+			isPartial: options.isPartial, expanded: state.expanded === true, toolCallId: ctx.toolCallId, author, expandKey: toolExpandKey(ctx),
 			completion: nestedSummary ? renderControls(theme, state, false, ctx.isError, undefined, undefined, nestedSummary, CODEX_INDENT, CODEX_INDENT) : undefined,
 		});
 	} else if (isClaude()) {
 		const container = new CachedContainer();
 		const completion = nestedSummary ? renderControls(theme, state, false, ctx.isError, undefined, undefined, nestedSummary, CLAUDE_INDENT, CLAUDE_INDENT) : undefined;
-		container.addChild(renderClaudeResult(name, ctx.args, result, options, theme, ctx.isError, state.expanded === true, output, author, completion));
+		container.addChild(renderClaudeResult(name, ctx.args, result, options, theme, ctx.isError, state.expanded === true, output, author, completion, toolExpandKey(ctx)));
 		component = new WithinWidth(container);
 	} else {
 		if (!options.isPartial && !state.resultLineSummaryComputed) {
@@ -467,6 +471,7 @@ function renderRowResult(
 	rememberResult(state, result, options, ctx.isError, theme);
 	state.lastResultDurationMs = state.durationMs;
 	state.lastResultOutputPad = ctx.outputPad;
+	state.lastResultExpandKey = toolExpandKey(ctx);
 	let drawn = withOutputPad(component, ctx.outputPad);
 	if (name !== "codemode" || options.isPartial || !watchNested) return drawn;
 	// The host can deliver a final nested snapshot (or a cancelled child's end)

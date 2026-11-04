@@ -1,6 +1,6 @@
 {
   "name": "pi-compact-tools",
-  "version": "0.16.7",
+  "version": "0.17.0",
   "description": "Tool rows for Pi in three styles: Claude, Codex, and Compact. Switch with /compact-tools; includes silent mode and a GitHub Dark theme.",
   "type": "module",
   "license": "MIT",
@@ -28,13 +28,15 @@
     "examples",
     "schemas",
     "release-notes.json",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "test": "tsx --test tests/*.test.ts && tsx --test tests/resources.validation.ts",
     "check": "tsc --noEmit && npm test && npm run check:resources",
-    "check:resources": "node scripts/check-resources.mjs",
+    "check:resources": "node scripts/check-resources.mjs && node scripts/changelog.mjs --check",
+    "changelog": "node scripts/changelog.mjs",
     "prepublishOnly": "npm run check"
   },
   "pi": {
@@ -51,8 +53,8 @@
     "@earendil-works/pi-tui": ">=0.85.1"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "1.3.0",
-    "@earendil-works/pi-tui": "1.3.0",
+    "@earendil-works/pi-coding-agent": "1.5.0",
+    "@earendil-works/pi-tui": "1.5.0",
     "@sinonjs/fake-timers": "15.0.0",
     "@types/node": "^24.0.0",
     "@types/sinonjs__fake-timers": "15.0.1",

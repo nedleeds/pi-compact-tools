@@ -1,6 +1,6 @@
 import { closeSync, mkdirSync, openSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DynamicBorder, getAgentDir, getMarkdownTheme, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
+import { DynamicBorder, getAgentDir, getMarkdownTheme, VERSION as HOST_VERSION, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 
 /** One marker file per version shown, so two Pi processes can't both show it. */
@@ -116,6 +116,12 @@ function addReleaseBlock(chat: Chat, theme: Theme, releases: ReturnType<typeof r
 	chat.addChild(new DynamicBorder(border));
 }
 
+/** Pi 1.5+ owns extension changelogs, including seen versions and collapseChangelog. */
+export function usesNativeChangelog(hostVersion = HOST_VERSION): boolean {
+	const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/u.exec(hostVersion);
+	return Boolean(match && (Number(match[1]) > 1 || (Number(match[1]) === 1 && Number(match[2]) >= 5)));
+}
+
 /**
  * Show what changed since the version last shown, once, the way Pi shows its own
  * changelog: only when a conversation starts, as a bordered block in the chat.
@@ -123,15 +129,28 @@ function addReleaseBlock(chat: Chat, theme: Theme, releases: ReturnType<typeof r
  */
 export function showReleaseNotice(
 	ctx: ExtensionContext,
-	version = installedVersion(),
-	agentDir = getAgentDir(),
-	notes: ReleaseNotes | undefined = readReleaseNotes(),
+	version?: string,
+	agentDir?: string,
+	notes?: ReleaseNotes,
+	hostVersion = HOST_VERSION,
 ): boolean {
-	if (ctx.mode !== "tui" || !VERSION.test(version) || !notes) return false;
+	if (ctx.mode !== "tui") return false;
+	version ??= installedVersion();
+	if (!VERSION.test(version)) return false;
+	const native = usesNativeChangelog(hostVersion);
+	// Older packages had no CHANGELOG.md, so Pi cannot distinguish their first
+	// native update from a fresh install. Bridge only users whose last legacy
+	// notice predates native support, even if they skip the migration release.
+	if (native && compareVersions(version, "0.17.0") < 0) return false;
+	agentDir ??= getAgentDir();
+	const directory = join(agentDir, NOTICE_DIRECTORY);
+	const lastShown = lastShownVersion(directory);
+	if (native && (!lastShown || compareVersions(lastShown, "0.17.0") >= 0)) return false;
+	notes ??= readReleaseNotes();
+	if (!notes) return false;
 	const resumed = ctx.sessionManager?.getEntries?.().some((entry) => entry.type === "message") ?? false;
 	if (resumed) return false;
-	const directory = join(agentDir, NOTICE_DIRECTORY);
-	const releases = releasesToShow(version, notes, lastShownVersion(directory));
+	const releases = releasesToShow(version, notes, lastShown);
 	if (releases.length === 0) return false;
 	try {
 		mkdirSync(directory, { recursive: true });

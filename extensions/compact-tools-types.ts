@@ -55,6 +55,7 @@ export interface RowState {
 	lastResultPalette?: object;
 	lastResultDurationMs?: number;
 	lastResultOutputPad?: number;
+	lastResultExpandKey?: string;
 	/** What a Codex row's head reads from its result: a command's exit code, an edit's counts. */
 	codex?: {
 		exitCode?: number;
@@ -65,10 +66,18 @@ export interface RowState {
 }
 
 type BaseRenderContext = Parameters<NonNullable<BuiltInDefinition["renderCall"]>>[2];
-export type RenderContext<TArgs = ToolArgs> = Omit<BaseRenderContext, "args" | "state" | "durationMs" | "outputPad"> & {
+export type RenderContext<TArgs = ToolArgs> = Omit<BaseRenderContext, "args" | "state" | "durationMs" | "outputPad" | "keyText" | "keyHint"> & {
 	args: TArgs;
 	state: RowState;
 	/** Optional across hosts: older Pi versions do not provide these fields. */
 	durationMs?: number;
 	outputPad?: number;
+	/** Pi 1.5+ injects the host's configured keys; legacy hosts omit them. */
+	keyText?: (keybinding: "app.tools.expand") => string;
+	keyHint?: (keybinding: "app.tools.expand", description: string) => string;
 };
+
+/** An unbound action stays unbound; only legacy hosts need the default fallback. */
+export function toolExpandKey(ctx: Pick<RenderContext, "keyText">): string {
+	return ctx.keyText?.("app.tools.expand") ?? "ctrl+o";
+}

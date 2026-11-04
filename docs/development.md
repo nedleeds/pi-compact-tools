@@ -8,7 +8,7 @@ npm run check
 pi -e .
 ```
 
-Development dependencies pin Pi 1.3.0; the peer minimum is Pi 0.85.1. CI checks Pi 0.85.1, 0.99.1, 1.0.0, 1.0.2, 1.1.0, 1.2.0, and 1.3.0 on Node 22.19.0 and 24.
+Development dependencies pin Pi 1.5.0; the peer minimum is Pi 0.85.1. CI checks Pi 0.85.1, 0.99.1, 1.0.0, 1.0.2, 1.1.0, 1.2.0, 1.3.0, 1.4.0, and 1.5.0 on Node 22.19.0 and 24.
 
 `npm run check` runs TypeScript, rendering tests, resource validation, and packaging checks. Rendering and resource tests run separately so packaging subprocesses do not disturb animation tests. Schema validation and deterministic test clocks are development-only dependencies.
 
@@ -38,6 +38,7 @@ The extension does not register or activate agent tools, add model-facing messag
 - Older hosts: terminal-only compatibility rendering; HTML exports keep native rows.
 - Pi 1.1+: final durations use recorded `durationMs`, including restored sessions, and rows follow `outputPad` (0 or 1).
 - Older hosts retain event-based timing and original margins.
+- Pi 1.5+: Claude and Codex output disclosure hints use the row context's injected `keyText`, not a separately imported host singleton. Changed keys invalidate cached results; unbound actions omit the hint. Older hosts keep the original Ctrl+O hint, including Codex's platform spelling.
 - Native codemode summaries are verified on Pi 1.2+. They use host-provided nested-call events and saved records. They retain only names and statuses—not arguments, results, or edit diff totals. Reload, resume, and `/tree` restore counts and outcomes. Hosts without those records keep normal previews.
 
 Renderer-bearing overrides of built-in names, such as `read` and `bash`, follow `custom_tools` and its exclusions. Custom rendering intentionally takes precedence over earlier fallback resolvers using `next() ?? mine`; exclude a tool or disable `custom_tools` to preserve its fallback renderer.
@@ -83,6 +84,6 @@ The published npm package excludes development scripts, tests, these developer d
 
 ## Release
 
-Add an entry for the new version in `release-notes.json` (`[]` for no in-app notice), bump both package manifests, and run `npm run check`.
+Add an entry for the new version in `release-notes.json` (`[]` for no in-app notice), bump both package manifests, run `npm run changelog`, and run `npm run check`. The generated `CHANGELOG.md` is shipped for Pi 1.5's native Extension Updates UI, which owns seen-version tracking, first-install behavior, and `collapseChangelog`. Pi 1.5+ normally owns notices without the legacy private chat probe. One transition is bridged: an existing user whose last legacy marker predates 0.17.0 gets one legacy notice on their first native-supported upgrade, even if they skip 0.17.0. Older packages shipped no changelog, so Pi otherwise treats that upgrade as a first install. Fresh native installs stay quiet; resumed sessions defer the bridge; once consumed, subsequent updates are exclusively native. Native notices require package source metadata; standalone extension files do not receive package changelogs. Older hosts retain their existing notices. Checks reject a missing or stale generated changelog, so native updates, legacy notices and GitHub releases share the same note text.
 
 Push the matching `vX.Y.Z` tag after the commit reaches `main`. The [release workflow](../.github/workflows/release.yml) first calls the reusable CI workflow and waits for every supported Pi/Node combination, then validates the version, runs the package checks, publishes to npm with provenance through Trusted Publishing, and creates the GitHub release. No local npm token is needed.

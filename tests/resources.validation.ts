@@ -89,6 +89,7 @@ test("npm publish includes every local runtime import and no host or development
 	for (const paths of Object.values(manifest.pi).filter(Array.isArray) as string[][]) {
 		for (const path of paths) assert.ok(files.has(path.replace(/^\.\//u, "")), `missing resource ${path}`);
 	}
+	assert.ok(files.has("CHANGELOG.md"), "native extension update notes must be shipped");
 	for (const path of files) {
 		assert.ok(!path.startsWith("node_modules/") && !path.startsWith("tests/") && !path.startsWith("scripts/"), `unexpected development content ${path}`);
 		if (!path.startsWith("extensions/") || !path.endsWith(".ts")) continue;

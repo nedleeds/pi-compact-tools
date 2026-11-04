@@ -154,6 +154,7 @@ test("the claude style reuses an unchanged result instead of laying it out again
 		args: { command: "seq 5000" }, argsComplete: true, cwd: "/project", executionStarted: true, expanded: false,
 		invalidate() {}, isError: false, isPartial: false, lastComponent: undefined, showImages: false, state: {}, toolCallId: "reuse",
 		durationMs: undefined, outputPad: 1,
+		keyText: () => "ctrl+o", keyHint: (_key: unknown, description: string) => `ctrl+o ${description}`,
 	};
 	bash.renderCall!(ctx.args, plainTheme, ctx);
 	const first = bash.renderResult!({ content, details: undefined }, { expanded: false, isPartial: false }, plainTheme, ctx) as Component;
@@ -177,6 +178,7 @@ test("the codex style reuses an unchanged result and previews only its last line
 		args: { command: "seq 5000" }, argsComplete: true, cwd: "/project", executionStarted: true, expanded: false,
 		invalidate() {}, isError: false, isPartial: false, lastComponent: undefined, showImages: false, state: {}, toolCallId: "codex-reuse",
 		durationMs: undefined, outputPad: 1,
+		keyText: () => "ctrl+o", keyHint: (_key: unknown, description: string) => `ctrl+o ${description}`,
 	};
 	bash.renderCall!(ctx.args, plainTheme, ctx);
 	const first = bash.renderResult!({ content, details: undefined }, { expanded: false, isPartial: false }, plainTheme, ctx) as Component;

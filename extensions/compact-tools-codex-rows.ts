@@ -275,6 +275,7 @@ type ResultInput = {
 	expanded: boolean;
 	toolCallId: string;
 	author?: (expanded: boolean) => Component | undefined;
+	expandKey?: string;
 	/** A codemode completion summary, in this style's native indentation. */
 	completion?: Component;
 };
@@ -315,8 +316,8 @@ function fullOutput(text: string, theme: Theme, width: number): string[] {
 	return prefixedRows(outputLines(text).map((line) => line ? [{ text: line, color: "toolOutput" as const }] : []), CODEX_MARGIN, CODEX_MARGIN, width, theme);
 }
 
-function dimDisclosure(theme: Theme, width: number, expanded: boolean, hidden?: number): string {
-	return clip(theme.fg("dim", codexDisclosure(width, expanded, hidden)), width, theme.fg("dim", "…"));
+function dimDisclosure(theme: Theme, width: number, expanded: boolean, hidden?: number, expandKey?: string): string {
+	return clip(theme.fg("dim", codexDisclosure(width, expanded, hidden, expandKey)), width, theme.fg("dim", "…"));
 }
 
 /** A command, or a lone read, search, or listing: the tail of its output, or all of it opened. */
@@ -370,7 +371,7 @@ function outputResult(input: ResultInput, width: number): string[] {
 	const rows = empty ? (isPartial ? [] : previewRows(["(no output)"], theme, width))
 		: previewRows(tailLines(outputLines(text).join("\n")), theme, width);
 	if (details === undefined) return rows;
-	return [...rows, dimDisclosure(theme, width, false, details === "generic" ? undefined : details)];
+	return [...rows, dimDisclosure(theme, width, false, details === "generic" ? undefined : details, input.expandKey)];
 }
 
 /** Whether a command or lone read draws opened: always within an opened exploration, else only when it has more to show. */
