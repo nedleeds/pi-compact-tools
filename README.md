@@ -96,7 +96,7 @@ Optional: `~/.pi/agent/compact-tools.json` or `<project>/.pi/compact-tools.json`
 
 `auto_compact` entries set to `true` start Compact rows collapsed. Add tool names to `custom_tools.exclude` to keep their own rendering. All options are described in the linked schema.
 
-### Tool-only styling (fork option)
+### Tool-only styling
 
 Keep compact tool rows without changing Pi’s thinking display or working indicator:
 
@@ -110,8 +110,6 @@ Keep compact tool rows without changing Pi’s thinking display or working indic
 ```
 
 Save this in `~/.pi/agent/compact-tools.json` (or the trusted project config). Run `/compact-tools compact` to apply these switches live, including during a response; `/reload` also applies them. Each switch is independent and defaults to `true` for upstream compatibility. `thinking: false` preserves the original thinking Markdown, hidden label, and native Ctrl+T behavior; it does not hide thinking or disable model reasoning. `working: false` keeps Pi’s spinner and working message. Silent mode intentionally still hides both, so use `mode: "normal"` and `/silent off` for native displays.
-
-These options are specific to [this fork](https://github.com/karlis-vagalis/pi-compact-tools). They are not supported by the upstream npm release.
 
 ## Development
 
