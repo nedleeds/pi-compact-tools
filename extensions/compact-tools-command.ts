@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI, type ExtensionContext, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DISPLAY_STYLES, type CompactToolsConfig, type DisplayStyle } from "./compact-tools-types.ts";
 import { loadConfig } from "./compact-tools-config.ts";
+import { chooseToolDisplay } from "./compact-tools-chooser.ts";
 
 type Scope = "global" | "project";
 type DisplaySetting = "thinking" | "working";
@@ -221,7 +222,7 @@ export function registerCompactToolsCommand(pi: ExtensionAPI, getConfig: () => C
 					ctx.ui.notify(HELP, "info");
 					return;
 				}
-				const selected = await ctx.ui.select(`Tool style and displays (current: ${getConfig().style})`, [...Object.values(CHOICES), ...Object.values(SETTING_CHOICES)]);
+				const selected = await chooseToolDisplay(ctx, `Tool style and displays (current: ${getConfig().style})`, Object.values(CHOICES), Object.values(SETTING_CHOICES));
 				const selectedSetting = DISPLAY_SETTINGS.find((key) => SETTING_CHOICES[key] === selected);
 				if (selectedSetting) {
 					await changeDisplaySetting(selectedSetting, [], ctx, getConfig, applyStyle);

@@ -32,6 +32,11 @@ function harness(live = false) {
 		ui: {
 			notify: (message: string, type?: string) => { notices.push({ message, type }); },
 			select: async () => { state.dialogs++; return selections.shift(); },
+			custom: async (factory: Function) => {
+				const component = factory({ requestRender() {} }, { fg: (_color: string, text: string) => text, bold: (text: string) => text }, {}, () => {});
+				const lines: string[] = component.render(120);
+				return ctx.ui.select(lines[1]!, lines.slice(2, -2).filter(line => line.trim()).map(line => line.replace(/^(?:→ |  )/u, "")));
+			},
 		},
 	} as unknown as ExtensionCommandContext;
 	return { command, ctx, state, notices, selections, applied, run: (args: string) => command.handler(args, ctx), cleanup: () => {
