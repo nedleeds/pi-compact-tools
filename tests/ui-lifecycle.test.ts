@@ -121,11 +121,11 @@ for (const publicAPI of [false, true]) for (const thinking of [false, true]) for
 			check(thinking, working);
 			const row = h.addRow("tool-only");
 			assert.doesNotMatch(row.render(80).join("\n"), /AUTHOR CALL/, "tool styling remains enabled");
-			h.save("compact", { thinking: !thinking, working: !working });
-			await h.command("compact");
+			await h.command(`thinking ${thinking ? "native" : "styled"}`);
+			await h.command(`working ${working ? "native" : "styled"}`);
 			check(!thinking, !working);
-			h.save("compact", { thinking, working });
-			await h.command("compact");
+			await h.command(`thinking ${thinking ? "styled" : "native"}`);
+			await h.command(`working ${working ? "styled" : "native"}`);
 			check(thinking, working);
 			await h.command("off");
 			check(false, false);

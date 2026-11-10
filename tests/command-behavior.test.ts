@@ -5,18 +5,22 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { configPath, registerCompactToolsCommand, saveStyle } from "../extensions/compact-tools-command.ts";
-import { DEFAULT_CONFIG, loadConfig } from "../extensions/compact-tools-config.ts";
+import { loadConfig } from "../extensions/compact-tools-config.ts";
 
 type Command = Parameters<ExtensionAPI["registerCommand"]>[1];
-function harness() {
+function harness(live = false) {
 	const root = mkdtempSync(join(tmpdir(), "compact-command-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = join(root, "agent");
 	let command!: Command;
+	const applied: Array<ReturnType<typeof loadConfig>> = [];
 	registerCompactToolsCommand({ registerCommand: (name: string, definition: Command) => {
 		assert.equal(name, "compact-tools");
 		command = definition;
-	} } as ExtensionAPI, () => DEFAULT_CONFIG);
+	} } as ExtensionAPI, () => loadConfig(ctx.cwd, ctx.isProjectTrusted()), live ? (cwd, trusted) => {
+		applied.push(loadConfig(cwd, trusted));
+		return true;
+	} : undefined);
 	const notices: Array<{ message: string; type: string | undefined }> = [];
 	const selections: Array<string | undefined> = [];
 	const state = { idle: true, trusted: true, reloads: 0, dialogs: 0 };
@@ -30,7 +34,7 @@ function harness() {
 			select: async () => { state.dialogs++; return selections.shift(); },
 		},
 	} as unknown as ExtensionCommandContext;
-	return { command, ctx, state, notices, selections, run: (args: string) => command.handler(args, ctx), cleanup: () => {
+	return { command, ctx, state, notices, selections, applied, run: (args: string) => command.handler(args, ctx), cleanup: () => {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;
 		rmSync(root, { recursive: true, force: true });
@@ -189,7 +193,7 @@ test("the chooser offers Codex, and choosing it saves the codex style", async ()
 		};
 		h.selections.push("Codex — explored groups and output tails, like Codex CLI", "Global — all projects");
 		await h.run("");
-		assert.deepEqual(offered.map((option) => option.split(" — ")[0]), ["Compact", "Claude", "Codex", "Off"]);
+		assert.deepEqual(offered.map((option) => option.split(" — ")[0]), ["Compact", "Claude", "Codex", "Off", "Thinking display", "Working indicator"]);
 		assert.equal(loadConfig().style, "codex");
 		assert.equal(h.state.reloads, 1);
 	} finally { h.cleanup(); }
@@ -345,6 +349,143 @@ test("a reload that fails after invalidating the ctx still reports the saved sty
 		await h.run("claude");
 		assert.equal(loadConfig().style, "claude");
 		assert.match(h.notices.at(-1)!.message, /Style was saved, but reload failed: unavailable/);
+	} finally { h.cleanup(); }
+});
+
+for (const key of ["thinking", "working"] as const) {
+	for (const value of ["native", "styled"] as const) test(`${key} ${value} saves independently and applies live while busy`, async () => {
+		const h = harness(true);
+		try {
+			const path = configPath(h.ctx.cwd, "global");
+			mkdirSync(join(path, ".."), { recursive: true });
+			writeFileSync(path, JSON.stringify({ style: "codex", mode: "normal", thinking: true, working: true, future: 42 }));
+			h.state.idle = false;
+			await h.run(`${key} ${value}`);
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			assert.equal(saved[key], value === "styled");
+			assert.equal(saved[key === "thinking" ? "working" : "thinking"], true);
+			assert.equal(saved.style, "codex");
+			assert.equal(saved.future, 42);
+			assert.equal(h.applied.length, 1);
+			assert.equal(h.state.reloads, 0);
+			assert.match(h.notices.at(-1)!.message, /Switched/);
+		} finally { h.cleanup(); }
+	});
+
+	test(`${key} scopes follow that setting, not the style`, async () => {
+		const h = harness(true);
+		try {
+			const path = configPath(h.ctx.cwd, "project");
+			mkdirSync(join(path, ".."), { recursive: true });
+			writeFileSync(path, JSON.stringify({ style: "claude", [key]: true }));
+			await h.run(`${key} native`);
+			assert.equal(loadConfig(h.ctx.cwd, true)[key], false);
+			assert.equal(existsSync(configPath(h.ctx.cwd, "global")), false);
+			await h.run(`${key} styled global`);
+			assert.equal(loadConfig()[key], true);
+			assert.equal(loadConfig(h.ctx.cwd, true)[key], false);
+			assert.equal(h.applied.length, 1, "shadowed global save does not apply");
+			assert.match(h.notices.at(-1)!.message, /project keeps its own/);
+			writeFileSync(path, JSON.stringify({ style: "claude" }));
+			await h.run(`${key} native`);
+			assert.equal(JSON.parse(readFileSync(path, "utf8"))[key], undefined);
+			assert.equal(loadConfig()[key], false);
+		} finally { h.cleanup(); }
+	});
+
+	test(`${key} chooser saves Native and scope without changing style`, async () => {
+		const h = harness(true);
+		try {
+			h.selections.push(key === "thinking" ? "Thinking display — native or styled" : "Working indicator — native or styled", "Native — preserve Pi's display", "Project — this trusted project only");
+			await h.run("");
+			assert.equal(loadConfig(h.ctx.cwd, true)[key], false);
+			assert.equal(JSON.parse(readFileSync(configPath(h.ctx.cwd, "project"), "utf8")).style, undefined);
+			assert.equal(h.applied.length, 1);
+			assert.equal(h.state.reloads, 0);
+		} finally { h.cleanup(); }
+	});
+
+	test(`${key} cancellation, invalid arguments, and untrusted scope never write`, async () => {
+		const h = harness(true);
+		try {
+			for (const args of [`${key} off`, `${key} native nowhere`, `${key} native global extra`]) await h.run(args);
+			h.selections.push(undefined, "Styled — use compact-tools display", undefined);
+			await h.run(key);
+			await h.run(key);
+			h.state.trusted = false;
+			await h.run(`${key} native project`);
+			assert.equal(existsSync(configPath(h.ctx.cwd, "global")), false);
+			assert.equal(existsSync(configPath(h.ctx.cwd, "project")), false);
+			assert.equal(h.applied.length, 0);
+		} finally { h.cleanup(); }
+	});
+
+	test(`${key} completion offers display values and scopes`, async () => {
+		const h = harness();
+		try {
+			assert.deepEqual(await h.command.getArgumentCompletions!(`${key} `), ["native", "styled"].map(value => ({ value: `${key} ${value}`, label: `${key} ${value}` })));
+			assert.deepEqual(await h.command.getArgumentCompletions!(`${key} native p`), [{ value: `${key} native project`, label: `${key} native project` }]);
+			for (const args of [key, `${key} native`, `${key} styled global`]) assert.equal(await h.command.getArgumentCompletions!(args), null);
+		} finally { h.cleanup(); }
+	});
+}
+
+test("display setting writes refuse malformed files and preserve symlinks and permissions", async () => {
+	const h = harness(true);
+	try {
+		const path = configPath(h.ctx.cwd, "global");
+		mkdirSync(join(path, ".."), { recursive: true });
+		writeFileSync(path, "{broken");
+		await h.run("thinking native");
+		assert.equal(readFileSync(path, "utf8"), "{broken");
+		assert.equal(h.applied.length, 0);
+		rmSync(path);
+		const target = join(path, "..", "linked.json");
+		writeFileSync(target, JSON.stringify({ style: "claude" }), { mode: 0o640 });
+		symlinkSync(target, path);
+		await h.run("working native");
+		assert.equal(lstatSync(path).isSymbolicLink(), true);
+		assert.deepEqual(JSON.parse(readFileSync(target, "utf8")), { style: "claude", working: false });
+		if (process.platform !== "win32") assert.equal(statSync(target).mode & 0o777, 0o640);
+	} finally { h.cleanup(); }
+});
+
+test("display chooser offers global only when untrusted and cancels if agent becomes busy", async () => {
+	const h = harness();
+	try {
+		h.state.trusted = false;
+		h.ctx.ui.select = async (title, options) => {
+			if (title.startsWith("Save thinking")) {
+				assert.deepEqual(options, ["Global — all projects"]);
+				h.state.idle = false;
+			}
+			return options[0];
+		};
+		await h.run("thinking");
+		assert.equal(existsSync(configPath(h.ctx.cwd, "global")), false);
+		assert.equal(h.state.reloads, 0);
+		assert.match(h.notices.at(-1)!.message, /Wait/);
+		await h.run("working native");
+		assert.equal(existsSync(configPath(h.ctx.cwd, "global")), false);
+	} finally { h.cleanup(); }
+});
+
+test("display settings fall back to reload and report errors through a captured UI", async () => {
+	const h = harness();
+	try {
+		await h.run("thinking native");
+		assert.equal(loadConfig().thinking, false);
+		assert.equal(h.state.reloads, 1);
+		const ui = h.ctx.ui;
+		let stale = false;
+		Object.defineProperty(h.ctx, "ui", { get: () => {
+			if (stale) throw Error("stale context");
+			return ui;
+		} });
+		h.ctx.reload = async () => { stale = true; throw Error("unavailable"); };
+		await h.run("working native");
+		assert.equal(loadConfig().working, false);
+		assert.match(h.notices.at(-1)!.message, /Setting was saved, but reload failed: unavailable/);
 	} finally { h.cleanup(); }
 });
 
