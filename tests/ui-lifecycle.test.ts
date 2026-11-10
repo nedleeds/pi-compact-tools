@@ -11,12 +11,12 @@ import { theme } from "../node_modules/@earendil-works/pi-coding-agent/dist/mode
 import compactTools from "../extensions/compact-tools.ts";
 import { isSilent } from "../extensions/compact-tools-silent.ts";
 
-function harness(publicAPI: boolean, initial = "claude") {
+function harness(publicAPI: boolean, initial = "claude", overrides: object = {}) {
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	const directory = mkdtempSync(join(tmpdir(), "compact-ui-lifecycle-"));
 	process.env.PI_CODING_AGENT_DIR = directory;
 	const configPath = join(directory, "compact-tools.json");
-	const save = (style: string) => writeFileSync(configPath, JSON.stringify({ style, mode: "silent" }));
+	const save = (style: string, extra: object = {}) => writeFileSync(configPath, JSON.stringify({ style, mode: "silent", ...overrides, ...extra }));
 	save(initial); initTheme("dark", false);
 	const clock = install({ toFake: ["setInterval", "clearInterval"] });
 	const handlers = new Map<string, Function[]>(), commands = new Map<string, any>();
@@ -29,6 +29,8 @@ function harness(publicAPI: boolean, initial = "claude") {
 	type CleanupFault = "working" | "thinking" | "status" | "widget" | "unsubscribe";
 	let fault: CleanupFault | undefined;
 	let nativeLabelRestores = 0;
+	let hiddenLabel: string | undefined;
+	let transform: Function = (markdown: string) => markdown;
 	const failOnce = (kind: CleanupFault) => { if (fault === kind) { fault = undefined; throw Error(`host ${kind} cleanup failed`); } };
 	const api = {
 		theme,
@@ -48,7 +50,7 @@ function harness(publicAPI: boolean, initial = "claude") {
 			working = message;
 		},
 		setWorkingIndicator(value?: unknown) { indicator = value; },
-		setHiddenThinkingLabel(label?: string) { if (label === undefined) { failOnce("thinking"); nativeLabelRestores++; } },
+		setHiddenThinkingLabel(label?: string) { if (label === undefined) { failOnce("thinking"); nativeLabelRestores++; } hiddenLabel = label; },
 		setStatus() { failOnce("status"); },
 		notify(message: string, level: string) { notifications.push({ message, level }); },
 	};
@@ -60,7 +62,7 @@ function harness(publicAPI: boolean, initial = "claude") {
 	const ctx = { cwd: directory, mode: "tui", isIdle: () => false, isProjectTrusted: () => false, ui, reload: async () => { throw Error("Unexpected reload"); } };
 	compactTools({
 		on(name: string, fn: Function) { handlers.set(name, [...handlers.get(name) ?? [], fn]); },
-		registerCommand(name: string, command: unknown) { commands.set(name, command); }, registerShortcut() {}, registerMarkdownTransformer() {},
+		registerCommand(name: string, command: unknown) { commands.set(name, command); }, registerShortcut() {}, registerMarkdownTransformer(fn: Function) { transform = fn; },
 		registerToolRenderer: publicAPI ? (fn: Function) => { resolver = fn; } : undefined,
 	} as unknown as ExtensionAPI);
 	const emit = async (name: string, event: unknown) => { for (const fn of handlers.get(name) ?? []) await fn(event, ctx); };
@@ -82,6 +84,10 @@ function harness(publicAPI: boolean, initial = "claude") {
 	};
 	return { save, clock, ctx, chat, author, notifications, widgets, inputs, emit, command, addRow, detached,
 		get probeMounts() { return probeMounts; },
+		get working() { return working; },
+		get indicator() { return indicator; },
+		get hiddenLabel() { return hiddenLabel; },
+		thinking(markdown: string) { return transform(markdown, { messageType: "assistant-thinking", availableWidth: 80 }); },
 		get nativeLabelRestores() { return nativeLabelRestores; },
 		failCleanup(kind: CleanupFault) { fault = kind; },
 		async close() {
@@ -93,6 +99,44 @@ function harness(publicAPI: boolean, initial = "claude") {
 			}
 		},
 	};
+}
+
+for (const publicAPI of [false, true]) for (const thinking of [false, true]) for (const working of [false, true]) {
+	test(`independent native UI switches apply live (public=${publicAPI}, thinking=${thinking}, working=${working})`, async () => {
+		const h = harness(publicAPI, "compact", { mode: "normal", thinking, working });
+		const markdown = "**Plan**\n\nOriginal thinking details.";
+		const check = (styledThinking: boolean, styledWorking: boolean) => {
+			assert.equal(h.thinking(markdown) === markdown, !styledThinking);
+			assert.equal(h.hiddenLabel !== undefined, styledThinking);
+			assert.equal(h.indicator !== undefined, styledWorking);
+			assert.equal(h.working !== undefined, styledWorking);
+			// No thinking listener may consume the host's Ctrl+T in native mode.
+			if (!styledThinking) for (const listener of h.inputs) {
+				assert.notEqual(listener("\x14")?.consume, true);
+			}
+		};
+		try {
+			await h.emit("session_start", { reason: "startup" });
+			await h.emit("agent_start", {});
+			check(thinking, working);
+			const row = h.addRow("tool-only");
+			assert.doesNotMatch(row.render(80).join("\n"), /AUTHOR CALL/, "tool styling remains enabled");
+			h.save("compact", { thinking: !thinking, working: !working });
+			await h.command("compact");
+			check(!thinking, !working);
+			h.save("compact", { thinking, working });
+			await h.command("compact");
+			check(thinking, working);
+			await h.command("off");
+			check(false, false);
+			await h.command("compact");
+			check(thinking, working);
+			await h.emit("session_start", { reason: "reload" });
+			await h.emit("agent_start", {});
+			check(thinking, working);
+			assert.equal(h.notifications.filter(item => item.level === "warning").length, 0);
+		} finally { await h.close(); }
+	});
 }
 
 for (const publicAPI of [false, true]) for (const route of ["live-off", "startup-off", "replacement-off", "shutdown", "reload-off"]) {

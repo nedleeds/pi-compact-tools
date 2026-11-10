@@ -17,6 +17,8 @@ type JsonObject = Record<string, unknown>;
 export const DEFAULT_CONFIG: CompactToolsConfig = {
 	mode: "normal",
 	style: "compact",
+	thinking: true,
+	working: true,
 	tools: ["read", "write", "edit", "bash"],
 	previewLines: 10,
 	auto_compact: {
@@ -52,6 +54,13 @@ function parseChoice<T extends string>(value: unknown, choices: readonly T[], ke
 	if ((choices as readonly unknown[]).includes(value)) return value as T;
 	warn(path, `${key} must be one of ${choices.join(", ")}; using previous value`);
 	return undefined;
+}
+
+function parseBoolean(value: unknown, previous: boolean, key: string, path: string): boolean {
+	if (value === undefined) return previous;
+	if (typeof value === "boolean") return value;
+	warn(path, `${key} must be true or false; using previous value`);
+	return previous;
 }
 
 function parseTools(value: unknown, path: string): CompactToolName[] | undefined {
@@ -134,7 +143,9 @@ export function mergeConfig(base: CompactToolsConfig, value: unknown, path: stri
 	if (value.previewLines !== undefined && !isIntegerInRange(value.previewLines, 1, 100)) {
 		warn(path, "previewLines must be 1–100; using previous value");
 	}
-	return { mode, style, tools, auto_compact, custom_tools, previewLines };
+	const thinking = parseBoolean(value.thinking, base.thinking, "thinking", path);
+	const working = parseBoolean(value.working, base.working, "working", path);
+	return { mode, style, tools, auto_compact, custom_tools, previewLines, thinking, working };
 }
 
 function readJson(path: string): unknown {

@@ -76,7 +76,7 @@ The two failed edits are intentional. Reload/resume preserves summaries from nes
 Without a scope, changes are saved where the style is configured: project or global. A trusted project's own style overrides a global save. `/compact-tools off` immediately restores native tool rows, unmodified thinking, Pi's working indicator and keyboard behavior, with no grouping or silent hiding—even while a response or tool is running. No reload, abort, or restart occurs. Your selected theme, tool execution, and session history are not changed. Use `/compact-tools compact`, `claude`, or `codex` to enable it again, also live. Your silent-mode choice is retained for when you re-enable a style; `/silent` while off only updates that saved choice, without hiding native UI.
 
 - Click a row/group or press `Ctrl+O` to expand/collapse. On Pi 1.5+, output hints follow your configured expand key.
-- `Ctrl+T` changes the thinking display, not the model's reasoning effort.
+- `Ctrl+T` changes the thinking display, not the model's reasoning effort. With `"thinking": false`, Pi handles it natively.
 - Choose `github-dark-pro` in Pi's `/settings` for the included theme.
 
 ## Configuration
@@ -95,6 +95,23 @@ Optional: `~/.pi/agent/compact-tools.json` or `<project>/.pi/compact-tools.json`
 ```
 
 `auto_compact` entries set to `true` start Compact rows collapsed. Add tool names to `custom_tools.exclude` to keep their own rendering. All options are described in the linked schema.
+
+### Tool-only styling (fork option)
+
+Keep compact tool rows without changing Pi’s thinking display or working indicator:
+
+```json
+{
+  "style": "compact",
+  "mode": "normal",
+  "thinking": false,
+  "working": false
+}
+```
+
+Save this in `~/.pi/agent/compact-tools.json` (or the trusted project config). Run `/compact-tools compact` to apply these switches live, including during a response; `/reload` also applies them. Each switch is independent and defaults to `true` for upstream compatibility. `thinking: false` preserves the original thinking Markdown, hidden label, and native Ctrl+T behavior; it does not hide thinking or disable model reasoning. `working: false` keeps Pi’s spinner and working message. Silent mode intentionally still hides both, so use `mode: "normal"` and `/silent off` for native displays.
+
+These options are specific to [this fork](https://github.com/karlis-vagalis/pi-compact-tools). They are not supported by the upstream npm release.
 
 ## Development
 

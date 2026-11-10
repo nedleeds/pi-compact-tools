@@ -625,12 +625,13 @@ function configure(_pi: ExtensionAPI, cwd?: string, projectTrusted = false, fail
  * Apply a style saved by /compact-tools without reloading Pi. The compact, Claude, and
  * Codex styles share every tool registration and read the style as they draw, so the
  * configuration is swapped and each tool row on screen is drawn again, a running one
- * included. Only non-style configuration changes require a reload.
+ * included. Thinking and working overrides can also change live; other configuration
+ * changes require a reload.
  */
 function applyStyle(cwd: string, trusted: boolean, failures: UIFailure[]): boolean {
 	const config = loadConfig(cwd, trusted);
 	const current = runtime.config;
-	if (JSON.stringify({ ...config, style: current.style }) !== JSON.stringify(current)) return false;
+	if (JSON.stringify({ ...config, style: current.style, thinking: current.thinking, working: current.working }) !== JSON.stringify(current)) return false;
 	runtime.configure(config);
 	registeredConfiguration = JSON.stringify([cwd, config]);
 	invalidateRowDecisions(failures);
@@ -665,7 +666,7 @@ export default function compactTools(pi: ExtensionAPI): void {
 	sessionReady = false;
 	publicOwners = new WeakMap();
 	publicBases = new WeakMap();
-	const thinkingCycle = new ThinkingCycleController(pi, () => runtime.config.style !== "off");
+	const thinkingCycle = new ThinkingCycleController(pi, () => runtime.config.style !== "off" && runtime.config.thinking);
 	const progress = new ProgressController(pi);
 	const viewport = new ViewportKeeper();
 	const silent = new SilentModeController(pi, showReleaseNotice);
@@ -700,8 +701,8 @@ export default function compactTools(pi: ExtensionAPI): void {
 	const enableUI = (ctx: ExtensionContext, reload: boolean, resume: boolean, failures: UIFailure[]) => {
 		// Observe relayout keys before the thinking controller consumes them.
 		attemptUI(failures, "viewport bind", () => viewport.bind(ctx));
-		attemptUI(failures, "progress bind", () => progress.bind(ctx, resume));
-		attemptUI(failures, "thinking bind", () => thinkingCycle.bind(ctx));
+		if (runtime.config.working) attemptUI(failures, "progress bind", () => progress.bind(ctx, resume));
+		if (runtime.config.thinking) attemptUI(failures, "thinking bind", () => thinkingCycle.bind(ctx));
 		attemptUI(failures, "silent bind", () => silent.bind(ctx, runtime.config.mode, reload, resume));
 		attemptUI(failures, "groups bind", () => groups.bind(ctx));
 		transcript.bind(ctx, failures);
@@ -720,11 +721,23 @@ export default function compactTools(pi: ExtensionAPI): void {
 	registerCompactToolsCommand(pi, () => runtime.config, (cwd, trusted, ctx) => {
 		const failures: UIFailure[] = [];
 		const wasOff = runtime.config.style === "off";
+		const wasThinking = runtime.config.thinking;
+		const wasWorking = runtime.config.working;
 		if (!applyStyle(cwd, trusted, failures)) return false;
 		const uiContext = sessionContext ?? ctx;
 		if (uiContext.mode === "tui") {
 			if (runtime.config.style === "off") detachUI({ preservePhase: true, restoreNative: true }, failures);
 			else if (wasOff) enableUI(uiContext, true, true, failures);
+			else {
+				if (runtime.config.thinking !== wasThinking) {
+					if (runtime.config.thinking) attemptUI(failures, "thinking bind", () => thinkingCycle.bind(uiContext));
+					else attemptUI(failures, "thinking cleanup", () => thinkingCycle.dispose(true));
+				}
+				if (runtime.config.working !== wasWorking) {
+					if (runtime.config.working) attemptUI(failures, "progress bind", () => progress.bind(uiContext, true));
+					else attemptUI(failures, "progress cleanup", () => progress.dispose(true));
+				}
+			}
 			// Off->off has no attached thinking context to restore the native label.
 			if (wasOff && runtime.config.style === "off") attemptUI(failures, "native thinking", () => uiContext.ui.setHiddenThinkingLabel());
 		}
