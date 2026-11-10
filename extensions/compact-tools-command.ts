@@ -1,22 +1,13 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI, type ExtensionContext, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DISPLAY_STYLES, type CompactToolsConfig, type DisplayStyle } from "./compact-tools-types.ts";
 import { loadConfig } from "./compact-tools-config.ts";
-import { chooseToolDisplay } from "./compact-tools-chooser.ts";
 
 type Scope = "global" | "project";
-type DisplaySetting = "thinking" | "working";
-const DISPLAY_SETTINGS = ["thinking", "working"] as const;
-const DISPLAY_VALUES = ["native", "styled"] as const;
-const SETTING_CHOICES: Record<DisplaySetting, string> = {
-	thinking: "Thinking display — native or styled",
-	working: "Working indicator — native or styled",
-};
 const SCOPES: readonly Scope[] = ["global", "project"];
 const HELP = "Usage: /compact-tools [compact|claude|codex|off] [global|project]\nWithout a scope the style is saved globally, or to this project when its settings choose the style.\n/compact-tools status · /compact-tools help\nCtrl+O expands rows; /silent toggles quiet mode. All styles, including off, switch at once, even while tools run.";
-const DISPLAY_HELP = "Usage: /compact-tools thinking|working [native|styled] [global|project]\nNative preserves Pi's display; styled enables the extension's override. Silent mode still hides these displays.\nWithout a scope, saves where that setting is configured. Changes apply live; the tool style stays unchanged.";
 const BUSY = "Wait for the current response to finish before changing tool styles.";
 const CHOICES: Record<DisplayStyle, string> = {
 	compact: "Compact — one expandable row per tool call",
@@ -32,10 +23,6 @@ export function configPath(cwd: string, scope: Scope): string {
 
 /** Preserve unrelated and future settings. Never overwrite a malformed file. */
 export function saveStyle(path: string, style: DisplayStyle): void {
-	saveSettings(path, { style });
-}
-
-function saveSettings(path: string, settings: Partial<Pick<CompactToolsConfig, "style" | DisplaySetting>>): void {
 	let linked = false;
 	try {
 		linked = lstatSync(path).isSymbolicLink();
@@ -61,7 +48,7 @@ function saveSettings(path: string, settings: Partial<Pick<CompactToolsConfig, "
 	// Beside the target so the rename stays atomic, and short so a long target name still fits.
 	const temporary = join(dirname(path), `.compact-tools-${randomUUID()}.tmp`);
 	try {
-		writeFileSync(temporary, `${JSON.stringify({ ...data, ...settings }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+		writeFileSync(temporary, `${JSON.stringify({ ...data, style }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
 		// The creation mode passes through the umask; set the original mode exactly.
 		chmodSync(temporary, mode);
 		renameSync(temporary, path);
@@ -71,11 +58,11 @@ function saveSettings(path: string, settings: Partial<Pick<CompactToolsConfig, "
 }
 
 /** Whether a trusted project's own settings choose the style, which then outranks the global one. */
-function projectSetsStyle(cwd: string, trusted: boolean, key: "style" | DisplaySetting = "style"): boolean {
+function projectSetsStyle(cwd: string, trusted: boolean): boolean {
 	if (!trusted) return false;
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(configPath(cwd, "project"), "utf8"));
-		return !!parsed && typeof parsed === "object" && !Array.isArray(parsed) && key in parsed;
+		return !!parsed && typeof parsed === "object" && !Array.isArray(parsed) && "style" in parsed;
 	} catch {
 		return false;
 	}
@@ -96,85 +83,14 @@ function errorMessage(error: unknown): string {
  */
 export type ApplyStyle = (cwd: string, trusted: boolean, ctx: ExtensionContext) => boolean;
 
-async function changeDisplaySetting(
-	key: DisplaySetting,
-	parts: string[],
-	ctx: ExtensionCommandContext,
-	getConfig: () => CompactToolsConfig,
-	applyStyle?: ApplyStyle,
-): Promise<void> {
-	if (parts.length > 2 || (parts[0] !== undefined && !DISPLAY_VALUES.includes(parts[0] as typeof DISPLAY_VALUES[number]))
-		|| (parts[1] !== undefined && !SCOPES.includes(parts[1] as Scope))) {
-		ctx.ui.notify(DISPLAY_HELP, "warning");
-		return;
-	}
-	if (!applyStyle && !ctx.isIdle()) {
-		ctx.ui.notify(BUSY, "warning");
-		return;
-	}
-	let value = parts[0];
-	let scope = parts[1] as Scope | undefined;
-	const projectDecides = projectSetsStyle(ctx.cwd, ctx.isProjectTrusted(), key);
-	if (value === undefined) {
-		if (ctx.mode !== "tui") { ctx.ui.notify(DISPLAY_HELP, "info"); return; }
-		const selected = await ctx.ui.select(`${key === "thinking" ? "Thinking display" : "Working indicator"} (current: ${getConfig()[key] ? "styled" : "native"})`, [
-			"Native — preserve Pi's display", "Styled — use compact-tools display",
-		]);
-		if (selected === undefined) return;
-		value = selected.startsWith("Native") ? "native" : "styled";
-		const scopes = projectDecides
-			? ["Project — this trusted project only", "Global — all projects (this project keeps its own setting)"]
-			: ["Global — all projects", ...(ctx.isProjectTrusted() ? ["Project — this trusted project only"] : [])];
-		const selectedScope = await ctx.ui.select(`Save ${key} where?`, scopes);
-		if (selectedScope === undefined) return;
-		scope = selectedScope.startsWith("Project") ? "project" : "global";
-	}
-	scope ??= projectDecides ? "project" : "global";
-	if (scope === "project" && !ctx.isProjectTrusted()) {
-		ctx.ui.notify("Project settings require a trusted project. No file was changed.", "warning");
-		return;
-	}
-	if (!applyStyle && !ctx.isIdle()) { ctx.ui.notify(BUSY, "warning"); return; }
-	try {
-		saveSettings(configPath(ctx.cwd, scope), { [key]: value === "styled" });
-	} catch (error) {
-		ctx.ui.notify(`Could not save ${key}: ${errorMessage(error)}. No settings were replaced.`, "error");
-		return;
-	}
-	const effective = loadConfig(ctx.cwd, ctx.isProjectTrusted());
-	const where = scope === "project" ? "this project" : "global settings";
-	if (scope === "global" && effective[key] !== (value === "styled")) {
-		ctx.ui.notify(`Saved ${key} ${value} to global settings, but this project keeps its own ${key} setting. Run /compact-tools ${key} ${value} to switch it here.`, "warning");
-		return;
-	}
-	if (applyStyle?.(ctx.cwd, ctx.isProjectTrusted(), ctx)) {
-		ctx.ui.notify(`Switched ${key} to ${value} (saved to ${where}).`, "info");
-		return;
-	}
-	if (!ctx.isIdle()) {
-		ctx.ui.notify(`Saved ${key} ${value} to ${where}. Run /reload once the response finishes.`, "warning");
-		return;
-	}
-	ctx.ui.notify(`Switching ${key} to ${value} (saved to ${where}). Reloading…`, "info");
-	const ui = ctx.ui;
-	try { await ctx.reload(); }
-	catch (error) { ui.notify(`Setting was saved, but reload failed: ${errorMessage(error)}. Run /reload to apply it.`, "error"); }
-}
-
 export function registerCompactToolsCommand(pi: ExtensionAPI, getConfig: () => CompactToolsConfig, applyStyle?: ApplyStyle): void {
 	pi.registerCommand("compact-tools", {
-		description: "Choose tool rows, native/styled thinking and working displays, or show settings",
+		description: "Choose compact/Claude/Codex/default tool rows, or show settings and controls",
 		getArgumentCompletions: (prefix) => {
 			const typed = prefix.trimStart().toLowerCase();
 			const parts = typed.split(/\s+/);
 			const scoped = parts.length === 2 && DISPLAY_STYLES.includes(parts[0] as DisplayStyle);
-			const setting = DISPLAY_SETTINGS.find((key) => key === parts[0]);
-			const settingValues = setting && parts.length === 2
-				? DISPLAY_VALUES.map((value) => `${setting} ${value}`)
-				: setting && parts.length === 3 && DISPLAY_VALUES.includes(parts[1] as typeof DISPLAY_VALUES[number])
-					? SCOPES.map((scope) => `${setting} ${parts[1]} ${scope}`)
-					: undefined;
-			const values = settingValues ?? (scoped ? SCOPES.map((scope) => `${parts[0]} ${scope}`) : [...DISPLAY_STYLES, ...DISPLAY_SETTINGS, "status", "help"]);
+			const values = scoped ? SCOPES.map((scope) => `${parts[0]} ${scope}`) : [...DISPLAY_STYLES, "status", "help"];
 			// Pi applies a shown completion on Enter instead of running the command, so a value already
 			// typed in full is not offered again: Enter then runs it the first time.
 			const items = values.filter((value) => value.startsWith(typed) && value !== typed.trimEnd()).map((value) => ({ value, label: value }));
@@ -183,23 +99,18 @@ export function registerCompactToolsCommand(pi: ExtensionAPI, getConfig: () => C
 		handler: async (args, ctx) => {
 			const parts = args.trim() ? args.trim().toLowerCase().split(/\s+/) : [];
 			if (parts.length === 1 && parts[0] === "help") {
-				ctx.ui.notify(`${HELP}\n${DISPLAY_HELP}`, "info");
+				ctx.ui.notify(HELP, "info");
 				return;
 			}
 			if (parts.length === 1 && parts[0] === "status") {
 				const config = getConfig();
 				ctx.ui.notify([
 					`Style: ${config.style} · configured mode: ${config.mode} · preview: ${config.previewLines} lines`,
-					`Thinking display: ${config.thinking ? "styled" : "native"} · working indicator: ${config.working ? "styled" : "native"}`,
+					`Thinking styling: ${config.thinking} · working override: ${config.working}`,
 					`Global: ${describePath(configPath(ctx.cwd, "global"))}`,
 					`Project: ${describePath(configPath(ctx.cwd, "project"))} (${ctx.isProjectTrusted() ? "trusted; overrides global" : "untrusted; ignored"})`,
 					"/silent is a session toggle; Ctrl+O expands rows.",
 				].join("\n"), "info");
-				return;
-			}
-			const setting = DISPLAY_SETTINGS.find((key) => key === parts[0]);
-			if (setting) {
-				await changeDisplaySetting(setting, parts.slice(1), ctx, getConfig, applyStyle);
 				return;
 			}
 			if (parts.length > 2 || (parts.length > 0 && !DISPLAY_STYLES.includes(parts[0] as DisplayStyle))
@@ -222,12 +133,7 @@ export function registerCompactToolsCommand(pi: ExtensionAPI, getConfig: () => C
 					ctx.ui.notify(HELP, "info");
 					return;
 				}
-				const selected = await chooseToolDisplay(ctx, `Tool style and displays (current: ${getConfig().style})`, Object.values(CHOICES), Object.values(SETTING_CHOICES));
-				const selectedSetting = DISPLAY_SETTINGS.find((key) => SETTING_CHOICES[key] === selected);
-				if (selectedSetting) {
-					await changeDisplaySetting(selectedSetting, [], ctx, getConfig, applyStyle);
-					return;
-				}
+				const selected = await ctx.ui.select(`Tool style (current: ${getConfig().style})`, Object.values(CHOICES));
 				style = DISPLAY_STYLES.find((value) => CHOICES[value] === selected);
 				if (!style) return;
 				// A project that sets its own style outranks a global save, so it is offered first and the global

@@ -66,13 +66,9 @@ The two failed edits are intentional. Reload/resume preserves summaries from nes
 ## Commands and controls
 
 ```text
-/compact-tools                 # choose tool style or Native/Styled displays, then save scope
+/compact-tools                 # choose style and save scope
 /compact-tools claude project  # save for this trusted project
 /compact-tools codex global    # save globally
-/compact-tools thinking native # preserve Pi's thinking display and Ctrl+T
-/compact-tools working native  # preserve Pi's spinner and working message
-/compact-tools thinking styled project # enable styled thinking for this project
-/compact-tools working         # choose Native/Styled and save scope
 /compact-tools status          # effective settings and paths
 /compact-tools off             # restore Pi's native UI live, even while streaming
 ```
@@ -102,16 +98,7 @@ Optional: `~/.pi/agent/compact-tools.json` or `<project>/.pi/compact-tools.json`
 
 ### Tool-only styling
 
-Choose **Thinking display** or **Working indicator** in `/compact-tools`, then select **Native** or **Styled** and a save scope. Or use commands directly:
-
-```text
-/compact-tools thinking native
-/compact-tools working native
-```
-
-Use `styled` to restore an override. Either command accepts an optional `global` or `project` scope; without one, it saves where that particular setting is configured (independently of the tool style). Trusted project settings override global settings. Both switches apply live, even during a response, and leave the selected tool style unchanged.
-
-Equivalent configuration to keep compact tool rows without changing Pi’s thinking display or working indicator:
+Keep compact tool rows without changing Pi’s thinking display or working indicator:
 
 ```json
 {
@@ -122,7 +109,7 @@ Equivalent configuration to keep compact tool rows without changing Pi’s think
 }
 ```
 
-Save this in `~/.pi/agent/compact-tools.json` (or the trusted project config). If editing the file manually, run `/compact-tools compact` to apply the switches live; `/reload` also applies them. Each switch is independent and defaults to `true` for upstream compatibility. `thinking: false` preserves the original thinking Markdown, hidden label, and native Ctrl+T behavior; it does not hide thinking or disable model reasoning. `working: false` keeps Pi’s spinner and working message. Silent mode intentionally still hides both, so use `mode: "normal"` and `/silent off` for native displays.
+Save this in `~/.pi/agent/compact-tools.json` (or the trusted project config). Run `/compact-tools compact` to apply these switches live, including during a response; `/reload` also applies them. Each switch is independent and defaults to `true` for upstream compatibility. `thinking: false` preserves the original thinking Markdown, hidden label, and native Ctrl+T behavior; it does not hide thinking or disable model reasoning. `working: false` keeps Pi’s spinner and working message. Silent mode intentionally still hides both, so use `mode: "normal"` and `/silent off` for native displays.
 
 ## Development
 
