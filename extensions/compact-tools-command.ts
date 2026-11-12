@@ -106,6 +106,7 @@ export function registerCompactToolsCommand(pi: ExtensionAPI, getConfig: () => C
 				const config = getConfig();
 				ctx.ui.notify([
 					`Style: ${config.style} · configured mode: ${config.mode} · preview: ${config.previewLines} lines`,
+					`Thinking styling: ${config.thinking} · working override: ${config.working}`,
 					`Global: ${describePath(configPath(ctx.cwd, "global"))}`,
 					`Project: ${describePath(configPath(ctx.cwd, "project"))} (${ctx.isProjectTrusted() ? "trusted; overrides global" : "untrusted; ignored"})`,
 					"/silent is a session toggle; Ctrl+O expands rows.",

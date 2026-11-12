@@ -20,6 +20,16 @@
       "enum": ["normal", "silent"],
       "default": "normal"
     },
+    "thinking": {
+      "description": "Restyle thinking messages and cycle their display with Ctrl+T. False preserves Pi\u0027s native thinking rendering and keyboard behavior. Silent mode still hides thinking.",
+      "type": "boolean",
+      "default": true
+    },
+    "working": {
+      "description": "Replace Pi\u0027s working indicator with the glowing phase label. False preserves the native spinner and working message. Silent mode does not hide the working indicator.",
+      "type": "boolean",
+      "default": true
+    },
     "tools": {
       "description": "Built-in tools that use compact rendering. Omitted tools keep Pi's default renderer.",
       "type": "array",

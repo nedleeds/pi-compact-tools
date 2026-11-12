@@ -29,6 +29,10 @@ export interface CompactToolsConfig {
 	auto_compact: Record<CompactToolName, boolean> & { [tool: string]: boolean | undefined };
 	custom_tools: CustomToolsConfig;
 	previewLines: number;
+	/** Restyle thinking and intercept Ctrl+T; false preserves Pi's native display. */
+	thinking: boolean;
+	/** Replace Pi's working indicator with the extension's glowing phase label. */
+	working: boolean;
 }
 
 export interface RowState {
