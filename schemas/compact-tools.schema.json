@@ -26,7 +26,7 @@
       "default": true
     },
     "working": {
-      "description": "Replace Pi\u0027s working indicator with the glowing phase label. False preserves the native spinner and working message in normal mode; silent mode still hides them.",
+      "description": "Replace Pi\u0027s working indicator with the glowing phase label. False preserves the native spinner and working message. Silent mode does not hide the working indicator.",
       "type": "boolean",
       "default": true
     },

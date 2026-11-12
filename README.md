@@ -109,7 +109,7 @@ Keep compact tool rows without changing Pi’s thinking display or working indic
 }
 ```
 
-Save this in `~/.pi/agent/compact-tools.json` (or the trusted project config). Run `/compact-tools compact` to apply these switches live, including during a response; `/reload` also applies them. Each switch is independent and defaults to `true` for upstream compatibility. `thinking: false` preserves the original thinking Markdown, hidden label, and native Ctrl+T behavior; it does not hide thinking or disable model reasoning. `working: false` keeps Pi’s spinner and working message. Silent mode intentionally still hides both, so use `mode: "normal"` and `/silent off` for native displays.
+Save this in `~/.pi/agent/compact-tools.json` (or the trusted project config). Run `/compact-tools compact` to apply these switches live, including during a response; `/reload` also applies them. Each switch is independent and defaults to `true` for upstream compatibility. `thinking: false` preserves the original thinking Markdown, hidden label, and native Ctrl+T behavior; it does not hide thinking or disable model reasoning. `working: false` keeps Pi’s spinner and working message. Silent mode still hides thinking, but leaves the working indicator visible. Use `mode: "normal"` and `/silent off` to keep thinking visible too.
 
 ## Development
 
