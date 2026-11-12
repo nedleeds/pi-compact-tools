@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.0]
+
+### New
+
+- Add independent thinking and working configuration switches so Compact, Claude, and Codex tool rows can be used with Pi's native thinking display, Ctrl+T behavior, spinner, and working message.
+- Apply these switches live through existing /compact-tools style commands, including during a response; both default to true to preserve existing behavior.
+
+### Fix
+
+- Clarify that silent mode hides thinking but leaves the working indicator visible.
+
 ## [0.17.0]
 
 ### New
